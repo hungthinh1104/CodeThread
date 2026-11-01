@@ -5,6 +5,32 @@ import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 const repositoryId = '00000000-0000-4000-8000-000000000001';
 
 describe('CT-INDEX-001A immutable manifest boundary', () => {
+  it('reports a real heap exhaustion when the caller requests a lower ceiling', async () => {
+    const bytes = new TextEncoder().encode(
+      Array.from(
+        { length: 1000 },
+        (_, i) => `export function f${i}() {}\n`,
+      ).join(''),
+    );
+    let failure: unknown;
+    try {
+      await analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        heapLimitMiB: 16,
+        files: [
+          {
+            path: 'source.ts',
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          },
+        ],
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: 'RESOURCE_LIMIT' });
+  }, 15000);
   it('returns an explicit timeout when a caller lowers the analysis deadline', async () => {
     const bytes = new TextEncoder().encode('export function f() {}');
     await expect(

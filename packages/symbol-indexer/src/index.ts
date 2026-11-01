@@ -11,6 +11,7 @@ import type {
   VerifiedSourceReader,
 } from '@codethread/code-model';
 import type { PreparedFile, WorkerInput, WorkerOutput } from './protocol.js';
+import { verifyFacts } from './verify.js';
 
 export const COMPILER_PROFILE = Object.freeze({
   profile: 'ct-index-001a-esm-v1',
@@ -30,6 +31,8 @@ export interface AnalysisInput {
   files: readonly { path: string; bytes: Uint8Array; sha256: string }[];
   /** May lower the ten-second maximum; it never changes semantic identity. */
   deadlineMs?: number;
+  /** May lower the 512 MiB V8 heap ceiling. */
+  heapLimitMiB?: number;
 }
 export interface AnalysisSnapshot {
   facts: AnalysisFacts;
@@ -65,6 +68,7 @@ function freeze(value: unknown): void {
 function runWorker(
   input: WorkerInput,
   remaining: number,
+  heapLimitMiB: number,
 ): Promise<WorkerOutput> {
   return new Promise((resolve, reject) => {
     if (remaining <= 0) {
@@ -77,11 +81,13 @@ function runWorker(
     delete env['NODE_OPTIONS'];
     delete env['NODE_PATH'];
     delete env['NODE_V8_COVERAGE'];
+    const semiSpace = heapLimitMiB >= 64 ? 8 : 1;
+    const oldSpace = heapLimitMiB - 3 * semiSpace;
     const child = spawn(
       process.execPath,
       [
-        '--max-old-space-size=480',
-        '--max-semi-space-size=8',
+        `--max-old-space-size=${oldSpace}`,
+        `--max-semi-space-size=${semiSpace}`,
         fileURLToPath(new URL('./worker.js', import.meta.url)),
       ],
       { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
@@ -173,6 +179,16 @@ export async function analyzeManifest(
   const deadlineMs = input.deadlineMs ?? 10000;
   if (!Number.isInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 10000)
     throw new AnalysisError('INVALID_MANIFEST', 'Invalid analysis deadline');
+  const heapLimitMiB = input.heapLimitMiB ?? 512;
+  if (
+    !Number.isInteger(heapLimitMiB) ||
+    heapLimitMiB < 16 ||
+    heapLimitMiB > 512
+  )
+    throw new AnalysisError(
+      'INVALID_MANIFEST',
+      'Invalid analysis heap ceiling',
+    );
   const options = input.compilerOptions as unknown as Record<string, unknown>;
   const expected = COMPILER_PROFILE as unknown as Record<string, unknown>;
   if (
@@ -268,6 +284,7 @@ export async function analyzeManifest(
   const sha = (value: string) =>
     createHash('sha256').update(value).digest('hex');
   const workerInput: WorkerInput = {
+    heapLimitBytes: heapLimitMiB * 1024 * 1024,
     repositoryId: idSchema.parse(input.repositoryId),
     sourceFingerprint: sha(
       JSON.stringify({
@@ -285,6 +302,7 @@ export async function analyzeManifest(
   const output = await runWorker(
     workerInput,
     deadlineMs - (Date.now() - started),
+    heapLimitMiB,
   );
   if (!output || typeof output !== 'object' || typeof output.ok !== 'boolean')
     throw new AnalysisError(
@@ -294,6 +312,16 @@ export async function analyzeManifest(
   if (!output.ok)
     throw new AnalysisError(output.code as AnalysisErrorCode, output.message);
   const facts = output.facts;
+  try {
+    verifyFacts(facts, workerInput, sources);
+  } catch {
+    throw new AnalysisError(
+      'ANALYSIS_FAILED',
+      'Analysis facts failed source or identity verification',
+    );
+  }
+  if (Date.now() - started > deadlineMs)
+    throw new AnalysisError('ANALYSIS_TIMEOUT', 'Analysis deadline exceeded');
   freeze(facts);
   const byId = new Map(
     facts.evidenceRefs.map((evidence) => [evidence.id, evidence]),

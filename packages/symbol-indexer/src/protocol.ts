@@ -7,6 +7,7 @@ export interface PreparedFile {
   base64: string;
 }
 export interface WorkerInput {
+  heapLimitBytes: number;
   repositoryId: string;
   sourceFingerprint: string;
   configurationHash: string;

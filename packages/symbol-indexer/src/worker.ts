@@ -6,6 +6,8 @@ import { getHeapStatistics } from 'node:v8';
 import ts from 'typescript';
 import type { AnalysisFacts } from '@codethread/code-model';
 import type { WorkerInput, WorkerOutput } from './protocol.js';
+import { hash, identity } from './identity.js';
+import { extractFacts } from './extract.js';
 
 const sourceRoot = '/__codethread__/source/';
 const libraryRoot = '/__codethread__/lib/';
@@ -20,19 +22,6 @@ const options: ts.CompilerOptions = {
   types: [],
   lib: ['lib.es2023.d.ts'],
 };
-function hash(value: string | Uint8Array): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-function identity(kind: string, value: unknown): string {
-  const bytes = createHash('sha256')
-    .update(JSON.stringify([kind, value]))
-    .digest()
-    .subarray(0, 16);
-  bytes[6] = (bytes[6]! & 15) | 128;
-  bytes[8] = (bytes[8]! & 63) | 128;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
 function libraries(): { files: Map<string, string>; buildHash: string } {
   if (ts.version !== '6.0.3') throw new Error('Incorrect TypeScript version');
   const directory = realpathSync(dirname(ts.getDefaultLibFilePath(options)));
@@ -82,7 +71,10 @@ function libraries(): { files: Map<string, string>; buildHash: string } {
 }
 
 function analyze(input: WorkerInput): WorkerOutput {
-  if (getHeapStatistics().heap_size_limit > 512 * 1024 * 1024)
+  if (
+    getHeapStatistics().heap_size_limit > input.heapLimitBytes ||
+    input.heapLimitBytes > 512 * 1024 * 1024
+  )
     return {
       ok: false,
       code: 'RESOURCE_LIMIT',
@@ -219,7 +211,7 @@ function analyze(input: WorkerInput): WorkerOutput {
       notAnalyzedInputs: input.files.length,
     },
   };
-  return { ok: true, facts };
+  return extractFacts(program, facts, sourceRoot);
 }
 
 let request = '';
