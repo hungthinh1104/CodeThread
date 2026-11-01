@@ -1,0 +1,585 @@
+{
+  "authorship": "Codex, 2026-11-02; source annotations prepared before analyzer predictions",
+  "review": "not independently reviewed",
+  "repository": "https://github.com/vunb/ts-node-todo",
+  "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+  "files": {
+    "routes/index.ts": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+    "routes/todo.router.ts": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442"
+  },
+  "declarations": [
+    {
+      "name": "routes",
+      "file": "routes/index.ts",
+      "start": [9, 1],
+      "end": [63, 2]
+    },
+    {
+      "name": "todoRouter",
+      "file": "routes/todo.router.ts",
+      "start": [4, 1],
+      "end": [17, 2]
+    }
+  ],
+  "calls": [
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 14,
+      "column": 3,
+      "end": [14, 24],
+      "text": "app.use(initialize())",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 14,
+      "column": 11,
+      "end": [14, 23],
+      "text": "initialize()",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unresolved",
+      "eligible": true,
+      "reason": "relative module excluded"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 16,
+      "column": 3,
+      "end": [33, 5],
+      "text": "app.use((req, res, next) => {\n    if (req.path.includes('login')) {\n      return next();\n    }\n\n    return authenticate((err, user: User, info: any) => {\n      if (err) { return next(err); }\n      if (!user) {\n          if (info.name === 'TokenExpiredError') {\n              return res.status(401).json({ message: 'Your token has expired. Please generate a new one' });\n          } else {\n              return res.status(401).json({ message: info.message });\n          }\n      }\n      app.set('user', user);\n      return next();\n    })(req, res, next);\n  })",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 17,
+      "column": 9,
+      "end": [17, 35],
+      "text": "req.path.includes('login')",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 18,
+      "column": 14,
+      "end": [18, 20],
+      "text": "next()",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 21,
+      "column": 12,
+      "end": [32, 23],
+      "text": "authenticate((err, user: User, info: any) => {\n      if (err) { return next(err); }\n      if (!user) {\n          if (info.name === 'TokenExpiredError') {\n              return res.status(401).json({ message: 'Your token has expired. Please generate a new one' });\n          } else {\n              return res.status(401).json({ message: info.message });\n          }\n      }\n      app.set('user', user);\n      return next();\n    })(req, res, next)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 21,
+      "column": 12,
+      "end": [32, 7],
+      "text": "authenticate((err, user: User, info: any) => {\n      if (err) { return next(err); }\n      if (!user) {\n          if (info.name === 'TokenExpiredError') {\n              return res.status(401).json({ message: 'Your token has expired. Please generate a new one' });\n          } else {\n              return res.status(401).json({ message: info.message });\n          }\n      }\n      app.set('user', user);\n      return next();\n    })",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 22,
+      "column": 25,
+      "end": [22, 34],
+      "text": "next(err)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 25,
+      "column": 22,
+      "end": [25, 108],
+      "text": "res.status(401).json({ message: 'Your token has expired. Please generate a new one' })",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 25,
+      "column": 22,
+      "end": [25, 37],
+      "text": "res.status(401)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 27,
+      "column": 22,
+      "end": [27, 69],
+      "text": "res.status(401).json({ message: info.message })",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 27,
+      "column": 22,
+      "end": [27, 37],
+      "text": "res.status(401)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 30,
+      "column": 7,
+      "end": [30, 28],
+      "text": "app.set('user', user)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 31,
+      "column": 14,
+      "end": [31, 20],
+      "text": "next()",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 35,
+      "column": 3,
+      "end": [35, 45],
+      "text": "app.get('/', (req, res) => res.send('Ok'))",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 35,
+      "column": 30,
+      "end": [35, 44],
+      "text": "res.send('Ok')",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 40,
+      "column": 3,
+      "end": [40, 33],
+      "text": "app.use('/auth', authRouter())",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 40,
+      "column": 20,
+      "end": [40, 32],
+      "text": "authRouter()",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unresolved",
+      "eligible": true,
+      "reason": "relative module excluded"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 41,
+      "column": 3,
+      "end": [41, 33],
+      "text": "app.use('/user', userRouter())",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 41,
+      "column": 20,
+      "end": [41, 32],
+      "text": "userRouter()",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unresolved",
+      "eligible": true,
+      "reason": "relative module excluded"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 42,
+      "column": 3,
+      "end": [42, 33],
+      "text": "app.use('/todo', todoRouter())",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 42,
+      "column": 20,
+      "end": [42, 32],
+      "text": "todoRouter()",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "exact",
+      "eligible": true,
+      "reason": "relative named import",
+      "target": {
+        "file": "routes/todo.router.ts",
+        "start": [4, 1],
+        "end": [17, 2]
+      }
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 45,
+      "column": 3,
+      "end": [50, 5],
+      "text": "app.use((req, res, next) => {\n    res.status(404).json({\n      error: 'Data not found'\n    });\n    next();\n  })",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 46,
+      "column": 5,
+      "end": [48, 7],
+      "text": "res.status(404).json({\n      error: 'Data not found'\n    })",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 46,
+      "column": 5,
+      "end": [46, 20],
+      "text": "res.status(404)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 49,
+      "column": 5,
+      "end": [49, 11],
+      "text": "next()",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 53,
+      "column": 3,
+      "end": [62, 5],
+      "text": "app.use((error: any, req: Request, res: Response, next: NextFunction) => {\n    logger.error('We got an error! -> ', error);\n\n    if (process.env.NODE_ENV === 'production') {\n        return res.status(500).json({\n          error: 'Unexpected error: ' + error\n        });\n    }\n    next(error);\n  })",
+      "owner": {
+        "file": "routes/index.ts",
+        "start": [9, 1],
+        "end": [63, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 54,
+      "column": 5,
+      "end": [54, 48],
+      "text": "logger.error('We got an error! -> ', error)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 57,
+      "column": 16,
+      "end": [59, 11],
+      "text": "res.status(500).json({\n          error: 'Unexpected error: ' + error\n        })",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 57,
+      "column": 16,
+      "end": [57, 31],
+      "text": "res.status(500)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+      "file": "routes/index.ts",
+      "line": 61,
+      "column": 5,
+      "end": [61, 16],
+      "text": "next(error)",
+      "owner": null,
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "arrow-function owner"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+      "file": "routes/todo.router.ts",
+      "line": 5,
+      "column": 18,
+      "end": [5, 26],
+      "text": "Router()",
+      "owner": {
+        "file": "routes/todo.router.ts",
+        "start": [4, 1],
+        "end": [17, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "external module"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+      "file": "routes/todo.router.ts",
+      "line": 8,
+      "column": 3,
+      "end": [8, 35],
+      "text": "router.get('/', toDoCtrl.getAll)",
+      "owner": {
+        "file": "routes/todo.router.ts",
+        "start": [4, 1],
+        "end": [17, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+      "file": "routes/todo.router.ts",
+      "line": 11,
+      "column": 3,
+      "end": [11, 38],
+      "text": "router.get('/:id', toDoCtrl.getOne)",
+      "owner": {
+        "file": "routes/todo.router.ts",
+        "start": [4, 1],
+        "end": [17, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    },
+    {
+      "repository": "https://github.com/vunb/ts-node-todo",
+      "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+      "sourceSha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+      "file": "routes/todo.router.ts",
+      "line": 14,
+      "column": 3,
+      "end": [14, 36],
+      "text": "router.post('/', toDoCtrl.create)",
+      "owner": {
+        "file": "routes/todo.router.ts",
+        "start": [4, 1],
+        "end": [17, 2]
+      },
+      "status": "unsupported",
+      "eligible": false,
+      "reason": "property call"
+    }
+  ]
+}
