@@ -871,6 +871,13 @@ parsers and retain only closed units with required evidence and diagnostics.
 Evidence batches return exact verified excerpts or typed unavailability;
 excerpts over 65,536 UTF-16 units are explicitly unavailable.
 
+For path queries, the node limit counts explored nodes, including the selected
+roots, even if some explored nodes are absent from the returned path graph. A
+source-ordered dead end can therefore consume the budget before a valid path is
+reached. The result reports `result_limit` truncation; an empty truncated result
+does not establish that no path exists. Improving path prioritization is
+deferred.
+
 The source-pinned corpus is manually annotated independently of analyzer output.
 Its labels are authored, not independently reviewed. `eval:semantic` reports all
 predicted and expected occurrence counts, evidence mismatches, precision, recall
@@ -879,3 +886,8 @@ are reported separately; empty denominators are unavailable. Repeated manifest
 orderings must produce identical canonical facts. Passing the declared sample
 does not establish arbitrary-repository accuracy, runtime behavior or
 comprehension improvement. CT-INDEX-001 remains broader than this slice.
+
+Each gold call's owner and exact target refer to a manually authored declaration
+record by source file and full start/end position. Evaluation verifies those
+anchors, source identity and relation ownership; equal display names or
+analyzer-generated UUIDs do not establish a match.

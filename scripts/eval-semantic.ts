@@ -4,8 +4,9 @@ import { pathToFileURL } from 'node:url';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import type { AnalysisInput } from '@codethread/symbol-indexer';
+import type { CodeSymbol, SourceRange } from '@codethread/code-model';
 import { loadSemanticCorpus } from './semantic-corpus.ts';
-import type { SemanticGold } from './semantic-corpus.ts';
+import type { GoldAnchor, SemanticGold } from './semantic-corpus.ts';
 
 const rate = (numerator: number, denominator: number) => ({
   numerator,
@@ -14,6 +15,21 @@ const rate = (numerator: number, denominator: number) => ({
 });
 const location = (path: string, line: number, column: number) =>
   JSON.stringify([path, line, column]);
+const anchorKey = (anchor: GoldAnchor) =>
+  JSON.stringify([anchor.file, anchor.start, anchor.end]);
+const anchorLabel = (anchor: GoldAnchor) =>
+  `${anchor.file}:${anchor.start[0]}:${anchor.start[1]}-${anchor.end[0]}:${anchor.end[1]}`;
+const symbolAnchor = (symbol: CodeSymbol): GoldAnchor => ({
+  file: symbol.filePath,
+  start: [symbol.range.start.line, symbol.range.start.column],
+  end: [symbol.range.end.line, symbol.range.end.column],
+});
+const sameRange = (left: SourceRange, right: SourceRange) =>
+  (['start', 'end'] as const).every((edge) =>
+    (['offset', 'line', 'column'] as const).every(
+      (part) => left[edge][part] === right[edge][part],
+    ),
+  );
 
 /** Compare predictions to manually authored labels; never derive labels from the analyzer. */
 export function evaluateSemantic(
@@ -26,11 +42,50 @@ export function evaluateSemantic(
   const symbols = new Map(facts.symbols.map((item) => [item.id, item]));
   const relations = new Map(facts.relations.map((item) => [item.id, item]));
   const diagnostics = new Map(facts.diagnostics.map((item) => [item.id, item]));
+  const goldDeclarations = new Map<
+    string,
+    (typeof gold.declarations)[number]
+  >();
+  for (const declaration of gold.declarations)
+    goldDeclarations.set(anchorKey(declaration), declaration);
+  function matchesDeclaration(
+    symbol: CodeSymbol | undefined,
+    anchor: GoldAnchor,
+  ): boolean {
+    const expected = goldDeclarations.get(anchorKey(anchor));
+    if (
+      !symbol ||
+      !expected ||
+      !gold.files[anchor.file] ||
+      anchorKey(symbolAnchor(symbol)) !== anchorKey(anchor) ||
+      symbol.name !== expected.name ||
+      symbol.snapshotId !== facts.snapshotId
+    )
+      return false;
+    const file = files.get(symbol.fileId),
+      primary = source.readEvidence(symbol.declarationEvidenceId);
+    return (
+      !!file &&
+      file.path === anchor.file &&
+      file.contentHash === gold.files[anchor.file] &&
+      primary.status === 'available' &&
+      primary.filePath === anchor.file &&
+      primary.evidence.id === symbol.declarationEvidenceId &&
+      primary.evidence.fileId === symbol.fileId &&
+      primary.evidence.snapshotId === facts.snapshotId &&
+      primary.evidence.contentHash === gold.files[anchor.file] &&
+      sameRange(primary.evidence.range, symbol.range)
+    );
+  }
   const predicted = new Map<string, (typeof facts.observations)[number][]>();
+  let unlocatable = 0;
   for (const observation of facts.observations) {
     const span = evidence.get(observation.evidenceId),
       file = files.get(observation.fileId);
-    if (!span || !file) continue;
+    if (!span || !file) {
+      unlocatable++;
+      continue;
+    }
     const key = location(
       file.path,
       span.range.start.line,
@@ -80,7 +135,7 @@ export function evaluateSemantic(
       relation?.resolution.status === 'exact'
         ? symbols.get(relation.resolution.targetId)
         : undefined;
-    const actualTarget = target ? `${target.filePath}:${target.name}` : null;
+    const actualTarget = target ? anchorLabel(symbolAnchor(target)) : null;
     const diagnostic = observation.diagnosticId
       ? diagnostics.get(observation.diagnosticId)
       : undefined;
@@ -90,6 +145,10 @@ export function evaluateSemantic(
       excerpt.filePath === expected.file &&
       excerpt.text === expected.text &&
       excerpt.evidence.contentHash === gold.files[expected.file] &&
+      excerpt.evidence.id === span.id &&
+      excerpt.evidence.fileId === observation.fileId &&
+      excerpt.evidence.snapshotId === facts.snapshotId &&
+      sameRange(excerpt.evidence.range, span.range) &&
       span.range.start.line === expected.line &&
       span.range.start.column === expected.column;
     if (relation?.resolution.status === 'exact') {
@@ -114,18 +173,38 @@ export function evaluateSemantic(
       )
         unresolvedSupported++;
     }
+    const ownerMatches =
+      expected.owner === null
+        ? observation.ownerId === null
+        : matchesDeclaration(owner, expected.owner);
+    const targetMatches = expected.target
+      ? matchesDeclaration(target, expected.target)
+      : !relation || relation.resolution.targetId === null;
+    const relationMatches =
+      expected.owner === null
+        ? observation.relationId === null
+        : !!relation &&
+          relation.sourceSymbolId === observation.ownerId &&
+          relation.siteEvidenceId === observation.evidenceId &&
+          relation.resolution.status === observation.status &&
+          (relation.resolution.status === 'exact' ||
+            (!!observation.diagnosticId &&
+              relation.resolution.diagnosticIds.includes(
+                observation.diagnosticId,
+              )));
     const matches =
       observation.status === expected.status &&
       observation.eligible === expected.eligible &&
-      (owner?.name ?? null) === expected.owner &&
-      (expected.target ? actualTarget === expected.target : !actualTarget) &&
+      ownerMatches &&
+      targetMatches &&
+      relationMatches &&
       (expected.diagnostic
-        ? diagnostic?.code === expected.diagnostic
-        : !diagnostic) &&
+        ? !!observation.diagnosticId && diagnostic?.code === expected.diagnostic
+        : observation.diagnosticId === null && !diagnostic) &&
       evidenceValid;
     if (!matches)
       failures.push(
-        `${expected.file}:${expected.line}:${expected.column}: expected ${expected.status}${expected.target ? ' ' + expected.target : ''}, observed ${observation.status}${actualTarget ? ' ' + actualTarget : ''}`,
+        `${expected.file}:${expected.line}:${expected.column}: expected ${expected.status}, owner ${expected.owner ? anchorLabel(expected.owner) : 'none'}, target ${expected.target ? anchorLabel(expected.target) : 'none'}; observed ${observation.status}, owner ${owner ? anchorLabel(symbolAnchor(owner)) : 'none'}, target ${actualTarget ?? 'none'}`,
       );
     if (observation.status === 'exact') {
       if (expected.status === 'exact' && matches) {
@@ -138,7 +217,7 @@ export function evaluateSemantic(
       } else
         incorrectExamples.push({
           site: `${expected.file}:${expected.line}:${expected.column}`,
-          expected: expected.target ?? null,
+          expected: expected.target ? anchorLabel(expected.target) : null,
           actual: actualTarget,
         });
     }
@@ -147,7 +226,7 @@ export function evaluateSemantic(
     (count, [key, rows]) =>
       count +
       (expectedLocations.has(key) ? Math.max(0, rows.length - 1) : rows.length),
-    0,
+    unlocatable,
   );
   const expectedDeclarations = new Set(
     gold.declarations.map((item) =>
@@ -163,6 +242,7 @@ export function evaluateSemantic(
     ]),
   );
   const declarationMatch =
+    goldDeclarations.size === gold.declarations.length &&
     expectedDeclarations.size === gold.declarations.length &&
     new Set(actualDeclarations).size === gold.declarations.length &&
     actualDeclarations.every((item) => expectedDeclarations.has(item));

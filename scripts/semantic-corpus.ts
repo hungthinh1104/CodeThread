@@ -1,14 +1,19 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
+export interface GoldAnchor {
+  file: string;
+  start: [number, number];
+  end: [number, number];
+}
 export interface GoldCall {
   file: string;
   line: number;
   column: number;
   text: string;
-  owner: string | null;
+  owner: GoldAnchor | null;
   status: 'exact' | 'unresolved' | 'ambiguous' | 'unsupported';
-  target?: string;
+  target?: GoldAnchor;
   diagnostic?: string;
   eligible: boolean;
 }

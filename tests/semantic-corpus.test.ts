@@ -58,7 +58,14 @@ describe('CT-INDEX-001A source-pinned semantic gold', () => {
     const owner = snapshot.facts.symbols.find(
       (symbol) => symbol.id === observation!.ownerId,
     );
-    expect(owner?.name ?? null).toBe(expected.owner);
+    const ownerAnchor = owner
+      ? {
+          file: owner.filePath,
+          start: [owner.range.start.line, owner.range.start.column],
+          end: [owner.range.end.line, owner.range.end.column],
+        }
+      : null;
+    expect(ownerAnchor).toEqual(expected.owner);
     const evidence = snapshot.source.readEvidence(observation!.evidenceId);
     expect(evidence).toMatchObject({
       status: 'available',
@@ -73,7 +80,11 @@ describe('CT-INDEX-001A source-pinned semantic gold', () => {
       const target = snapshot.facts.symbols.find(
         (symbol) => symbol.id === relation.resolution.targetId,
       )!;
-      expect(`${target.filePath}:${target.name}`).toBe(expected.target);
+      expect({
+        file: target.filePath,
+        start: [target.range.start.line, target.range.start.column],
+        end: [target.range.end.line, target.range.end.column],
+      }).toEqual(expected.target);
     } else {
       const diagnostic = snapshot.facts.diagnostics.find(
         (item) => item.id === observation!.diagnosticId,

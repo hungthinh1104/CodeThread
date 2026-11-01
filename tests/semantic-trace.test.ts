@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import { createInvestigation } from '@codethread/trace-engine';
@@ -17,6 +18,51 @@ beforeAll(async () => {
 }, 15000);
 
 describe('CT-INDEX-001A in-memory code investigation', () => {
+  it('reports truncation when an explored dead end consumes the node budget before a valid path', async () => {
+    const bytes = new TextEncoder().encode(
+      [
+        'function dead() {}',
+        'function end() {}',
+        'function via() { end(); }',
+        'export function root() { dead(); via(); }',
+        '',
+      ].join('\n'),
+    );
+    const fixture = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-000000000001',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'paths.ts',
+          bytes,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    });
+    const engine = createInvestigation(fixture.facts, fixture.source);
+    const root = fixture.facts.symbols.find(
+      (symbol) => symbol.name === 'root',
+    )!;
+    const end = fixture.facts.symbols.find((symbol) => symbol.name === 'end')!;
+    const request = {
+      snapshotId: fixture.facts.snapshotId,
+      fromSymbolId: root.id,
+      toSymbolId: end.id,
+    };
+    const bounded = engine.paths({ ...request, nodeLimit: 3 });
+    expect(bounded.paths).toEqual([]);
+    expect(bounded.meta.truncated).toBe(true);
+    expect(bounded.meta.truncationReasons).toContain('result_limit');
+    expect(bounded.meta.appliedLimits.nodes).toBe(3);
+    expect(bounded.symbols.length).toBeLessThanOrEqual(3);
+    expect(bounded.symbols.map((symbol) => symbol.name)).not.toContain('dead');
+    expect(bounded.relations).toEqual([]);
+    const larger = engine.paths({ ...request, nodeLimit: 4 });
+    expect(larger.paths).toHaveLength(1);
+    expect(larger.meta.truncated).toBe(false);
+    expect(larger.symbols.length).toBeLessThanOrEqual(4);
+    expect(larger.symbols.map((symbol) => symbol.name)).not.toContain('dead');
+  }, 15000);
   it('retains unresolved sites and diagnostics without creating target symbols', async () => {
     const corpus = await loadSemanticCorpus();
     const all = await analyzeManifest({

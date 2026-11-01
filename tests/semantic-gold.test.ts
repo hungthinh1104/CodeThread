@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 type Position = [number, number];
+type Anchor = { file: string; start: Position; end: Position };
 type Gold = {
   review: string;
   files: Record<string, string>;
@@ -18,9 +19,9 @@ type Gold = {
     line: number;
     column: number;
     text: string;
-    owner: string | null;
+    owner: Anchor | null;
     status: 'exact' | 'unresolved' | 'ambiguous' | 'unsupported';
-    target?: string;
+    target?: Anchor;
     diagnostic?: string;
     eligible: boolean;
   }[];
@@ -48,6 +49,10 @@ describe('CT-INDEX-001A manually authored semantic ground truth', () => {
   it('pins source bytes and validates occurrence positions independently of the analyzer', async () => {
     const { gold, sources } = await goldFixture();
     expect(gold.review).toContain('not independently reviewed');
+    const anchorKey = (anchor: Anchor) =>
+      JSON.stringify([anchor.file, anchor.start, anchor.end]);
+    const anchors = new Set(gold.declarations.map(anchorKey));
+    expect(anchors.size).toBe(gold.declarations.length);
     const locations = new Set<string>();
     for (const call of gold.calls) {
       const line = sources.get(call.file)?.[call.line - 1];
@@ -57,6 +62,22 @@ describe('CT-INDEX-001A manually authored semantic ground truth', () => {
       const location = `${call.file}:${call.line}:${call.column}`;
       expect(locations.has(location)).toBe(false);
       locations.add(location);
+      if (call.owner) {
+        expect(call.owner.file).toBe(call.file);
+        expect(anchors.has(anchorKey(call.owner))).toBe(true);
+        const [startLine, startColumn] = call.owner.start;
+        const [endLine, endColumn] = call.owner.end;
+        expect(
+          call.line > startLine ||
+            (call.line === startLine && call.column >= startColumn),
+        ).toBe(true);
+        expect(
+          call.line < endLine ||
+            (call.line === endLine &&
+              call.column + call.text.length <= endColumn),
+        ).toBe(true);
+      }
+      if (call.target) expect(anchors.has(anchorKey(call.target))).toBe(true);
       if (call.status === 'exact') {
         expect(call.owner).toBeTruthy();
         expect(call.target).toBeTruthy();
