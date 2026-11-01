@@ -1,0 +1,4 @@
+function original() {}
+function replacement() {}
+original = replacement;
+export function run() { original(); }

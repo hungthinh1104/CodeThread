@@ -1,0 +1,10 @@
+import { middle as alias, duplicate as left } from './b.js';
+import { duplicate as right } from './c.js';
+export function start() {
+  alias();
+  alias();
+  local();
+  left();
+  right();
+  function local() { start(); }
+}

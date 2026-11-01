@@ -1,0 +1,10 @@
+function target() {}
+target();
+function withDefault(x = target()) { return x; }
+function outer() {
+  const arrow = () => target();
+  const expression = function () { target(); };
+  const object = { method() { target(); } };
+  function nested() { target(); }
+  nested();
+}

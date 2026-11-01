@@ -1,0 +1,19 @@
+import type { end as typeOnly } from './c.js';
+import { missing } from './missing.js';
+import { external } from 'external-package';
+import { middle as through } from './barrel.js';
+function overloaded(x: string): void;
+function overloaded(x: number): void;
+function overloaded(x: string | number) {}
+function caller() {
+  typeOnly();
+  missing();
+  ghost();
+  external();
+  through();
+  overloaded('x');
+  const obj = { run() {} };
+  obj.run();
+  obj['run']();
+  const callback = () => typeOnly();
+}
