@@ -43,12 +43,13 @@ limitations, remaining risks, deferred work and a Go/No-Go recommendation.
 Apply this protocol to every **authorized CodeThread implementation task**.
 Advisory-only tasks, read-only reviews, and exploration never push by default.
 
-1. **Establish baseline:** Fetch remote refs, report base SHA and task/requirement,
-   inspect `git status --short` and pending changes, and start from the intended
-   integration branch. Do not overwrite unrelated, uncommitted, or concurrent
-   work. Use `feat/<scope>`, `fix/<scope>`, `test/<scope>`, `docs/<scope>`, or
-   `chore/<scope>` for a task-scoped branch. Existing PR work stays on its
-   authorized feature branch; do not create a duplicate PR.
+1. **Establish baseline:** Fetch remote refs, report base SHA and
+   task/requirement, inspect `git status --short` and pending changes, and start
+   from the intended integration branch. Do not overwrite unrelated,
+   uncommitted, or concurrent work. Use `feat/<scope>`, `fix/<scope>`,
+   `test/<scope>`, `docs/<scope>`, or `chore/<scope>` for a task-scoped branch.
+   Existing PR work stays on its authorized feature branch; do not create a
+   duplicate PR.
 2. **Keep diffs reviewable:** Make the smallest correct change. Exclude secrets,
    credentials, tokens, local environment files, machine-specific paths,
    generated outputs, and unrelated changes. Inspect the staged diff and
