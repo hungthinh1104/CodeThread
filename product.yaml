@@ -45,7 +45,12 @@ first_batch:
   deliverables: [Foundation, DB-01]
   stop_before: DB-02
   approval: Explicit user approval is required before DB-02.
-next_semantic_proof:
-  persistence: None; a bounded in-memory Compiler API proof precedes DB-02.
-  authorization:
-    Handoff only in this remediation; implementation is a separate task.
+semantic_proof:
+  input:
+    Caller-supplied immutable UTF-8 manifests and explicit compiler profile.
+  capabilities:
+    Named function declarations and supported direct call occurrences.
+  exclusions:
+    Re-exports, overloads, dynamic dispatch and external implementations.
+  persistence:
+    None; this proof precedes DB-02 and does not establish Git provenance.

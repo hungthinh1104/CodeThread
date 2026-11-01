@@ -369,3 +369,66 @@ export type TestCase = z.infer<typeof testCaseSchema>;
 export type TestStep = z.infer<typeof testStepSchema>;
 export type TestCodeLink = z.infer<typeof testCodeLinkSchema>;
 export type Diagnostic = z.infer<typeof diagnosticSchema>;
+
+/** Framework-independent facts produced by a bounded, in-memory analysis. */
+export interface AnalysisFile {
+  snapshotId: string;
+  id: string;
+  path: string;
+  contentHash: string;
+  byteLength: number;
+}
+export interface AnalysisObservation {
+  fileId: string;
+  evidenceId: string;
+  ownerId: string | null;
+  relationId: string | null;
+  diagnosticId: string | null;
+  status: Resolution['status'];
+  eligible: boolean;
+}
+export interface AnalysisCounts {
+  files: number;
+  declarations: number;
+  callSites: number;
+  exact: number;
+  unresolved: number;
+  ambiguous: number;
+  unsupported: number;
+  notAnalyzedInputs: number;
+}
+export interface AnalysisFacts {
+  snapshotId: string;
+  identity: SnapshotIdentity;
+  files: readonly AnalysisFile[];
+  symbols: readonly CodeSymbol[];
+  relations: readonly CodeRelation[];
+  evidenceRefs: readonly SourceEvidence[];
+  diagnostics: readonly Diagnostic[];
+  observations: readonly AnalysisObservation[];
+  coverageByCapability: Readonly<Record<string, CoverageStatus>>;
+  counts: AnalysisCounts;
+}
+export type SourceReadResult =
+  | {
+      status: 'available';
+      evidence: SourceEvidence;
+      filePath: string;
+      text: string;
+    }
+  | {
+      status: 'unavailable';
+      snapshotId: string;
+      evidenceId: string;
+      code:
+        | 'SOURCE_UNAVAILABLE'
+        | 'HASH_MISMATCH'
+        | 'INVALID_ENCODING'
+        | 'EVIDENCE_TOO_LARGE'
+        | 'EVIDENCE_NOT_FOUND';
+    };
+export interface VerifiedSourceReader {
+  /** Returns a defensive copy of retained raw bytes, or null if unavailable. */
+  readFile(fileId: string): Uint8Array | null;
+  readEvidence(evidenceId: string): SourceReadResult;
+}

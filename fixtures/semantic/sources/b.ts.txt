@@ -1,0 +1,3 @@
+import { end } from './c.js';
+export function middle() { end(); }
+export function duplicate() {}

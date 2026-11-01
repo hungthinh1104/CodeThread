@@ -21,6 +21,8 @@ Current packages:
 | ------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | code-model         | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
 | contracts          | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
+| symbol-indexer     | Bounded manifest validation, isolated TypeScript extraction and retained source                                 | code-model, pinned TypeScript and explicitly allowed Node APIs   |
+| trace-engine       | Source-verified, bounded in-memory graph exploration                                                            | code-model, contracts and Node crypto; no compiler or filesystem |
 | Foundation scripts | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
 
 Data flows from source ingestion/semantic extraction → code model →
@@ -361,6 +363,16 @@ node_modules or current working-tree files cannot silently influence analysis.
 Missing dependencies remain diagnosed unresolved inputs. Static indexing never
 installs them automatically.
 
+The in-memory proof accepts caller-supplied bytes, not a Git revision. Its
+versioned source fingerprint hashes the UTF-8-byte-ordered path, raw SHA-256 and
+byte length for each supplied file. Its configuration hash covers the explicit
+fixed profile; its build fingerprint covers the analyzer, code model, compiler
+and allowlisted library contents. A repository UUID and these components form a
+deterministic proof snapshot UUID. Snapshot-local file/entity UUIDv8 values
+derive from SHA-256 descriptors and duplicate identities fail validation. This
+proof identity makes no commit/tree or published-database claim; reconcile its
+manifest format with the Git-provenance proposal before DB-02.
+
 Snapshot-local canonical keys use a versioned kind plus SHA-256 of an anchor
 descriptor. Symbols anchor to supported canonical declarations; test keys
 include suite/declaration location and any static parameter case key.
@@ -612,8 +624,9 @@ Source batches return exactly the requested IDs in request order, including
 typed unavailability. Structural validation, matching excerpt length and
 consistent metadata do not authenticate source bytes. The future source adapter
 must verify raw hashes, UTF-8 and immutable cache identity before returning
-available excerpts. No source adapter, SQL query implementation or runtime
-observation exists here.
+available excerpts. The in-memory proof verifies its private manifest copies and
+excerpts; a durable cache adapter, SQL query implementation and runtime
+observation do not exist here.
 
 | Contract                    | Inputs/defaults                                                                    | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -794,58 +807,87 @@ After explicit approval, the first DB-02 task is:
 Do not begin a full backend until DB-06 passes its agreed evidence gate.
 Frontend and optional AI remain later phases.
 
-## 12. Next semantic vertical slice — handoff only
+## 12. Bounded in-memory semantic proof
 
-ADR-0003 permits this bounded in-memory proof before DB-02. This section
-specifies future work; no scanner, ingestion adapter, service or UI is
-implemented here.
+ADR-0003 permits CT-INDEX-001A before DB-02. `analyzeManifest` accepts a
+repository UUID, explicit `COMPILER_PROFILE`, and caller-supplied files with
+POSIX paths, raw UTF-8 bytes and claimed SHA-256 hashes. It copies the buffers,
+rejects unsafe/case-equivalent paths, verifies hashes and strict UTF-8, and
+preserves BOM/line endings. It returns immutable model facts and a source
+reader; the reader returns defensive copies and checks content and positions. No
+Git commit or durable cache provenance is inferred from the supplied bytes.
 
-Input is an immutable UTF-8 file manifest with raw hashes, snapshot identity,
-explicit validated compiler options and a selected file/module/symbol anchor.
-Output is canonical declarations, occurrence-level imports/references/direct
-calls, source evidence, explicit resolution diagnostics, capability coverage and
-a bounded graph rooted at the selection. Existing graph contracts are reusable
-without a test.
+The profile pins TypeScript 6.0.3, ES2023, ESNext/Bundler resolution, forced
+module detection, strict checking, no JavaScript, no emit, no ambient types and
+the ES2023 compiler-library closure. Unsupported options fail. The CompilerHost
+serves only the virtual manifest and pinned library closure, checks the
+toolchain library real paths and records hashes in the analyzer build identity.
+Relative imports resolve through TypeScript's resolver against that host. Bare
+packages, escaping references, missing dependencies and ambient node_modules do
+not become source inputs. The TypeScript toolchain is trusted; the virtual host
+is an input boundary, not an operating-system sandbox.
 
-Initial syntax covers local cross-file imports, aliases/re-exports, function
-declarations and uniquely resolvable direct calls. Dynamic receivers,
-reflection, missing dependencies, declaration-merging ambiguities and
-unsupported framework behavior remain diagnosed; names alone never establish
-targets. Analyze test files as ordinary TypeScript unless the optional test
-capability is explicitly selected.
+The proof extracts named function declarations with bodies and direct identifier
+calls, including nested named functions, local calls, named relative imports,
+aliases and recursion. Each declaration's primary evidence spans the complete
+declaration, while call ownership is restricted separately to the nearest
+supported function body. Calls in parameter initializers, file scope, arrows,
+function expressions or methods have evidence and diagnostics but no invented
+function owner. Calls to type-only values, re-exports, overloads, default or
+namespace imports, external packages, computed/property calls and dynamic
+imports are unsupported. Missing bindings are unresolved; conflicting function
+implementations are ambiguous. A binding written elsewhere or affected by a
+compiler error cannot produce an exact relation. Named imports serve resolution;
+import and reference occurrence facts remain unimplemented. Static exactness is
+not a runtime observation.
 
-A virtual Compiler API host reads only supplied immutable files and pinned
-compiler-owned libraries. Do not execute source/configuration modules,
-repository scripts or tests, install target dependencies, read ambient
-node_modules, or fall back to modified working-tree files. Paths, encodings and
-hashes are validated before analysis. The input contract includes limits and
-cancellation policy.
+The `declarations.v1` and `relationships.v1` coverage fields are partial because
+their broader domains are not fully implemented. `named_functions.v1` describes
+the named-function subset; `direct_calls.v1` describes supported calls and is
+partial/unsupported when analysis or unsupported cases prevent completeness.
+Import occurrences, reference occurrences and test behavior are `not_analyzed`.
+Coverage, target resolution and graph truncation are independent
+classifications. Decorator syntax receives a source-anchored unsupported
+diagnostic; runtime framework wiring and constructor relationships remain
+`not_analyzed`.
 
-Initial safety limits are twenty files, 256 KiB per file, 2 MiB total input,
-2,000 declarations, 5,000 relationship sites, a ten-second harness deadline and
-a 512 MiB Node heap ceiling. These are proof-of-concept safety limits, not
-scalability SLAs. The isolated verification harness enforces process limits
-without adding a worker service. Exceeding a limit fails or explicitly truncates
-the declared capability.
+The public analysis boundary allows twenty files, 256 KiB per file, 2 MiB total,
+2,000 named function declarations with bodies and 5,000 call sites. Compiler
+diagnostics and unsupported decorator occurrences are each capped at 10,000. A
+parent starts a short-lived child, clears inherited Node injection settings,
+enforces a ten-second maximum deadline and limits the V8 heap to at most 512
+MiB; callers may request lower limits. The child verifies the actual V8 heap
+ceiling. The heap limit does not bound total RSS. IPC is bounded. Malformed
+source, invalid inputs, resource exhaustion, timeout and compiler failure return
+typed failures rather than empty successful graphs. These limits are
+proof-of-concept safety bounds, not scalability guarantees.
 
-Ground truth consists of source-pinned fixture repositories with manually
-authored occurrence-level declarations, targets, unresolved cases and evidence
-anchors. Include imports/re-exports, repeated calls, cycles, ambiguous/dynamic
-calls, CRLF and Unicode, unsupported input and cross-file source. Expected
-annotations must not be generated from analyzer output. Record actual
-authorship/review status; unreviewed annotations are not independently reviewed
-evidence.
+`createInvestigation` copies facts, verifies retained raw source hashes and
+positions, and builds source-ordered occurrence indexes. Neighbors use bounded
+breadth-first search in the requested direction. Paths are simple directed paths
+with a bounded examined-edge budget; cycles and parallel occurrences remain
+valid graph data. Result projections are checked by the request-aware contract
+parsers and retain only closed units with required evidence and diagnostics.
+Evidence batches return exact verified excerpts or typed unavailability;
+excerpts over 65,536 UTF-16 units are explicitly unavailable.
 
-Measure precision as correct exact occurrence predictions / all exact
-predictions; recall as recovered supported resolvable gold occurrences / all
-such gold occurrences; unresolved rate as unresolved/ambiguous supported sites /
-analyzed supported sites. Report unsupported and not-analyzed sites separately
-and expose denominators. A zero denominator is unavailable, not a perfect score.
-Compare canonical keys, targets, locations, evidence hashes, diagnostics and
-sorted output across repeated runs; storage UUID assignment does not substitute
-for canonical identity determinism. Preserve multiple sites sharing endpoints.
+For path queries, the node limit counts explored nodes, including the selected
+roots, even if some explored nodes are absent from the returned path graph. A
+source-ordered dead end can therefore consume the budget before a valid path is
+reached. The result reports `result_limit` truncation; an empty truncated result
+does not establish that no path exists. Improving path prioritization is
+deferred.
 
-Acceptance is selecting a symbol, following a supported cross-file relation and
-opening exact source evidence with explicit unknowns. It does not establish
-runtime execution, general extraction accuracy or developer comprehension
-effectiveness.
+The source-pinned corpus is manually annotated independently of analyzer output.
+Its labels are authored, not independently reviewed. `eval:semantic` reports all
+predicted and expected occurrence counts, evidence mismatches, precision, recall
+and unresolved/ambiguous rate with explicit denominators. Rejected-input cases
+are reported separately; empty denominators are unavailable. Repeated manifest
+orderings must produce identical canonical facts. Passing the declared sample
+does not establish arbitrary-repository accuracy, runtime behavior or
+comprehension improvement. CT-INDEX-001 remains broader than this slice.
+
+Each gold call's owner and exact target refer to a manually authored declaration
+record by source file and full start/end position. Evaluation verifies those
+anchors, source identity and relation ownership; equal display names or
+analyzer-generated UUIDs do not establish a match.

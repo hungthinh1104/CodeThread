@@ -12,10 +12,10 @@ static evidence. Jest/NestJS extensions remain optional; core graph facts do not
 depend on those frameworks. Static syntax is not proof of runtime execution or
 passing tests.
 
-The repository supplies Foundation validation/tooling and the proposed DB-01
-logical design. It contains no database implementation, analyzer, API, UI or
-Gemini integration. See `product.yaml` for scope and `docs/architecture.md` for
-ownership, ERDs, invariants, query design, failure scenarios and the DB-02 gate.
+The repository supplies Foundation validation/tooling, the proposed DB-01
+logical design, and a bounded in-memory TypeScript semantic proof. It contains
+no database implementation, Git crawler, API, UI or Gemini integration. See
+`product.yaml` and `docs/architecture.md` for scope, ownership and gates.
 
 ## Developer setup
 
@@ -77,6 +77,31 @@ position by guessing missing context. See the architecture document for exact
 guarantees and the separation between structural checks and future source-byte
 verification.
 
+## Try the semantic proof
+
+After `pnpm build`, run `pnpm --silent demo:semantic` for a JSON trace through
+three source-pinned files, or `pnpm --silent eval:semantic` for the
+independently authored fixture labels, measured denominators and separately
+reported input rejections. The annotations were authored by Codex and have not
+been independently reviewed. A passing sample does not establish general
+TypeScript accuracy or comprehension improvement.
+
+Programmatic consumers provide a repository UUID, the exported
+`COMPILER_PROFILE`, and files containing POSIX paths, raw UTF-8 bytes and
+SHA-256 hashes to `analyzeManifest` from `@codethread/symbol-indexer`. The
+returned immutable facts and verified source reader are passed to
+`createInvestigation` from `@codethread/trace-engine`. Select a symbol from the
+facts, then call `neighbors`, `paths` and `sourceEvidence` with their existing
+snapshot-scoped contracts. `readFile` returns a defensive byte copy.
+
+This slice recognizes named function declarations with bodies and direct
+identifier calls, including local calls, named relative import aliases and
+recursion. Unsupported owners, property calls, dynamic imports, re-exports,
+overloads, external targets and invalid value bindings are disclosed rather than
+guessed. Imports and references are not emitted as independent facts. Limits,
+the compiler profile, ownership rules and error behavior are documented in the
+architecture; no source or repository script is executed.
+
 For repeated source positioning, own one immutable
 `createSourcePositionIndex(source)` per file and reuse its `positionAt` and
 `validateRange` methods. The convenience `positionAt(source, offset)` and
@@ -128,14 +153,14 @@ reports in review/Issue discussions; do not add competing progress documents.
 
 ## Evidence and next gate
 
-Model/contract tests verify schema invariants, not TypeScript extraction
-accuracy or comprehension effectiveness. Hand-authored DTO fixtures are labeled
-as such. PostgreSQL integrity, migration, concurrency, performance and restore
-evidence belong to later database work packages. Independent semantic ground
-truth and a human study remain separate research milestones.
+Model/contract tests verify schema invariants. The semantic corpus exercises a
+small declared subset, with authored but not independently reviewed labels; it
+cannot establish general extraction accuracy or comprehension effectiveness.
+PostgreSQL integrity, migration, concurrency, performance and restore evidence,
+independent semantic review and a human study remain separate milestones.
 
 After reviewing Foundation + DB-01, explicitly approve DB-02 before creating the
 database package, PostgreSQL Compose service, Drizzle schema or any migration.
-The next semantic milestone is a bounded in-memory symbol/relationship/evidence
-proof, allowed before database implementation by ADR-0003. Its specification is
-in the architecture document; this remediation does not implement that analyzer.
+The bounded semantic slice is allowed before database implementation by
+ADR-0003. Broader CT-INDEX-001 capabilities, including import and reference
+occurrence facts, remain separate work.

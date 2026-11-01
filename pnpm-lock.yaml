@@ -177,6 +177,12 @@ importers:
       '@codethread/contracts':
         specifier: workspace:*
         version: link:packages/contracts
+      '@codethread/symbol-indexer':
+        specifier: workspace:*
+        version: link:packages/symbol-indexer
+      '@codethread/trace-engine':
+        specifier: workspace:*
+        version: link:packages/trace-engine
       '@eslint/js':
         specifier: 10.0.1
         version: 10.0.1(eslint@10.14.0)
@@ -219,6 +225,32 @@ importers:
       zod:
         specifier: 4.6.7
         version: 4.6.7
+
+  packages/symbol-indexer:
+    dependencies:
+      '@codethread/code-model':
+        specifier: workspace:*
+        version: link:../code-model
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+
+  packages/trace-engine:
+    dependencies:
+      '@codethread/code-model':
+        specifier: workspace:*
+        version: link:../code-model
+      '@codethread/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
 
 packages:
 

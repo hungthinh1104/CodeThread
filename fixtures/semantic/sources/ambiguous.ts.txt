@@ -1,0 +1,3 @@
+function collision() {}
+function collision() {}
+export function run() { collision(); }

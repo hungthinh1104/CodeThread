@@ -14,6 +14,27 @@ export interface PackageInput {
 const allowed: Record<string, readonly string[]> = {
   '@codethread/code-model': ['zod'],
   '@codethread/contracts': ['zod', '@codethread/code-model'],
+  '@codethread/symbol-indexer': [
+    '@codethread/code-model',
+    'typescript',
+    '@types/node',
+  ],
+  '@codethread/trace-engine': [
+    '@codethread/code-model',
+    '@codethread/contracts',
+    '@types/node',
+  ],
+};
+const nodeBuiltins: Record<string, readonly string[]> = {
+  '@codethread/symbol-indexer': [
+    'node:crypto',
+    'node:child_process',
+    'node:fs',
+    'node:path',
+    'node:url',
+    'node:v8',
+  ],
+  '@codethread/trace-engine': ['node:crypto'],
 };
 function inside(path: string, directory: string): boolean {
   const remainder = relative(directory, path);
@@ -54,6 +75,7 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
         true,
       );
       function inspect(specifier: string): void {
+        if (nodeBuiltins[entry.name]?.includes(specifier)) return;
         if (specifier.startsWith('.')) {
           if (
             !inside(

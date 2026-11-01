@@ -1,0 +1,603 @@
+{
+  "authorship": "Codex, 2026-11-01",
+  "review": "authored; not independently reviewed",
+  "files": {
+    "a.ts": "e0d506d9abaaeb6d2fb7f08b00de7bdbf3076cd168690a96bef09466a180033a",
+    "ambiguous.ts": "204ee04ec150b1d196c18106bccfdd5d542ee0d55ae1486edce8545eb403edca",
+    "b.ts": "781465f7d5697b92cadd45084c7feaada4bcbf0c162b127c52b702c1ea31d369",
+    "barrel.ts": "c4b2d2a900e103bc7d79c907a97f20d48c95270fc83e0c9d69d4815b7438f83a",
+    "c.ts": "c83565ab31e4ed86d0ecba1ded62230badf78fd7e641e7c05aa257702bda511c",
+    "cycle-a.ts": "bcccb1d0b13cb9f54a6ffc35def6162fab0ca989201f7fc08213ca86e4c19190",
+    "cycle-b.ts": "6dcca4365138301a4c89dcbf332beebc9b37d6717f4f4aecd2c0a9b3d586405d",
+    "dynamic.ts": "d083d536c6b989c919df9ccba0419c5e5c35169be0d60cb7bc2b9425e63ba319",
+    "empty.ts": "a2098bd92b10bf8b816d24b7556b1ce8c49a879d130489065ef1051c17e042f6",
+    "negative.ts": "423ad0b8580ccca1cc02dedef175a726fc0ea42a57b1bdf4e61ff86272d5656e",
+    "owners.ts": "f3807e231bbb5f99a86350b925efac662f4cb5005aaf7ea79946edbfcdd63635",
+    "reassignment.ts": "4cd3067e9f3266249328401827a77265a8fa3560736c4d406a50959347d997ec",
+    "unicode.ts": "6f387493875ca1632efae0dece76b6991d38102dfa51b118062a08e778946d16"
+  },
+  "declarations": [
+    {
+      "file": "a.ts",
+      "name": "start",
+      "start": [3, 1],
+      "end": [10, 2]
+    },
+    {
+      "file": "a.ts",
+      "name": "local",
+      "start": [9, 3],
+      "end": [9, 32]
+    },
+    {
+      "file": "b.ts",
+      "name": "middle",
+      "start": [2, 1],
+      "end": [2, 36]
+    },
+    {
+      "file": "b.ts",
+      "name": "duplicate",
+      "start": [3, 1],
+      "end": [3, 31]
+    },
+    {
+      "file": "c.ts",
+      "name": "end",
+      "start": [1, 1],
+      "end": [1, 33]
+    },
+    {
+      "file": "c.ts",
+      "name": "duplicate",
+      "start": [2, 1],
+      "end": [2, 31]
+    },
+    {
+      "file": "cycle-a.ts",
+      "name": "cycleA",
+      "start": [2, 1],
+      "end": [2, 39]
+    },
+    {
+      "file": "cycle-b.ts",
+      "name": "cycleB",
+      "start": [2, 1],
+      "end": [2, 39]
+    },
+    {
+      "file": "dynamic.ts",
+      "name": "dynamic",
+      "start": [1, 1],
+      "end": [3, 2]
+    },
+    {
+      "file": "unicode.ts",
+      "name": "café",
+      "start": [1, 2],
+      "end": [3, 2]
+    },
+    {
+      "file": "owners.ts",
+      "name": "target",
+      "start": [1, 1],
+      "end": [1, 21]
+    },
+    {
+      "file": "owners.ts",
+      "name": "withDefault",
+      "start": [3, 1],
+      "end": [3, 49]
+    },
+    {
+      "file": "owners.ts",
+      "name": "outer",
+      "start": [4, 1],
+      "end": [10, 2]
+    },
+    {
+      "file": "owners.ts",
+      "name": "nested",
+      "start": [8, 3],
+      "end": [8, 34]
+    },
+    {
+      "file": "negative.ts",
+      "name": "overloaded",
+      "start": [7, 1],
+      "end": [7, 43]
+    },
+    {
+      "file": "negative.ts",
+      "name": "caller",
+      "start": [8, 1],
+      "end": [19, 2]
+    },
+    {
+      "file": "ambiguous.ts",
+      "name": "collision",
+      "start": [1, 1],
+      "end": [1, 24]
+    },
+    {
+      "file": "ambiguous.ts",
+      "name": "collision",
+      "start": [2, 1],
+      "end": [2, 24]
+    },
+    {
+      "file": "ambiguous.ts",
+      "name": "run",
+      "start": [3, 1],
+      "end": [3, 39]
+    },
+    {
+      "file": "reassignment.ts",
+      "name": "original",
+      "start": [1, 1],
+      "end": [1, 23]
+    },
+    {
+      "file": "reassignment.ts",
+      "name": "replacement",
+      "start": [2, 1],
+      "end": [2, 26]
+    },
+    {
+      "file": "reassignment.ts",
+      "name": "run",
+      "start": [4, 1],
+      "end": [4, 38]
+    }
+  ],
+  "calls": [
+    {
+      "file": "cycle-a.ts",
+      "line": 2,
+      "column": 28,
+      "text": "cycleB()",
+      "owner": {
+        "file": "cycle-a.ts",
+        "start": [2, 1],
+        "end": [2, 39]
+      },
+      "status": "exact",
+      "target": {
+        "file": "cycle-b.ts",
+        "start": [2, 1],
+        "end": [2, 39]
+      },
+      "eligible": true
+    },
+    {
+      "file": "cycle-b.ts",
+      "line": 2,
+      "column": 28,
+      "text": "cycleA()",
+      "owner": {
+        "file": "cycle-b.ts",
+        "start": [2, 1],
+        "end": [2, 39]
+      },
+      "status": "exact",
+      "target": {
+        "file": "cycle-a.ts",
+        "start": [2, 1],
+        "end": [2, 39]
+      },
+      "eligible": true
+    },
+    {
+      "file": "dynamic.ts",
+      "line": 2,
+      "column": 3,
+      "text": "import('./c.js')",
+      "owner": {
+        "file": "dynamic.ts",
+        "start": [1, 1],
+        "end": [3, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "CALL_EXPRESSION_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "a.ts",
+      "line": 4,
+      "column": 3,
+      "text": "alias()",
+      "owner": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "b.ts",
+        "start": [2, 1],
+        "end": [2, 36]
+      },
+      "eligible": true
+    },
+    {
+      "file": "a.ts",
+      "line": 5,
+      "column": 3,
+      "text": "alias()",
+      "owner": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "b.ts",
+        "start": [2, 1],
+        "end": [2, 36]
+      },
+      "eligible": true
+    },
+    {
+      "file": "a.ts",
+      "line": 6,
+      "column": 3,
+      "text": "local()",
+      "owner": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "a.ts",
+        "start": [9, 3],
+        "end": [9, 32]
+      },
+      "eligible": true
+    },
+    {
+      "file": "a.ts",
+      "line": 7,
+      "column": 3,
+      "text": "left()",
+      "owner": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "b.ts",
+        "start": [3, 1],
+        "end": [3, 31]
+      },
+      "eligible": true
+    },
+    {
+      "file": "a.ts",
+      "line": 8,
+      "column": 3,
+      "text": "right()",
+      "owner": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "c.ts",
+        "start": [2, 1],
+        "end": [2, 31]
+      },
+      "eligible": true
+    },
+    {
+      "file": "a.ts",
+      "line": 9,
+      "column": 22,
+      "text": "start()",
+      "owner": {
+        "file": "a.ts",
+        "start": [9, 3],
+        "end": [9, 32]
+      },
+      "status": "exact",
+      "target": {
+        "file": "a.ts",
+        "start": [3, 1],
+        "end": [10, 2]
+      },
+      "eligible": true
+    },
+    {
+      "file": "b.ts",
+      "line": 2,
+      "column": 28,
+      "text": "end()",
+      "owner": {
+        "file": "b.ts",
+        "start": [2, 1],
+        "end": [2, 36]
+      },
+      "status": "exact",
+      "target": {
+        "file": "c.ts",
+        "start": [1, 1],
+        "end": [1, 33]
+      },
+      "eligible": true
+    },
+    {
+      "file": "c.ts",
+      "line": 1,
+      "column": 25,
+      "text": "end()",
+      "owner": {
+        "file": "c.ts",
+        "start": [1, 1],
+        "end": [1, 33]
+      },
+      "status": "exact",
+      "target": {
+        "file": "c.ts",
+        "start": [1, 1],
+        "end": [1, 33]
+      },
+      "eligible": true
+    },
+    {
+      "file": "unicode.ts",
+      "line": 2,
+      "column": 3,
+      "text": "café()",
+      "owner": {
+        "file": "unicode.ts",
+        "start": [1, 2],
+        "end": [3, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "unicode.ts",
+        "start": [1, 2],
+        "end": [3, 2]
+      },
+      "eligible": true
+    },
+    {
+      "file": "owners.ts",
+      "line": 2,
+      "column": 1,
+      "text": "target()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "owners.ts",
+      "line": 3,
+      "column": 26,
+      "text": "target()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "owners.ts",
+      "line": 5,
+      "column": 23,
+      "text": "target()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "owners.ts",
+      "line": 6,
+      "column": 36,
+      "text": "target()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "owners.ts",
+      "line": 7,
+      "column": 31,
+      "text": "target()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "owners.ts",
+      "line": 8,
+      "column": 23,
+      "text": "target()",
+      "owner": {
+        "file": "owners.ts",
+        "start": [8, 3],
+        "end": [8, 34]
+      },
+      "status": "exact",
+      "target": {
+        "file": "owners.ts",
+        "start": [1, 1],
+        "end": [1, 21]
+      },
+      "eligible": true
+    },
+    {
+      "file": "owners.ts",
+      "line": 9,
+      "column": 3,
+      "text": "nested()",
+      "owner": {
+        "file": "owners.ts",
+        "start": [4, 1],
+        "end": [10, 2]
+      },
+      "status": "exact",
+      "target": {
+        "file": "owners.ts",
+        "start": [8, 3],
+        "end": [8, 34]
+      },
+      "eligible": true
+    },
+    {
+      "file": "negative.ts",
+      "line": 9,
+      "column": 3,
+      "text": "typeOnly()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "TYPE_ONLY_BINDING",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 10,
+      "column": 3,
+      "text": "missing()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unresolved",
+      "diagnostic": "TARGET_UNRESOLVED",
+      "eligible": true
+    },
+    {
+      "file": "negative.ts",
+      "line": 11,
+      "column": 3,
+      "text": "ghost()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unresolved",
+      "diagnostic": "TARGET_UNRESOLVED",
+      "eligible": true
+    },
+    {
+      "file": "negative.ts",
+      "line": 12,
+      "column": 3,
+      "text": "external()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "EXTERNAL_MODULE",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 13,
+      "column": 3,
+      "text": "through()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "REEXPORT_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 14,
+      "column": 3,
+      "text": "overloaded('x')",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "OVERLOAD_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 16,
+      "column": 3,
+      "text": "obj.run()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "CALL_EXPRESSION_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 17,
+      "column": 3,
+      "text": "obj['run']()",
+      "owner": {
+        "file": "negative.ts",
+        "start": [8, 1],
+        "end": [19, 2]
+      },
+      "status": "unsupported",
+      "diagnostic": "CALL_EXPRESSION_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "negative.ts",
+      "line": 18,
+      "column": 26,
+      "text": "typeOnly()",
+      "owner": null,
+      "status": "unsupported",
+      "diagnostic": "OWNER_UNSUPPORTED",
+      "eligible": false
+    },
+    {
+      "file": "ambiguous.ts",
+      "line": 3,
+      "column": 25,
+      "text": "collision()",
+      "owner": {
+        "file": "ambiguous.ts",
+        "start": [3, 1],
+        "end": [3, 39]
+      },
+      "status": "ambiguous",
+      "diagnostic": "TARGET_AMBIGUOUS",
+      "eligible": true
+    },
+    {
+      "file": "reassignment.ts",
+      "line": 4,
+      "column": 25,
+      "text": "original()",
+      "owner": {
+        "file": "reassignment.ts",
+        "start": [4, 1],
+        "end": [4, 38]
+      },
+      "status": "unresolved",
+      "diagnostic": "MUTATED_BINDING",
+      "eligible": true
+    }
+  ]
+}

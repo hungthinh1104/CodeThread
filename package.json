@@ -17,6 +17,8 @@
     "test": "vitest run",
     "security:check": "pnpm audit --audit-level=low",
     "bench:positions": "node scripts/benchmark-source-positions.ts",
+    "demo:semantic": "node scripts/demo-semantic.ts",
+    "eval:semantic": "node scripts/eval-semantic.ts",
     "arch:check": "node scripts/architecture.ts",
     "req:validate": "node scripts/requirements.ts validate",
     "req:list": "node scripts/requirements.ts list",
@@ -27,6 +29,8 @@
   "devDependencies": {
     "@codethread/code-model": "workspace:*",
     "@codethread/contracts": "workspace:*",
+    "@codethread/symbol-indexer": "workspace:*",
+    "@codethread/trace-engine": "workspace:*",
     "@eslint/js": "10.0.1",
     "@types/node": "24.19.2",
     "ajv": "8.20.0",
