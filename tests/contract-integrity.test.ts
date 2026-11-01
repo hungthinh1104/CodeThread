@@ -121,6 +121,16 @@ describe('CT-FIX-003 nested occurrences', () => {
 });
 
 describe('CT-FIX-004 evidence associations', () => {
+  it('rejects site coordinates that contradict their containing declaration', () => {
+    const trace = traceFixture();
+    const site = trace.evidenceRefs.find((item) => item.id === id(10))!;
+    // Individually feasible range, but this declaration lies entirely on line 1.
+    site.range = {
+      start: { offset: site.range.start.offset, line: 2, column: 1 },
+      end: { offset: site.range.end.offset, line: 2, column: 9 },
+    };
+    expect(getTestTraceResponseSchema.safeParse(trace).success).toBe(false);
+  });
   it('rejects conflicting paths for one file identity across a test page', () => {
     const trace = traceFixture();
     const page = {

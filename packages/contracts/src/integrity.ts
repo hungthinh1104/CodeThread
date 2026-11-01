@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { sourceRangeSchema } from '@codethread/code-model';
 import type {
   SourceEvidence,
   SourceRange,
@@ -118,7 +119,15 @@ export function checkSite(
     !owner ||
     site.fileId !== owner.fileId ||
     site.range.start.offset < owner.range.start.offset ||
-    site.range.end.offset > owner.range.end.offset
+    site.range.end.offset > owner.range.end.offset ||
+    !sourceRangeSchema.safeParse({
+      start: owner.range.start,
+      end: site.range.start,
+    }).success ||
+    !sourceRangeSchema.safeParse({
+      start: site.range.end,
+      end: owner.range.end,
+    }).success
   ) {
     context.addIssue({
       code: 'custom',
