@@ -1,0 +1,22 @@
+{
+  "name": "@codethread/symbol-indexer",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@codethread/code-model": "workspace:*",
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2"
+  }
+}

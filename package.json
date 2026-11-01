@@ -27,6 +27,7 @@
   "devDependencies": {
     "@codethread/code-model": "workspace:*",
     "@codethread/contracts": "workspace:*",
+    "@codethread/symbol-indexer": "workspace:*",
     "@eslint/js": "10.0.1",
     "@types/node": "24.19.2",
     "ajv": "8.20.0",

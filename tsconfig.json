@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/code-model" },
-    { "path": "packages/contracts" }
+    { "path": "packages/contracts" },
+    { "path": "packages/symbol-indexer" }
   ]
 }
