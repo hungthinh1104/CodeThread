@@ -52,6 +52,22 @@ build, typecheck and focused tests. Individual commands are `format:check`,
 `pnpm build` before standalone tests: tests import the packages' public compiled
 entry points. Use `pnpm format` when intentionally formatting changes.
 
+Run `pnpm security:check` separately with network access. It uses the pinned
+pnpm's native audit, including the project document of the multi-document
+lockfile, and fails on reported vulnerabilities. Advisory-service/network errors
+also fail the command and must be reported as unavailable audit evidence, not a
+vulnerability finding or a clean audit. CI runs this as a separate step on both
+platforms; `pnpm check` needs no advisory service.
+
+Three exact parent-scoped overrides pin minimatch 11.0.1 for ESLint 10.14.0,
+config-array 0.23.5 and typescript-estree 8.72.1. They address
+[GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249).
+The parents request version 10, so this major-version override carries a
+compatibility risk. Focused tests exercise their actual glob, ignore, lint and
+project-service consumers; strict engine/peer checks remain enabled. Remove the
+overrides when compatible parent releases admit a patched dependency. This
+development-tool finding does not demonstrate application exploitability.
+
 The 0.0.0 contract remediation adds explicit primary symbol/step evidence IDs,
 nullable diagnostic source paths and versioned per-capability coverage, and
 normalizes UUIDs. Repository consumers and fixtures change together. Use the
@@ -60,6 +76,15 @@ standalone schemas cannot verify selection, traversal direction or continuation
 position by guessing missing context. See the architecture document for exact
 guarantees and the separation between structural checks and future source-byte
 verification.
+
+For repeated source positioning, own one immutable
+`createSourcePositionIndex(source)` per file and reuse its `positionAt` and
+`validateRange` methods. The convenience `positionAt(source, offset)` and
+`validateSourceRange(source, range)` interfaces remain available. Opt in to
+`pnpm bench:positions` after building to compare bulk lookup and range
+validation with index construction included. The JSON records three samples,
+synthetic dataset hashes, tool/CPU information and Git state. Timings are local
+evidence, not CI assertions or analyzer scalability claims.
 
 ## Requirements
 

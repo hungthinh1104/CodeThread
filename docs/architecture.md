@@ -379,6 +379,21 @@ TypeScript's API. Standalone range schemas validate shape; only content-aware
 validation and hash verification establish agreement with a particular immutable
 file.
 
+`createSourcePositionIndex(source)` owns a private line-start array for one
+immutable string. Callers control its lifetime: O(source length) construction,
+O(line count) retained map and O(log line count) positioning. The returned
+object is frozen and exposes no mutable map or global cache. Range validation
+uses the same structural checks and two indexed lookups. Existing convenience
+interfaces retain their behavior; bulk consumers should reuse a per-file index.
+The opt-in `pnpm bench:positions` compares 3,000 lookups and 3,000 validations
+on deterministic 100/6,000-line CRLF/Unicode inputs, including index
+construction in the indexed total. It checks results against TypeScript outside
+timing, warms 25 lookups, repeats three times and reports individual timings,
+medians, dataset hashes, environment and Git state. Small/large synthetic
+improvements justify the explicit indexed bulk API; no ingestion pipeline exists
+here to measure. Raw measurements belong to review evidence, not fixed CI
+budgets.
+
 ### Content-addressed cache
 
 The cache root is outside analyzed checkouts and synchronized working folders by
@@ -685,6 +700,18 @@ raw plans/results outside canonical docs.
 
 ## 9. Security, migration and compatibility risks
 
+- Native pnpm 12.16.1 audit reads the project portion of the multi-document
+  lockfile. `security:check` is a separate network-dependent CI step; a service
+  failure is unavailable security evidence, while an advisory finding is a
+  dependency vulnerability. Neither is suppressed or converted to success. Three
+  exact parent-scoped minimatch 11.0.1 overrides address
+  [GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249)
+  through ESLint 10.14.0, config-array 0.23.5 and typescript-estree 8.72.1.
+  These parents request major 10: the deliberate major-version substitution
+  remains a compatibility risk despite public-consumer glob/parser regressions,
+  full checks and strict engine/peer installation. Reassess/remove overrides
+  when parents accept a patched release. Application exploitability has not been
+  demonstrated; this is development-tool exposure.
 - Keep PostgreSQL/API local by default. The future HTTP boundary must protect
   against cross-origin requests, DNS rebinding and unauthorized local source
   reads; loopback binding by itself is insufficient. Team authentication/tenancy

@@ -98,15 +98,19 @@ export const sourceRangeSchema = z
     }
   });
 export type SourceRange = z.infer<typeof sourceRangeSchema>;
+export type SourcePosition = z.infer<typeof sourcePositionSchema>;
+
+function assertOffset(length: number, offset: number): void {
+  if (!Number.isInteger(offset) || offset < 0 || offset > length)
+    throw new RangeError('Offset is outside the UTF-16 source');
+}
 
 /** Positions follow TypeScript's UTF-16 line map; CRLF is one line break. */
 export function positionAt(
   source: string,
   offset: number,
 ): z.infer<typeof sourcePositionSchema> {
-  if (!Number.isInteger(offset) || offset < 0 || offset > source.length) {
-    throw new RangeError('Offset is outside the UTF-16 source');
-  }
+  assertOffset(source.length, offset);
   let line = 1;
   let lineStart = 0;
   for (let index = 0; index < source.length; index++) {
@@ -132,14 +136,60 @@ export function validateSourceRange(
   source: string,
   range: SourceRange,
 ): boolean {
-  if (
-    !sourceRangeSchema.safeParse(range).success ||
-    range.end.offset > source.length
-  )
+  return rangeMatches(
+    source.length,
+    (offset) => positionAt(source, offset),
+    range,
+  );
+}
+
+function rangeMatches(
+  length: number,
+  at: (offset: number) => SourcePosition,
+  range: SourceRange,
+): boolean {
+  if (!sourceRangeSchema.safeParse(range).success || range.end.offset > length)
     return false;
   return [range.start, range.end].every((position) => {
-    const actual = positionAt(source, position.offset);
+    const actual = at(position.offset);
     return actual.line === position.line && actual.column === position.column;
+  });
+}
+
+export type SourcePositionIndex = Readonly<{
+  positionAt: (offset: number) => SourcePosition;
+  validateRange: (range: SourceRange) => boolean;
+}>;
+
+/** One immutable text, one private line map; ownership and lifetime belong to the caller. */
+export function createSourcePositionIndex(source: string): SourcePositionIndex {
+  const starts = [0];
+  for (let index = 0; index < source.length; index++) {
+    const character = source.charCodeAt(index);
+    if (character === 13 && source.charCodeAt(index + 1) === 10) index++;
+    if (
+      character === 13 ||
+      character === 10 ||
+      character === 0x2028 ||
+      character === 0x2029
+    )
+      starts.push(index + 1);
+  }
+  function at(offset: number): SourcePosition {
+    assertOffset(source.length, offset);
+    let low = 0,
+      high = starts.length;
+    while (low + 1 < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (starts[middle]! <= offset) low = middle;
+      else high = middle;
+    }
+    return { offset, line: low + 1, column: offset - starts[low]! + 1 };
+  }
+  return Object.freeze({
+    positionAt: at,
+    validateRange: (range: SourceRange) =>
+      rangeMatches(source.length, at, range),
   });
 }
 

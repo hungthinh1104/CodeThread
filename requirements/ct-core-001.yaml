@@ -15,6 +15,12 @@ acceptance:
   - id: AC-02
     given: 'An unsupported tool or dependency combination'
     then: 'Setup fails explicitly rather than weakening version or peer checks.'
+  - id: AC-03
+    given: 'An online dependency security check'
+    then:
+      'Native pinned pnpm audit checks the project lockfile without advisory
+      suppression; service failures are reported separately from findings and
+      deterministic checks remain usable offline.'
 depends_on: []
 verification:
   method: automated
