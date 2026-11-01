@@ -2,8 +2,8 @@ id: CT-DB-012
 title: 'Bounded deterministic queries'
 module: contracts
 statement: >
-  The six primary read contracts and graph traversal shall be snapshot-scoped,
-  deterministic and bounded with explicit truncation.
+  Source/evidence, graph and optional test read contracts shall be
+  snapshot-scoped, deterministic and bounded with explicit truncation.
 lifecycle: accepted
 priority: must
 acceptance:
@@ -20,6 +20,16 @@ acceptance:
     then:
       'The result reports truncation without fabricated or dangling graph
       endpoints.'
+  - id: AC-04
+    given: 'A paginated or graph result and its original request'
+    then:
+      'Request-aware validation checks continuation, ordering, roots, direction
+      and bounds without guessing missing context.'
+  - id: AC-05
+    given: Versioned capability coverage and response truncation metadata
+    then:
+      Not-analyzed, unsupported, partial and complete coverage agree with the
+      aggregate while remaining distinct from resolution and truncation.
 depends_on:
   - CT-DB-002
   - CT-DB-005

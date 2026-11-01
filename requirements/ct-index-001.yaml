@@ -1,0 +1,38 @@
+id: CT-INDEX-001
+title: Bounded semantic proof
+module: symbol-indexer
+statement: >
+  The next in-memory semantic proof shall connect selected TypeScript symbols to
+  supported cross-file relationships and exact source evidence without
+  persistence.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: An immutable source manifest and a selected symbol
+    then:
+      Supported declarations, imports, references and direct calls have
+      deterministic occurrence identities and source evidence.
+  - id: AC-02
+    given: Dynamic, ambiguous, missing or unsupported targets
+    then:
+      Diagnostics and coverage retain uncertainty without fabricated exact
+      relationships.
+  - id: AC-03
+    given: A semantic evaluation
+    then:
+      Source-pinned annotations independent of analyzer output define precision,
+      recall and unresolved-rate denominators.
+  - id: AC-04
+    given: Untrusted source or a resource limit
+    then:
+      A bounded virtual compiler host reads only supplied files and pinned
+      compiler libraries and never executes target code or installs
+      dependencies.
+depends_on:
+  - CT-CORE-004
+  - CT-CORE-005
+  - CT-DB-005
+  - CT-DB-007
+verification:
+  method: mixed

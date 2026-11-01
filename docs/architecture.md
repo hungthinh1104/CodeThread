@@ -7,9 +7,10 @@ after DB-01 approval. Requirement lifecycle is not execution status.
 
 ## 1. Product and ownership
 
-The investigation flow is repository revision → test → setup/actions/mocks/
-conditions/assertions → production links → exact source and provenance. Reverse
-navigation begins at a production symbol and returns supporting test behavior.
+The investigation flow is repository revision → source file/module/symbol or
+supported entry point → supported relationships → related declarations → exact
+source and provenance. No test is required. Optional test analysis adds
+behavior, setup/actions/mocks/conditions/assertions and code-to-test navigation.
 Linear and graphical views consume the same projection. Independent evaluation
 compares IDE baseline, textual trace and an information-equivalent visual trace.
 No comprehension benefit is claimed by implementation tests.
@@ -22,12 +23,15 @@ Current packages:
 | contracts          | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
 | Foundation scripts | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
 
-Future dependency direction is transport → application orchestration → semantic
-modules. Symbol/test indexers produce code-model facts; trace-engine consumes
-facts, not framework AST internals. Database owns adapters, not semantic rules.
-API uses contracts rather than exposing Drizzle rows. UI uses contracts/API
-rather than the database. No Next.js backend duplicates Fastify/application
-rules.
+Data flows from source ingestion/semantic extraction → code model →
+tracing/query behavior → transport/presentation. Code dependencies point from
+consumers toward the framework-independent model; the model never imports its
+extractors. Future code dependency direction is transport → application
+orchestration → semantic modules. Symbol/test indexers produce code-model facts;
+trace-engine consumes facts, not framework AST internals. Database owns
+adapters, not semantic rules. API uses contracts rather than exposing Drizzle
+rows. UI uses contracts/API rather than the database. No Next.js backend
+duplicates Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -62,14 +66,21 @@ site with diagnostics, not converted into an exact edge.
 **SourceEvidence:** a typed, extractor-attributed span in immutable source
 bytes. It supports a fact without proving the fact executed.
 
-**Coverage:** complete, partial or unsupported relative to a versioned declared
-capability and source scope. Complete does not mean all language behavior is
-known.
+**Coverage:** complete, partial, not_analyzed or unsupported relative to a
+versioned declared capability and source scope. Complete does not mean all
+language behavior is known.
 
 **TestStep:** syntax/semantic information attached to one test, including
 contextual hooks. Its phase and syntax ordinal do not establish runtime order.
 
 ## 3. Conceptual and logical models
+
+RepositorySnapshot, SourceFile, CodeSymbol, CodeRelation, SourceEvidence and
+Diagnostic form the code-comprehension core. TestCase/TestStep/TestCodeLink are
+an optional extension. Existing test-oriented read projections remain reusable;
+they are not the sole future investigation API. The logical database proposal
+remains unimplemented and must be reviewed against the semantic proof before
+DB-02.
 
 ```mermaid
 erDiagram
@@ -315,8 +326,10 @@ use FK(snapshot_id,declaration_evidence_id,file_id), and Diagnostic's optional
 evidence uses the equivalent scoped file reference. A snapshot's writer job must
 belong to its repository; a staging writer cannot borrow another repository's
 job or epoch. Primary diagnostic references are scoped, while additional file
-diagnostics are retrieved independently. Initial symbol/step evidence arrays
-project their single authoritative declaration/source reference; relation/link
+diagnostics are retrieved independently. Symbol/step evidence arrays include
+their explicit primary declaration/source reference and may include auxiliary
+evidence from other files. Primary anchors and call sites have file/range
+checks; auxiliary evidence is not forced into the primary file. Relation/link
 attachments are plural.
 
 ## 4. Identity, source and evidence conventions
@@ -365,6 +378,21 @@ bytes or graphemes. The executable position validator is cross-checked against
 TypeScript's API. Standalone range schemas validate shape; only content-aware
 validation and hash verification establish agreement with a particular immutable
 file.
+
+`createSourcePositionIndex(source)` owns a private line-start array for one
+immutable string. Callers control its lifetime: O(source length) construction,
+O(line count) retained map and O(log line count) positioning. The returned
+object is frozen and exposes no mutable map or global cache. Range validation
+uses the same structural checks and two indexed lookups. Existing convenience
+interfaces retain their behavior; bulk consumers should reuse a per-file index.
+The opt-in `pnpm bench:positions` compares 3,000 lookups and 3,000 validations
+on deterministic 100/6,000-line CRLF/Unicode inputs, including index
+construction in the indexed total. It checks results against TypeScript outside
+timing, warms 25 lookups, repeats three times and reports individual timings,
+medians, dataset hashes, environment and Git state. Small/large synthetic
+improvements justify the explicit indexed bulk API; no ingestion pipeline exists
+here to measure. Raw measurements belong to review evidence, not fixed CI
+budgets.
 
 ### Content-addressed cache
 
@@ -530,6 +558,63 @@ are independent. Per-site resolution remains visible. Response validation
 rejects cross-snapshot entities, dangling graph endpoints, missing supporting
 trace references, incorrect test ownership and cyclic step containment.
 
+### Result validation boundaries and 0.0.0 compatibility
+
+Public root exports are preserved. Intrinsic schemas now live in `schemas.ts`;
+request-aware result checks live in `results.ts`, sharing typed integrity
+checks. No package or runtime dependency cycle is introduced.
+
+Repository-local consumers must supply the new required fields:
+CodeSymbol.declarationEvidenceId, TestStep.sourceEvidenceId, Diagnostic.filePath
+(nullable with fileId), and QueryMeta.coverageByCapability. UUIDs normalize to
+lowercase; paths and canonical keys preserve their original case. Primary
+evidence IDs must appear in supporting evidence arrays. Declarations match their
+evidence file/range; call sites are contained by their owning declaration or
+step. Evidence for one file cannot claim different content hashes or paths in a
+projection.
+
+coverageByCapability has one to thirty-two versioned keys, such as
+declarations.v1, relationships.v1 and optional test_behavior.v1. States are
+complete, partial, not_analyzed and unsupported. If every capability has the
+same state, aggregate coverage is that state; otherwise it is partial.
+Truncation remains independent, and relation resolution remains
+exact/ambiguous/unresolved/unsupported. These metadata checks do not
+independently prove that an extractor's classifications are true; the future
+semantic evaluator supplies that evidence.
+
+Consumers with a request must use parseListTestsResult,
+parseRelatedProductionSymbolsResult, parseFindTestsForSymbolResult,
+parseGetDiagnosticsResult, parseGetTestTraceResult,
+parseGetSourceEvidenceResult, parseGraphNeighborsResult or
+parseFindSymbolPathsResult. These parse the request and response and reject
+mismatched snapshots, selections or applied limits. Related/reverse parsers
+additionally require bounded supporting steps (≤1000) and evidenceRefs (≤5000),
+checking ownership, known containment cycles and call sites. Generic schemas
+intentionally do not guess unavailable request-specific context.
+
+Paged results strictly advance from the incoming cursor using UTF-8 byte order
+for paths/keys and numeric UTF-16 offsets. A continuation must match the
+normalized request scope/filter and the final returned tuple. Diagnostic
+ordering uses its explicit path, or empty path/offset zero for source-free
+diagnostics. These guards prevent invalid pagination positions; complete SQL
+query coverage remains DB-03 verification work.
+
+Neighbor result validation uses bounded breadth-first reachability in the
+requested direction. Edges come from an expanded frontier (distance < applied
+depth); unknown targets supply no adjacency and are retained only as
+outgoing/bidirectional sites. Returned path graphs contain the union of their
+simple directed paths plus roots, not unrelated visited components. Empty paths
+still require valid roots. Cycles are valid neighbor graph data; parallel call
+occurrences remain separate records. Truncation never authorizes dangling
+endpoints or disconnected returned remnants.
+
+Source batches return exactly the requested IDs in request order, including
+typed unavailability. Structural validation, matching excerpt length and
+consistent metadata do not authenticate source bytes. The future source adapter
+must verify raw hashes, UTF-8 and immutable cache identity before returning
+available excerpts. No source adapter, SQL query implementation or runtime
+observation exists here.
+
 | Contract                    | Inputs/defaults                                                                    | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ListTests                   | Snapshot, optional text/filePath/suite filters; limit 50, max 200; cursor          | Select tests joined to declaration evidence/files within one published snapshot. Text is a bounded literal case-insensitive substring, with LIKE metacharacters escaped; suite filter is an exact suite-path component. Order path COLLATE C, start_utf16, canonical_key. Fetch limit+1 for continuation.                                                                              |
@@ -615,6 +700,18 @@ raw plans/results outside canonical docs.
 
 ## 9. Security, migration and compatibility risks
 
+- Native pnpm 12.16.1 audit reads the project portion of the multi-document
+  lockfile. `security:check` is a separate network-dependent CI step; a service
+  failure is unavailable security evidence, while an advisory finding is a
+  dependency vulnerability. Neither is suppressed or converted to success. Three
+  exact parent-scoped minimatch 11.0.1 overrides address
+  [GHSA-g3hv-75wg-m249](https://github.com/isaacs/minimatch/security/advisories/GHSA-g3hv-75wg-m249)
+  through ESLint 10.14.0, config-array 0.23.5 and typescript-estree 8.72.1.
+  These parents request major 10: the deliberate major-version substitution
+  remains a compatibility risk despite public-consumer glob/parser regressions,
+  full checks and strict engine/peer installation. Reassess/remove overrides
+  when parents accept a patched release. Application exploitability has not been
+  demonstrated; this is development-tool exposure.
 - Keep PostgreSQL/API local by default. The future HTTP boundary must protect
   against cross-origin requests, DNS rebinding and unauthorized local source
   reads; loopback binding by itself is insufficient. Team authentication/tenancy
@@ -665,9 +762,9 @@ They are not simulated measurements or claims of implemented persistence.
 Foundation acceptance is a frozen clean-clone installation, formatting/lint,
 registry validation, boundary checks, build, typecheck and focused regressions.
 Prepared Windows/Linux Actions workflows do not constitute hosted CI evidence.
-The clean local candidate clone has its own temporary commit identity and is not
-a remote revision. Schema tests do not establish PostgreSQL, analyzer or study
-correctness.
+Always report the exact tested revision and distinguish local clone checks from
+hosted results, even when they use the same SHA. Schema tests do not establish
+PostgreSQL, analyzer or study correctness.
 
 DB-01 is ready for user review when this model, dictionary, invariant ownership,
 query contracts, source lifecycle, worked failures, workload method and two
@@ -696,3 +793,59 @@ After explicit approval, the first DB-02 task is:
 
 Do not begin a full backend until DB-06 passes its agreed evidence gate.
 Frontend and optional AI remain later phases.
+
+## 12. Next semantic vertical slice — handoff only
+
+ADR-0003 permits this bounded in-memory proof before DB-02. This section
+specifies future work; no scanner, ingestion adapter, service or UI is
+implemented here.
+
+Input is an immutable UTF-8 file manifest with raw hashes, snapshot identity,
+explicit validated compiler options and a selected file/module/symbol anchor.
+Output is canonical declarations, occurrence-level imports/references/direct
+calls, source evidence, explicit resolution diagnostics, capability coverage and
+a bounded graph rooted at the selection. Existing graph contracts are reusable
+without a test.
+
+Initial syntax covers local cross-file imports, aliases/re-exports, function
+declarations and uniquely resolvable direct calls. Dynamic receivers,
+reflection, missing dependencies, declaration-merging ambiguities and
+unsupported framework behavior remain diagnosed; names alone never establish
+targets. Analyze test files as ordinary TypeScript unless the optional test
+capability is explicitly selected.
+
+A virtual Compiler API host reads only supplied immutable files and pinned
+compiler-owned libraries. Do not execute source/configuration modules,
+repository scripts or tests, install target dependencies, read ambient
+node_modules, or fall back to modified working-tree files. Paths, encodings and
+hashes are validated before analysis. The input contract includes limits and
+cancellation policy.
+
+Initial safety limits are twenty files, 256 KiB per file, 2 MiB total input,
+2,000 declarations, 5,000 relationship sites, a ten-second harness deadline and
+a 512 MiB Node heap ceiling. These are proof-of-concept safety limits, not
+scalability SLAs. The isolated verification harness enforces process limits
+without adding a worker service. Exceeding a limit fails or explicitly truncates
+the declared capability.
+
+Ground truth consists of source-pinned fixture repositories with manually
+authored occurrence-level declarations, targets, unresolved cases and evidence
+anchors. Include imports/re-exports, repeated calls, cycles, ambiguous/dynamic
+calls, CRLF and Unicode, unsupported input and cross-file source. Expected
+annotations must not be generated from analyzer output. Record actual
+authorship/review status; unreviewed annotations are not independently reviewed
+evidence.
+
+Measure precision as correct exact occurrence predictions / all exact
+predictions; recall as recovered supported resolvable gold occurrences / all
+such gold occurrences; unresolved rate as unresolved/ambiguous supported sites /
+analyzed supported sites. Report unsupported and not-analyzed sites separately
+and expose denominators. A zero denominator is unavailable, not a perfect score.
+Compare canonical keys, targets, locations, evidence hashes, diagnostics and
+sorted output across repeated runs; storage UUID assignment does not substitute
+for canonical identity determinism. Preserve multiple sites sharing endpoints.
+
+Acceptance is selecting a symbol, following a supported cross-file relation and
+opening exact source evidence with explicit unknowns. It does not establish
+runtime execution, general extraction accuracy or developer comprehension
+effectiveness.

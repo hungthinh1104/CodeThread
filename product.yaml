@@ -1,20 +1,27 @@
 name: CodeThread
 thesis_title: Code Comprehension Enhancement using Visual Test Trace
 north_star:
-  Help developers understand unfamiliar source through evidence-backed test
-  traces.
+  Help developers understand unfamiliar source and software systems through
+  evidence-backed code relationships and bounded interactive tracing.
 audience: A single developer investigating a local repository.
 v0:
   source: Committed local Git revisions retained in a verified local cache.
   language: TypeScript
-  tests: Jest
-  production: TypeScript and supported NestJS patterns.
+  optional_test_analysis: Jest behavior can provide supporting evidence.
+  framework_extensions:
+    Supported NestJS patterns may enrich generic TypeScript facts.
   evidence: Static source facts with explicit resolution and coverage.
   navigation:
-    - Test to behavior, production symbols, source, and provenance.
-    - Production symbol to related tests and behavior.
+    - Source file, module, symbol, or supported entry point to related code and
+      exact evidence.
+    - Symbol to supported references, dependencies, calls, and cross-file
+      declarations.
+    - Optional test to behavior and code, or code to related tests.
   presentation: Equivalent textual and interactive visual traces.
 research:
+  title_role:
+    The official thesis title is academic metadata, not a mandatory product
+    entry path.
   questions:
     - Accuracy and time compared with conventional source inspection.
     - Additional value of visualization over equivalent textual information.
@@ -38,3 +45,7 @@ first_batch:
   deliverables: [Foundation, DB-01]
   stop_before: DB-02
   approval: Explicit user approval is required before DB-02.
+next_semantic_proof:
+  persistence: None; a bounded in-memory Compiler API proof precedes DB-02.
+  authorization:
+    Handoff only in this remediation; implementation is a separate task.

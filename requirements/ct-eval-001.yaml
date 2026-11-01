@@ -8,7 +8,7 @@ lifecycle: accepted
 priority: must
 acceptance:
   - id: AC-01
-    given: 'A comprehension study'
+    given: 'A code-comprehension study with optional test-supported tasks'
     then:
       'Correctness, time, unsupported conclusions, confidence calibration and
       usability are collected with provenance.'
