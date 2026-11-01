@@ -16,3 +16,8 @@ Annotations enumerate call sites independently of the implementation. A source
 hash, explicit range and expected result must agree before evaluation. An
 unsupported site must never count as an exact relationship. Invalid input and
 resource-limit cases are exercised separately from semantic accuracy.
+
+`determinism.json` is a generated checksum of the whole canonical output for
+cross-platform comparison. It is not an expected semantic label. Update it only
+after reviewing an intentional analyzer/build-identity change and rerunning the
+independent gold evaluation.

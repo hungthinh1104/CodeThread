@@ -28,7 +28,8 @@ export function extractFacts(
       ),
     );
   let declarationCount = 0,
-    callCount = 0;
+    callCount = 0,
+    decoratorCount = 0;
   for (const file of sourceFiles) {
     const stack: ts.Node[] = [file];
     while (stack.length) {
@@ -49,6 +50,12 @@ export function extractFacts(
           ok: false,
           code: 'RESOURCE_LIMIT',
           message: 'Relationship site limit exceeded',
+        };
+      if (ts.isDecorator(node) && ++decoratorCount > 10000)
+        return {
+          ok: false,
+          code: 'RESOURCE_LIMIT',
+          message: 'Unsupported syntax limit exceeded',
         };
       ts.forEachChild(node, (child) => {
         stack.push(child);
@@ -110,6 +117,12 @@ export function extractFacts(
         filePath: source.path,
         range: { start: index.positionAt(start), end: index.positionAt(end) },
       });
+      if (diagnostics.length > 10000)
+        return {
+          ok: false,
+          code: 'RESOURCE_LIMIT',
+          message: 'Compiler diagnostic limit exceeded',
+        };
     }
     ranges.sort((a, b) => a.start - b.start || a.end - b.end);
     let maximum = -1;
@@ -246,6 +259,26 @@ export function extractFacts(
   for (const file of sourceFiles) {
     const source = files.get(file.fileName)!;
     function visit(node: ts.Node, inheritedOwner?: CodeSymbol): void {
+      if (ts.isDecorator(node)) {
+        const anchor = evidence(file, node.getStart(file), node.end);
+        const code = 'DECORATOR_UNSUPPORTED';
+        diagnostics.push({
+          snapshotId: base.snapshotId,
+          id: identity('diagnostic', [
+            base.snapshotId,
+            source.id,
+            anchor.range.start.offset,
+            anchor.range.end.offset,
+            code,
+          ]),
+          code,
+          severity: 'warning',
+          message: code,
+          fileId: source.id,
+          filePath: source.path,
+          range: anchor.range,
+        });
+      }
       if (ts.isCallExpression(node)) {
         const site = evidence(file, node.getStart(file), node.end);
         const owner = inheritedOwner;
@@ -325,6 +358,11 @@ export function extractFacts(
           functionDeclarations.some((entry) => !entry.body)
         )
           unsupportedReason = 'OVERLOAD_UNSUPPORTED';
+        if (
+          functionDeclarations.length > 0 &&
+          functionDeclarations.every((entry) => !entry.body)
+        )
+          unsupportedReason ??= 'CALL_TARGET_UNSUPPORTED';
         const declaration =
           symbol?.declarations?.length === 1 &&
           ts.isFunctionDeclaration(symbol.declarations[0]!)
@@ -522,13 +560,16 @@ export function extractFacts(
         )
           ? 'partial'
           : counts.unsupported > 0
-            ? counts.exact + counts.unresolved > 0
+            ? counts.exact + counts.unresolved + counts.ambiguous > 0
               ? 'partial'
               : 'unsupported'
             : 'complete',
         'imports.v1': 'not_analyzed',
         'references.v1': 'not_analyzed',
         'test_behavior.v1': 'not_analyzed',
+        'decorators.v1': decoratorCount > 0 ? 'unsupported' : 'not_analyzed',
+        'framework_wiring.v1': 'not_analyzed',
+        'constructors.v1': 'not_analyzed',
       },
     },
   };

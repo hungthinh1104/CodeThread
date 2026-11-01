@@ -26,5 +26,7 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Semantic fixture evaluation
+        run: pnpm --silent eval:semantic
       - name: Dependency security audit (requires advisory service)
         run: pnpm security:check

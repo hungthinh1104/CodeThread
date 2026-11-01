@@ -36,3 +36,7 @@ depends_on:
   - CT-DB-007
 verification:
   method: mixed
+  description: >
+    CT-INDEX-001A verifies a bounded named-function/direct-call subset against
+    source-pinned authored annotations; independent review and the broader
+    import/reference occurrence capabilities remain separate evidence.

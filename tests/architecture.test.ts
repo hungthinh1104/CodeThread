@@ -75,4 +75,26 @@ describe('CT-CORE-003 architecture boundaries', () => {
     deep.exports['./internal'] = './src/internal.ts';
     expect(checkArchitecture([deep]).join(' ')).toContain('public root');
   });
+  it('keeps compiler extraction and filesystem access out of the trace engine', () => {
+    const directory = resolve('packages/trace-engine');
+    const trace: PackageInput = {
+      name: '@codethread/trace-engine',
+      directory,
+      dependencies: {
+        '@codethread/code-model': 'workspace:*',
+        '@codethread/contracts': 'workspace:*',
+        typescript: '6.0.3',
+      },
+      exports: { '.': './dist/index.js' },
+      sources: [
+        {
+          path: resolve(directory, 'src/index.ts'),
+          content: "import 'typescript'; import 'node:fs';",
+        },
+      ],
+    };
+    const errors = checkArchitecture([core(), contracts(), trace]).join(' ');
+    expect(errors).toContain('forbidden dependency typescript');
+    expect(errors).toContain('forbidden import node:fs');
+  });
 });

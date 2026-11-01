@@ -18,6 +18,7 @@
     "security:check": "pnpm audit --audit-level=low",
     "bench:positions": "node scripts/benchmark-source-positions.ts",
     "demo:semantic": "node scripts/demo-semantic.ts",
+    "eval:semantic": "node scripts/eval-semantic.ts",
     "arch:check": "node scripts/architecture.ts",
     "req:validate": "node scripts/requirements.ts validate",
     "req:list": "node scripts/requirements.ts list",

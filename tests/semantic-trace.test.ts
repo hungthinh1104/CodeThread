@@ -89,12 +89,43 @@ describe('CT-INDEX-001A in-memory code investigation', () => {
       expect.objectContaining({ code: 'HASH_MISMATCH' }),
     );
   });
+  it('never exposes a mutable view of retained source bytes', () => {
+    const relation = snapshot.facts.relations.find(
+      (item) =>
+        item.sourceSymbolId ===
+        snapshot.facts.symbols.find((symbol) => symbol.name === 'start')!.id,
+    )!;
+    const evidence = snapshot.facts.evidenceRefs.find(
+      (item) => item.id === relation.siteEvidenceId,
+    )!;
+    const copy = snapshot.source.readFile(evidence.fileId)!;
+    copy.fill(0);
+    expect(snapshot.source.readEvidence(evidence.id)).toMatchObject({
+      status: 'available',
+      text: 'alias()',
+    });
+  });
   it('rejects a relation that omits its source or target declaration evidence', () => {
     const changed = structuredClone(snapshot.facts);
     const relation = changed.relations.find(
       (item) => item.resolution.status === 'exact',
     )!;
     relation.resolution.evidenceIds = [relation.siteEvidenceId];
+    expect(() => createInvestigation(changed, snapshot.source)).toThrowError(
+      expect.objectContaining({ code: 'INVALID_FACTS' }),
+    );
+  });
+  it('rejects valid coordinates attached to the wrong declaration range', () => {
+    const changed = structuredClone(snapshot.facts);
+    const start = changed.symbols.find(
+      (item) => item.filePath === 'a.ts' && item.name === 'start',
+    )!;
+    const local = changed.symbols.find(
+      (item) => item.filePath === 'a.ts' && item.name === 'local',
+    )!;
+    changed.evidenceRefs.find(
+      (item) => item.id === start.declarationEvidenceId,
+    )!.range = local.range;
     expect(() => createInvestigation(changed, snapshot.source)).toThrowError(
       expect.objectContaining({ code: 'INVALID_FACTS' }),
     );

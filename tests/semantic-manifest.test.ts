@@ -5,6 +5,46 @@ import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 const repositoryId = '00000000-0000-4000-8000-000000000001';
 
 describe('CT-INDEX-001A immutable manifest boundary', () => {
+  it('treats a top-level throw as source data without executing it', async () => {
+    const bytes = new TextEncoder().encode(
+      "throw new Error('source was executed');\nexport function f() {}\n",
+    );
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'source.ts',
+          bytes,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    });
+    expect(result.facts.symbols.map((item) => item.name)).toEqual(['f']);
+  }, 15000);
+  it('clears inherited Node injection settings from the compiler child', async () => {
+    const previous = process.env['NODE_OPTIONS'];
+    process.env['NODE_OPTIONS'] =
+      '--require=./codethread-nonexistent-injection.js';
+    try {
+      const bytes = new TextEncoder().encode('export const value = 1;');
+      const result = await analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        files: [
+          {
+            path: 'source.ts',
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          },
+        ],
+      });
+      expect(result.facts.files).toHaveLength(1);
+    } finally {
+      if (previous === undefined) delete process.env['NODE_OPTIONS'];
+      else process.env['NODE_OPTIONS'] = previous;
+    }
+  }, 15000);
   it('reports a real heap exhaustion when the caller requests a lower ceiling', async () => {
     const bytes = new TextEncoder().encode(
       Array.from(
@@ -48,8 +88,32 @@ describe('CT-INDEX-001A immutable manifest boundary', () => {
       }),
     ).rejects.toMatchObject({ code: 'ANALYSIS_TIMEOUT' });
   }, 15000);
+  it('interrupts a real compiler child when a bounded analysis exceeds its deadline', async () => {
+    const bytes = new TextEncoder().encode(
+      Array.from(
+        { length: 1000 },
+        (_, index) => `export function f${index}() {}\n`,
+      ).join(''),
+    );
+    await expect(
+      analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        deadlineMs: 100,
+        files: [
+          {
+            path: 'source.ts',
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'ANALYSIS_TIMEOUT' });
+  }, 15000);
   it('copies the caller buffer before asynchronous compilation', async () => {
-    const bytes = new TextEncoder().encode('export const answer = 42;\n');
+    const bytes = new TextEncoder().encode(
+      'export function answer() { answer(); }\n',
+    );
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const pending = analyzeManifest({
       repositoryId,
@@ -60,6 +124,9 @@ describe('CT-INDEX-001A immutable manifest boundary', () => {
     const result = await pending;
     expect(result.facts.files[0]?.contentHash).toBe(sha256);
     expect(Object.isFrozen(result.facts.files)).toBe(true);
+    expect(
+      result.source.readEvidence(result.facts.relations[0]!.siteEvidenceId),
+    ).toMatchObject({ status: 'available', text: 'answer()' });
   }, 15000);
   it('reports malformed source as a failure, not an empty graph', async () => {
     const bytes = new TextEncoder().encode('export function broken( {');
@@ -110,6 +177,19 @@ describe('CT-INDEX-001A immutable manifest boundary', () => {
         repositoryId,
         compilerOptions: COMPILER_PROFILE,
         files: [{ path: 'large.ts', bytes: new Uint8Array(262145), sha256 }],
+      }),
+    ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
+    const chunk = new Uint8Array(262144);
+    const total = Array.from({ length: 9 }, (_, index) => ({
+      path: `part${index}.ts`,
+      bytes: chunk,
+      sha256,
+    }));
+    await expect(
+      analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        files: total,
       }),
     ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
   });

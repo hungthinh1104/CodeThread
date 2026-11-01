@@ -77,7 +77,10 @@ export function verifyFacts(
   );
   requireFact(Array.isArray(facts.relations) && facts.relations.length <= 5000);
   requireFact(
-    Array.isArray(facts.evidenceRefs) && Array.isArray(facts.diagnostics),
+    Array.isArray(facts.evidenceRefs) &&
+      facts.evidenceRefs.length <= 17000 &&
+      Array.isArray(facts.diagnostics) &&
+      facts.diagnostics.length <= 25000,
   );
   coverageByCapabilitySchema.parse(facts.coverageByCapability);
   unique(facts.files);

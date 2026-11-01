@@ -5,6 +5,7 @@ import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import { loadSemanticCorpus } from '../scripts/semantic-corpus.ts';
 import type { SemanticGold } from '../scripts/semantic-corpus.ts';
+import { semanticFingerprint } from '../scripts/semantic-fingerprint.ts';
 
 const gold = JSON.parse(
   readFileSync(resolve('fixtures/semantic/gold.json'), 'utf8'),
@@ -21,6 +22,12 @@ beforeAll(async () => {
 }, 15000);
 
 describe('CT-INDEX-001A source-pinned semantic gold', () => {
+  it('matches the pinned canonical-output fingerprint across platforms', () => {
+    const expected = JSON.parse(
+      readFileSync(resolve('fixtures/semantic/determinism.json'), 'utf8'),
+    ) as { sha256: string };
+    expect(semanticFingerprint(snapshot.facts)).toBe(expected.sha256);
+  });
   it('matches manually annotated function declaration spans', () => {
     const declarations = snapshot.facts.symbols.map((symbol) => ({
       file: symbol.filePath,

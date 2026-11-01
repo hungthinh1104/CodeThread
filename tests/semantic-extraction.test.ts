@@ -13,6 +13,45 @@ const sourceFile = (path: string, text: string) => {
 };
 
 describe('CT-INDEX-001A semantic extraction', () => {
+  it('reports unsupported decorators even when the decorator is not a call expression', async () => {
+    const source =
+      'function decorate(value: unknown) {}\n@decorate\nclass Thing {}\n';
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('source.ts', source)],
+    });
+    const diagnostic = result.facts.diagnostics.find(
+      (item) => item.code === 'DECORATOR_UNSUPPORTED',
+    );
+    expect(diagnostic).toBeDefined();
+    expect(result.facts.coverageByCapability['decorators.v1']).toBe(
+      'unsupported',
+    );
+    const evidence = result.facts.evidenceRefs.find(
+      (item) =>
+        item.fileId === diagnostic!.fileId &&
+        item.range.start.offset === diagnostic!.range!.start.offset &&
+        item.range.end.offset === diagnostic!.range!.end.offset,
+    )!;
+    expect(result.source.readEvidence(evidence.id)).toMatchObject({
+      status: 'available',
+      text: '@decorate',
+    });
+  }, 15000);
+  it('diagnoses an unavailable triple-slash type dependency without reading ambient types', async () => {
+    const source =
+      '/// <reference types="node" />\nexport function run() { missing(); }\n';
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('source.ts', source)],
+    });
+    expect(result.facts.observations[0]?.status).toBe('unresolved');
+    expect(
+      result.facts.diagnostics.some((item) => item.code === 'TS_2688'),
+    ).toBe(true);
+  }, 15000);
   it('discloses narrow function/call capability separately from broad graph coverage', async () => {
     const result = await analyzeManifest({
       repositoryId,
@@ -110,6 +149,10 @@ describe('CT-INDEX-001A semantic extraction', () => {
   }, 15000);
   it.each([
     ['type-only local symbol', 'interface A {} function run() { A(); }'],
+    [
+      'declaration without implementation',
+      'declare function a(): void; function run() { a(); }',
+    ],
     ['optional invocation', 'function a() {} function run() { a?.(); }'],
     [
       'function expression target',
