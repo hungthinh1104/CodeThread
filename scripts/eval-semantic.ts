@@ -6,15 +6,28 @@ import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import type { AnalysisInput } from '@codethread/symbol-indexer';
 import type { CodeSymbol, SourceRange } from '@codethread/code-model';
 import { loadSemanticCorpus } from './semantic-corpus.ts';
-import type { GoldAnchor, SemanticGold } from './semantic-corpus.ts';
+import type { GoldAnchor, GoldCall, SemanticGold } from './semantic-corpus.ts';
 
 const rate = (numerator: number, denominator: number) => ({
   numerator,
   denominator,
   value: denominator ? numerator / denominator : null,
 });
-const location = (path: string, line: number, column: number) =>
-  JSON.stringify([path, line, column]);
+const location = (
+  path: string,
+  line: number,
+  column: number,
+  end: [number, number],
+) => JSON.stringify([path, line, column, end]);
+const expectedLocation = (call: GoldCall) => {
+  const lines = call.text.split(/\r\n|\r|\n|\u2028|\u2029/);
+  const end: [number, number] =
+    call.end ??
+    (lines.length === 1
+      ? [call.line, call.column + call.text.length]
+      : [call.line + lines.length - 1, lines[lines.length - 1]!.length + 1]);
+  return location(call.file, call.line, call.column, end);
+};
 const anchorKey = (anchor: GoldAnchor) =>
   JSON.stringify([anchor.file, anchor.start, anchor.end]);
 const anchorLabel = (anchor: GoldAnchor) =>
@@ -90,14 +103,13 @@ export function evaluateSemantic(
       file.path,
       span.range.start.line,
       span.range.start.column,
+      [span.range.end.line, span.range.end.column],
     );
     const rows = predicted.get(key);
     if (rows) rows.push(observation);
     else predicted.set(key, [observation]);
   }
-  const expectedLocations = new Set(
-    gold.calls.map((call) => location(call.file, call.line, call.column)),
-  );
+  const expectedLocations = new Set(gold.calls.map(expectedLocation));
   const exactPredictions = facts.observations.filter(
     (item) => item.status === 'exact',
   ).length;
@@ -114,7 +126,7 @@ export function evaluateSemantic(
     actual: string | null;
   }[] = [];
   for (const expected of gold.calls) {
-    const key = location(expected.file, expected.line, expected.column),
+    const key = expectedLocation(expected),
       rows = predicted.get(key) ?? [];
     if (rows.length !== 1) {
       missing++;

@@ -891,3 +891,11 @@ Each gold call's owner and exact target refer to a manually authored declaration
 record by source file and full start/end position. Evaluation verifies those
 anchors, source identity and relation ownership; equal display names or
 analyzer-generated UUIDs do not establish a match.
+
+The external evaluation uses the same bounded manifest and trace interfaces on
+small, byte-pinned subsets of two public repositories. It identifies call
+occurrences by complete spans, including nested calls with a shared start.
+Source selection, licenses, exclusions, questions and pre-prediction labels are
+in `fixtures/external/README.md`; labels have no independent review. Correctness
+and coverage are reported separately per subset. Neither these samples nor
+static paths establish runtime execution or comprehension effectiveness.

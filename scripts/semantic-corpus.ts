@@ -10,6 +10,7 @@ export interface GoldCall {
   file: string;
   line: number;
   column: number;
+  end?: [number, number];
   text: string;
   owner: GoldAnchor | null;
   status: 'exact' | 'unresolved' | 'ambiguous' | 'unsupported';

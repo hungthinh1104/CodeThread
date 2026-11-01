@@ -86,6 +86,12 @@ reported input rejections. The annotations were authored by Codex and have not
 been independently reviewed. A passing sample does not establish general
 TypeScript accuracy or comprehension improvement.
 
+Run `pnpm --silent eval:external` after building to evaluate two small,
+source-pinned public repository subsets and inspect bounded investigation
+results. Their source selection, licenses, pre-prediction annotations and
+investigation questions are in `fixtures/external/README.md`. The labels are not
+independently reviewed, and subset coverage is not repository coverage.
+
 Programmatic consumers provide a repository UUID, the exported
 `COMPILER_PROFILE`, and files containing POSIX paths, raw UTF-8 bytes and
 SHA-256 hashes to `analyzeManifest` from `@codethread/symbol-indexer`. The
