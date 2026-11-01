@@ -11,6 +11,25 @@ import {
 import { id } from './fixtures/trace.ts';
 
 describe('CT-DB-007 source positions', () => {
+  it.each([
+    {
+      start: { offset: 0, line: 1, column: 1 },
+      end: { offset: 10, line: 1, column: 2 },
+    },
+    {
+      start: { offset: 5, line: 1, column: 3 },
+      end: { offset: 6, line: 1, column: 4 },
+    },
+    {
+      start: { offset: 0, line: 3, column: 1 },
+      end: { offset: 1, line: 3, column: 2 },
+    },
+  ])(
+    'rejects coordinates provably inconsistent without source text',
+    (range) => {
+      expect(sourceRangeSchema.safeParse(range).success).toBe(false);
+    },
+  );
   it('agrees with the TypeScript line map for every UTF-16 offset, including CRLF, Unicode separators and surrogate pairs', () => {
     const source =
       '\uFEFFconst face = "😀";\r\nconst café = 1;\n\u2028end\u2029';

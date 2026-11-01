@@ -20,7 +20,14 @@ import {
   relatedProductionSymbolsRequestSchema,
   relatedProductionSymbolsResponseSchema,
 } from '@codethread/contracts';
-import { id, range, snapshotId, traceFixture } from './fixtures/trace.ts';
+import {
+  id,
+  range,
+  snapshotId,
+  traceFixture,
+  sourceExcerpt,
+  secondCallRange,
+} from './fixtures/trace.ts';
 
 describe('CT-DB-012 query inputs and scoped cursors', () => {
   it('applies bounded defaults to all primary requests', () => {
@@ -146,12 +153,9 @@ describe('CT-DB-002 / CT-TRACE-001 shared trace projection', () => {
       resolution: { status: 'exact', targetId: id(8), evidenceIds: [id(13)] },
     });
     trace.evidenceRefs.push({
-      ...trace.evidenceRefs[0]!,
+      ...trace.evidenceRefs.find((item) => item.id === id(10))!,
       id: id(13),
-      range: {
-        start: { offset: 4, line: 1, column: 5 },
-        end: { offset: 7, line: 1, column: 8 },
-      },
+      range: secondCallRange,
     });
     expect(getTestTraceResponseSchema.parse(trace).relations).toHaveLength(2);
     expect(getTestTraceResponseSchema.parse(trace).meta.coverage).toBe(
@@ -186,7 +190,7 @@ describe('CT-DB-002 / CT-TRACE-001 shared trace projection', () => {
     unresolved.links[0]!.resolution = {
       status: 'unresolved',
       targetId: null,
-      evidenceIds: [id(5)],
+      evidenceIds: [id(23)],
       diagnosticIds: [id(14)],
     };
     expect(getTestTraceResponseSchema.safeParse(unresolved).success).toBe(
@@ -199,6 +203,7 @@ describe('CT-DB-002 / CT-TRACE-001 shared trace projection', () => {
       severity: 'warning',
       message: 'No exact target',
       fileId: id(4),
+      filePath: 'example.test.ts',
       range,
     });
     expect(getTestTraceResponseSchema.safeParse(unresolved).success).toBe(true);
@@ -264,7 +269,7 @@ describe('Primary response schemas and bounded traversal', () => {
             status: 'available',
             evidence: trace.evidenceRefs[0],
             filePath: 'example.test.ts',
-            text: 'abc',
+            text: sourceExcerpt,
           },
           {
             status: 'unavailable',
@@ -370,7 +375,7 @@ describe('Primary response schemas and bounded traversal', () => {
             status: 'available',
             evidence: trace.evidenceRefs[0],
             filePath: 'example.test.ts',
-            text: 'abc',
+            text: sourceExcerpt,
           },
           {
             status: 'unavailable',

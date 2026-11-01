@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const idSchema = z.uuid();
+export const idSchema = z.uuid().transform((id) => id.toLowerCase());
 export const hashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 export const canonicalKeySchema = z.string().min(1).max(1024);
 
@@ -19,7 +19,36 @@ export function isSnapshotPath(path: string): boolean {
 export const snapshotPathSchema = z
   .string()
   .refine(isSnapshotPath, 'Unsafe snapshot path');
-export const coverageSchema = z.enum(['complete', 'partial', 'unsupported']);
+export const coverageSchema = z.enum([
+  'complete',
+  'partial',
+  'not_analyzed',
+  'unsupported',
+]);
+export type CoverageStatus = z.infer<typeof coverageSchema>;
+export const coverageByCapabilitySchema = z
+  .record(
+    z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z][a-z0-9_.-]*\.v[1-9][0-9]*$/),
+    coverageSchema,
+  )
+  .refine(
+    (coverage) =>
+      Object.keys(coverage).length >= 1 && Object.keys(coverage).length <= 32,
+    'One to thirty-two versioned capabilities are required',
+  );
+
+export function summarizeCoverage(
+  coverage: Readonly<Record<string, CoverageStatus>>,
+): CoverageStatus {
+  const states = new Set(Object.values(coverage));
+  if (states.size === 0)
+    throw new RangeError('Coverage requires at least one capability');
+  return states.size === 1 ? states.values().next().value! : 'partial';
+}
 export const resolutionStatusSchema = z.enum([
   'exact',
   'ambiguous',
@@ -35,17 +64,29 @@ export const snapshotIdentitySchema = z.strictObject({
 });
 export type SnapshotIdentity = z.infer<typeof snapshotIdentitySchema>;
 
-export const sourcePositionSchema = z.strictObject({
-  offset: z.number().int().nonnegative(),
-  line: z.number().int().positive(),
-  column: z.number().int().positive(),
-});
+export const sourcePositionSchema = z
+  .strictObject({
+    offset: z.number().int().nonnegative(),
+    line: z.number().int().positive(),
+    column: z.number().int().positive(),
+  })
+  .refine(
+    (position) =>
+      position.line <= position.offset + 1 &&
+      position.column <= position.offset - position.line + 2 &&
+      (position.line !== 1 || position.column === position.offset + 1),
+    'Inconsistent absolute source position',
+  );
 export const sourceRangeSchema = z
   .strictObject({ start: sourcePositionSchema, end: sourcePositionSchema })
   .superRefine(({ start, end }, context) => {
     if (
       end.offset < start.offset ||
       end.line < start.line ||
+      (end.line === start.line &&
+        end.offset - start.offset !== end.column - start.column) ||
+      (end.line > start.line &&
+        end.offset - start.offset < end.line - start.line + end.column - 1) ||
       (end.line === start.line && end.column < start.column) ||
       (end.offset === start.offset &&
         (end.line !== start.line || end.column !== start.column))
@@ -149,25 +190,31 @@ const entityFields = {
   id: idSchema,
   key: canonicalKeySchema,
 };
-export const symbolSchema = z.strictObject({
-  ...entityFields,
-  fileId: idSchema,
-  filePath: snapshotPathSchema,
-  name: z.string().min(1).max(1024),
-  kind: z.enum([
-    'function',
-    'method',
-    'class',
-    'constructor',
-    'field',
-    'interface',
-    'type',
-    'variable',
-    'module',
-  ]),
-  range: sourceRangeSchema,
-  evidenceIds,
-});
+export const symbolSchema = z
+  .strictObject({
+    ...entityFields,
+    fileId: idSchema,
+    filePath: snapshotPathSchema,
+    name: z.string().min(1).max(1024),
+    kind: z.enum([
+      'function',
+      'method',
+      'class',
+      'constructor',
+      'field',
+      'interface',
+      'type',
+      'variable',
+      'module',
+    ]),
+    range: sourceRangeSchema,
+    declarationEvidenceId: idSchema,
+    evidenceIds,
+  })
+  .refine(
+    (symbol) => symbol.evidenceIds.includes(symbol.declarationEvidenceId),
+    'Declaration evidence must support the symbol',
+  );
 export const testCaseSchema = z
   .strictObject({
     ...entityFields,
@@ -185,29 +232,35 @@ export const testCaseSchema = z
     'Non-parameterized test has a case key',
   );
 
-export const testStepSchema = z.strictObject({
-  ...entityFields,
-  testId: idSchema,
-  parentStepId: idSchema.nullable(),
-  kind: z.enum([
-    'setup',
-    'input',
-    'action',
-    'mock',
-    'assertion',
-    'condition',
-    'teardown',
-  ]),
-  phase: z.enum([
-    'beforeAll',
-    'beforeEach',
-    'testBody',
-    'afterEach',
-    'afterAll',
-  ]),
-  syntaxOrdinal: z.number().int().nonnegative(),
-  evidenceIds,
-});
+export const testStepSchema = z
+  .strictObject({
+    ...entityFields,
+    testId: idSchema,
+    parentStepId: idSchema.nullable(),
+    kind: z.enum([
+      'setup',
+      'input',
+      'action',
+      'mock',
+      'assertion',
+      'condition',
+      'teardown',
+    ]),
+    phase: z.enum([
+      'beforeAll',
+      'beforeEach',
+      'testBody',
+      'afterEach',
+      'afterAll',
+    ]),
+    syntaxOrdinal: z.number().int().nonnegative(),
+    sourceEvidenceId: idSchema,
+    evidenceIds,
+  })
+  .refine(
+    (step) => step.evidenceIds.includes(step.sourceEvidenceId),
+    'Source evidence must support the step',
+  );
 export const codeRelationSchema = z
   .strictObject({
     ...entityFields,
@@ -249,9 +302,20 @@ export const diagnosticSchema = z
     severity: z.enum(['info', 'warning', 'error']),
     message: z.string().min(1).max(4096),
     fileId: idSchema.nullable(),
+    filePath: snapshotPathSchema.nullable(),
     range: sourceRangeSchema.nullable(),
   })
   .refine(
-    (diagnostic) => diagnostic.range === null || diagnostic.fileId !== null,
-    'A source range requires a file',
+    (diagnostic) =>
+      (diagnostic.range === null || diagnostic.fileId !== null) &&
+      (diagnostic.fileId === null) === (diagnostic.filePath === null),
+    'Diagnostic source coordinates require a consistent file and path',
   );
+
+export type CodeSymbol = z.infer<typeof symbolSchema>;
+export type CodeRelation = z.infer<typeof codeRelationSchema>;
+export type SourceEvidence = z.infer<typeof sourceEvidenceSchema>;
+export type TestCase = z.infer<typeof testCaseSchema>;
+export type TestStep = z.infer<typeof testStepSchema>;
+export type TestCodeLink = z.infer<typeof testCodeLinkSchema>;
+export type Diagnostic = z.infer<typeof diagnosticSchema>;

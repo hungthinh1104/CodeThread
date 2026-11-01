@@ -25,6 +25,11 @@ acceptance:
     then:
       'Request-aware validation checks continuation, ordering, roots, direction
       and bounds without guessing missing context.'
+  - id: AC-05
+    given: Versioned capability coverage and response truncation metadata
+    then:
+      Not-analyzed, unsupported, partial and complete coverage agree with the
+      aggregate while remaining distinct from resolution and truncation.
 depends_on:
   - CT-DB-002
   - CT-DB-005

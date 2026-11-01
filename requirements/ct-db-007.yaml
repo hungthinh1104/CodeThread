@@ -16,6 +16,12 @@ acceptance:
     given:
       'An invalid span, wrong file hash or cross-snapshot evidence reference'
     then: 'Validation rejects the claim or returns an explicit source error.'
+  - id: AC-03
+    given: Primary declaration/call-site evidence and auxiliary evidence
+    then:
+      Primary file/range ownership and consistent file identity are enforced
+      while cross-file auxiliary support remains valid; authentic bytes require
+      the source adapter.
 depends_on:
   - CT-DB-001
 verification:

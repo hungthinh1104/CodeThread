@@ -52,6 +52,15 @@ build, typecheck and focused tests. Individual commands are `format:check`,
 `pnpm build` before standalone tests: tests import the packages' public compiled
 entry points. Use `pnpm format` when intentionally formatting changes.
 
+The 0.0.0 contract remediation adds explicit primary symbol/step evidence IDs,
+nullable diagnostic source paths and versioned per-capability coverage, and
+normalizes UUIDs. Repository consumers and fixtures change together. Use the
+request-aware `parse*Result` exports when request context is available;
+standalone schemas cannot verify selection, traversal direction or continuation
+position by guessing missing context. See the architecture document for exact
+guarantees and the separation between structural checks and future source-byte
+verification.
+
 ## Requirements
 
 Each YAML file is one requirement. `requirements/schema.json` owns its shape.

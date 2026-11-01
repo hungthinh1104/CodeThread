@@ -326,8 +326,10 @@ use FK(snapshot_id,declaration_evidence_id,file_id), and Diagnostic's optional
 evidence uses the equivalent scoped file reference. A snapshot's writer job must
 belong to its repository; a staging writer cannot borrow another repository's
 job or epoch. Primary diagnostic references are scoped, while additional file
-diagnostics are retrieved independently. Initial symbol/step evidence arrays
-project their single authoritative declaration/source reference; relation/link
+diagnostics are retrieved independently. Symbol/step evidence arrays include
+their explicit primary declaration/source reference and may include auxiliary
+evidence from other files. Primary anchors and call sites have file/range
+checks; auxiliary evidence is not forced into the primary file. Relation/link
 attachments are plural.
 
 ## 4. Identity, source and evidence conventions
@@ -540,6 +542,63 @@ limits, truncated and truncationReasons. Partial coverage and result truncation
 are independent. Per-site resolution remains visible. Response validation
 rejects cross-snapshot entities, dangling graph endpoints, missing supporting
 trace references, incorrect test ownership and cyclic step containment.
+
+### Result validation boundaries and 0.0.0 compatibility
+
+Public root exports are preserved. Intrinsic schemas now live in `schemas.ts`;
+request-aware result checks live in `results.ts`, sharing typed integrity
+checks. No package or runtime dependency cycle is introduced.
+
+Repository-local consumers must supply the new required fields:
+CodeSymbol.declarationEvidenceId, TestStep.sourceEvidenceId, Diagnostic.filePath
+(nullable with fileId), and QueryMeta.coverageByCapability. UUIDs normalize to
+lowercase; paths and canonical keys preserve their original case. Primary
+evidence IDs must appear in supporting evidence arrays. Declarations match their
+evidence file/range; call sites are contained by their owning declaration or
+step. Evidence for one file cannot claim different content hashes or paths in a
+projection.
+
+coverageByCapability has one to thirty-two versioned keys, such as
+declarations.v1, relationships.v1 and optional test_behavior.v1. States are
+complete, partial, not_analyzed and unsupported. If every capability has the
+same state, aggregate coverage is that state; otherwise it is partial.
+Truncation remains independent, and relation resolution remains
+exact/ambiguous/unresolved/unsupported. These metadata checks do not
+independently prove that an extractor's classifications are true; the future
+semantic evaluator supplies that evidence.
+
+Consumers with a request must use parseListTestsResult,
+parseRelatedProductionSymbolsResult, parseFindTestsForSymbolResult,
+parseGetDiagnosticsResult, parseGetTestTraceResult,
+parseGetSourceEvidenceResult, parseGraphNeighborsResult or
+parseFindSymbolPathsResult. These parse the request and response and reject
+mismatched snapshots, selections or applied limits. Related/reverse parsers
+additionally require bounded supporting steps (≤1000) and evidenceRefs (≤5000),
+checking ownership, known containment cycles and call sites. Generic schemas
+intentionally do not guess unavailable request-specific context.
+
+Paged results strictly advance from the incoming cursor using UTF-8 byte order
+for paths/keys and numeric UTF-16 offsets. A continuation must match the
+normalized request scope/filter and the final returned tuple. Diagnostic
+ordering uses its explicit path, or empty path/offset zero for source-free
+diagnostics. These guards prevent invalid pagination positions; complete SQL
+query coverage remains DB-03 verification work.
+
+Neighbor result validation uses bounded breadth-first reachability in the
+requested direction. Edges come from an expanded frontier (distance < applied
+depth); unknown targets supply no adjacency and are retained only as
+outgoing/bidirectional sites. Returned path graphs contain the union of their
+simple directed paths plus roots, not unrelated visited components. Empty paths
+still require valid roots. Cycles are valid neighbor graph data; parallel call
+occurrences remain separate records. Truncation never authorizes dangling
+endpoints or disconnected returned remnants.
+
+Source batches return exactly the requested IDs in request order, including
+typed unavailability. Structural validation, matching excerpt length and
+consistent metadata do not authenticate source bytes. The future source adapter
+must verify raw hashes, UTF-8 and immutable cache identity before returning
+available excerpts. No source adapter, SQL query implementation or runtime
+observation exists here.
 
 | Contract                    | Inputs/defaults                                                                    | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
