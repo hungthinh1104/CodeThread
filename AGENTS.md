@@ -4,9 +4,15 @@ Read `product.yaml`, the relevant requirement via `pnpm req:context <id>`, and
 `docs/architecture.md` before changing behavior. Requirement lifecycle is not
 task status; GitHub Issues/Projects own execution tracking.
 
-- Keep changes small and within the requested work package. This first batch
-  stops at Foundation + DB-01; do not create migrations, backend, frontend or AI
-  work before the corresponding gate is approved.
+- Keep changes small and within the requested work package. The authorized
+  remediation covers product alignment, contract fixes, evidence-backed tooling
+  and a semantic handoff. The in-memory semantic proof is a separate next task
+  allowed before DB-02; migrations, full backend, frontend and AI retain
+  explicit gates.
+- Code investigations may start from files, modules or symbols. Tests are
+  optional supporting evidence; preserve reusable test projections without
+  requiring them in core code relationships. See ADR-0003 for the revised
+  product/phase decision.
 - Use the pinned toolchain, strict ESM TypeScript, public package exports and
   validated contracts. Create packages only for real ownership and behavior.
 - Preserve snapshot scope, immutable published payloads, call occurrences,

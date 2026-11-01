@@ -8,7 +8,7 @@ lifecycle: accepted
 priority: must
 acceptance:
   - id: AC-01
-    given: 'The same selected test and snapshot'
+    given: 'The same source/symbol investigation or optional test and snapshot'
     then:
       'Both views use identical facts, evidence references, resolution and
       coverage.'

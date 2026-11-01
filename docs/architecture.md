@@ -7,9 +7,10 @@ after DB-01 approval. Requirement lifecycle is not execution status.
 
 ## 1. Product and ownership
 
-The investigation flow is repository revision → test → setup/actions/mocks/
-conditions/assertions → production links → exact source and provenance. Reverse
-navigation begins at a production symbol and returns supporting test behavior.
+The investigation flow is repository revision → source file/module/symbol or
+supported entry point → supported relationships → related declarations → exact
+source and provenance. No test is required. Optional test analysis adds
+behavior, setup/actions/mocks/conditions/assertions and code-to-test navigation.
 Linear and graphical views consume the same projection. Independent evaluation
 compares IDE baseline, textual trace and an information-equivalent visual trace.
 No comprehension benefit is claimed by implementation tests.
@@ -22,12 +23,15 @@ Current packages:
 | contracts          | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
 | Foundation scripts | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
 
-Future dependency direction is transport → application orchestration → semantic
-modules. Symbol/test indexers produce code-model facts; trace-engine consumes
-facts, not framework AST internals. Database owns adapters, not semantic rules.
-API uses contracts rather than exposing Drizzle rows. UI uses contracts/API
-rather than the database. No Next.js backend duplicates Fastify/application
-rules.
+Data flows from source ingestion/semantic extraction → code model →
+tracing/query behavior → transport/presentation. Code dependencies point from
+consumers toward the framework-independent model; the model never imports its
+extractors. Future code dependency direction is transport → application
+orchestration → semantic modules. Symbol/test indexers produce code-model facts;
+trace-engine consumes facts, not framework AST internals. Database owns
+adapters, not semantic rules. API uses contracts rather than exposing Drizzle
+rows. UI uses contracts/API rather than the database. No Next.js backend
+duplicates Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -62,14 +66,21 @@ site with diagnostics, not converted into an exact edge.
 **SourceEvidence:** a typed, extractor-attributed span in immutable source
 bytes. It supports a fact without proving the fact executed.
 
-**Coverage:** complete, partial or unsupported relative to a versioned declared
-capability and source scope. Complete does not mean all language behavior is
-known.
+**Coverage:** complete, partial, not_analyzed or unsupported relative to a
+versioned declared capability and source scope. Complete does not mean all
+language behavior is known.
 
 **TestStep:** syntax/semantic information attached to one test, including
 contextual hooks. Its phase and syntax ordinal do not establish runtime order.
 
 ## 3. Conceptual and logical models
+
+RepositorySnapshot, SourceFile, CodeSymbol, CodeRelation, SourceEvidence and
+Diagnostic form the code-comprehension core. TestCase/TestStep/TestCodeLink are
+an optional extension. Existing test-oriented read projections remain reusable;
+they are not the sole future investigation API. The logical database proposal
+remains unimplemented and must be reviewed against the semantic proof before
+DB-02.
 
 ```mermaid
 erDiagram
@@ -665,9 +676,9 @@ They are not simulated measurements or claims of implemented persistence.
 Foundation acceptance is a frozen clean-clone installation, formatting/lint,
 registry validation, boundary checks, build, typecheck and focused regressions.
 Prepared Windows/Linux Actions workflows do not constitute hosted CI evidence.
-The clean local candidate clone has its own temporary commit identity and is not
-a remote revision. Schema tests do not establish PostgreSQL, analyzer or study
-correctness.
+Always report the exact tested revision and distinguish local clone checks from
+hosted results, even when they use the same SHA. Schema tests do not establish
+PostgreSQL, analyzer or study correctness.
 
 DB-01 is ready for user review when this model, dictionary, invariant ownership,
 query contracts, source lifecycle, worked failures, workload method and two
@@ -696,3 +707,59 @@ After explicit approval, the first DB-02 task is:
 
 Do not begin a full backend until DB-06 passes its agreed evidence gate.
 Frontend and optional AI remain later phases.
+
+## 12. Next semantic vertical slice — handoff only
+
+ADR-0003 permits this bounded in-memory proof before DB-02. This section
+specifies future work; no scanner, ingestion adapter, service or UI is
+implemented here.
+
+Input is an immutable UTF-8 file manifest with raw hashes, snapshot identity,
+explicit validated compiler options and a selected file/module/symbol anchor.
+Output is canonical declarations, occurrence-level imports/references/direct
+calls, source evidence, explicit resolution diagnostics, capability coverage and
+a bounded graph rooted at the selection. Existing graph contracts are reusable
+without a test.
+
+Initial syntax covers local cross-file imports, aliases/re-exports, function
+declarations and uniquely resolvable direct calls. Dynamic receivers,
+reflection, missing dependencies, declaration-merging ambiguities and
+unsupported framework behavior remain diagnosed; names alone never establish
+targets. Analyze test files as ordinary TypeScript unless the optional test
+capability is explicitly selected.
+
+A virtual Compiler API host reads only supplied immutable files and pinned
+compiler-owned libraries. Do not execute source/configuration modules,
+repository scripts or tests, install target dependencies, read ambient
+node_modules, or fall back to modified working-tree files. Paths, encodings and
+hashes are validated before analysis. The input contract includes limits and
+cancellation policy.
+
+Initial safety limits are twenty files, 256 KiB per file, 2 MiB total input,
+2,000 declarations, 5,000 relationship sites, a ten-second harness deadline and
+a 512 MiB Node heap ceiling. These are proof-of-concept safety limits, not
+scalability SLAs. The isolated verification harness enforces process limits
+without adding a worker service. Exceeding a limit fails or explicitly truncates
+the declared capability.
+
+Ground truth consists of source-pinned fixture repositories with manually
+authored occurrence-level declarations, targets, unresolved cases and evidence
+anchors. Include imports/re-exports, repeated calls, cycles, ambiguous/dynamic
+calls, CRLF and Unicode, unsupported input and cross-file source. Expected
+annotations must not be generated from analyzer output. Record actual
+authorship/review status; unreviewed annotations are not independently reviewed
+evidence.
+
+Measure precision as correct exact occurrence predictions / all exact
+predictions; recall as recovered supported resolvable gold occurrences / all
+such gold occurrences; unresolved rate as unresolved/ambiguous supported sites /
+analyzed supported sites. Report unsupported and not-analyzed sites separately
+and expose denominators. A zero denominator is unavailable, not a perfect score.
+Compare canonical keys, targets, locations, evidence hashes, diagnostics and
+sorted output across repeated runs; storage UUID assignment does not substitute
+for canonical identity determinism. Preserve multiple sites sharing endpoints.
+
+Acceptance is selecting a symbol, following a supported cross-file relation and
+opening exact source evidence with explicit unknowns. It does not establish
+runtime execution, general extraction accuracy or developer comprehension
+effectiveness.

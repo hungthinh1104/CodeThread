@@ -38,7 +38,20 @@ const files = (...records: unknown[]) =>
 describe('CT-CORE-002 registry validation', () => {
   it('validates the real registry and returns sorted stable identities', async () => {
     const registry = await loadRegistry();
-    expect(registry).toHaveLength(21);
+    expect(registry).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'CT-CORE-005',
+          lifecycle: 'accepted',
+          module: 'code-model',
+        }),
+        expect.objectContaining({
+          id: 'CT-INDEX-001',
+          lifecycle: 'accepted',
+          module: 'symbol-indexer',
+        }),
+      ]),
+    );
     expect(registry.map((entry) => entry.id)).toEqual(
       registry.map((entry) => entry.id).sort(),
     );

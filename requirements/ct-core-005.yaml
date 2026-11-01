@@ -1,0 +1,23 @@
+id: CT-CORE-005
+title: Code-first investigation
+module: code-model
+statement: >
+  Investigations shall conceptually start from source files, modules, symbols or
+  supported entry points without requiring tests or a particular test framework.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: A TypeScript repository with no tests
+    then:
+      Source/symbol relationships and evidence remain the core investigation
+      model.
+  - id: AC-02
+    given: Optional test behavior
+    then:
+      It enriches the core graph without becoming a prerequisite or proof of
+      runtime execution.
+depends_on:
+  - CT-CORE-003
+verification:
+  method: mixed

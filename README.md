@@ -1,16 +1,20 @@
 # CodeThread
 
-**Code Comprehension Enhancement using Visual Test Trace**
+CodeThread is a source-code and software-system comprehension tool.
+Investigations can begin at a source file, module, symbol or supported entry
+point, then follow supported relationships across files to exact declarations
+and source evidence. Test behavior is optional supporting information, not a
+prerequisite.
 
-CodeThread helps a developer investigate unfamiliar TypeScript source through
-Jest tests, production-code links and exact source evidence. V0 targets local
-committed Git revisions, static analysis and supported NestJS patterns. Static
-syntax is not proof of execution, and an assertion is not proof of a passing
-test.
+The official academic thesis title remains **Code Comprehension Enhancement
+using Visual Test Trace**. V0 targets local committed TypeScript revisions and
+static evidence. Jest/NestJS extensions remain optional; core graph facts do not
+depend on those frameworks. Static syntax is not proof of runtime execution or
+passing tests.
 
-This first batch supplies Foundation validation/tooling and the DB-01 logical
-design. It contains no database implementation, analyzer, API, UI or Gemini
-integration. See `product.yaml` for scope and `docs/architecture.md` for
+The repository supplies Foundation validation/tooling and the proposed DB-01
+logical design. It contains no database implementation, analyzer, API, UI or
+Gemini integration. See `product.yaml` for scope and `docs/architecture.md` for
 ownership, ERDs, invariants, query design, failure scenarios and the DB-02 gate.
 
 ## Developer setup
@@ -73,14 +77,16 @@ exit 2.
 
 ## Work tracking and review
 
-No remote repository, Issues or Project are provisioned by this batch. Once a
-GitHub repository is connected, enable Issues, add a Project with **Backlog →
-Ready → In Progress → Review → Done**, plus Blocked and Cancelled, and add
-priority, module, dependency and parent-epic fields. Use the provided Epic, Task
-and Bug forms; link stable requirement IDs, blockers and PRs. Keep lifecycle in
-YAML and task status in GitHub. Definition of Done includes acceptance evidence,
-applicable checks, documented limitations and review. Prepared Actions workflows
-must be run on the remote before claiming hosted CI success.
+The repository is
+[hungthinh1104/CodeThread](https://github.com/hungthinh1104/CodeThread). Use
+GitHub Issues/Projects as the execution-tracking source of truth. A Project uses
+**Backlog → Ready → In Progress → Review → Done**, plus Blocked and Cancelled,
+and add priority, module, dependency and parent-epic fields. Use the provided
+Epic, Task and Bug forms; link stable requirement IDs, blockers and PRs. Keep
+lifecycle in YAML and task status in GitHub. Definition of Done includes
+acceptance evidence, applicable checks, documented limitations and review.
+Prepared Actions workflows must be run on the remote before claiming hosted CI
+success.
 
 The authoring sources are this README, `product.yaml`, requirement YAML/schema,
 `docs/architecture.md`, significant decisions and `AGENTS.md`. Keep execution
@@ -96,3 +102,6 @@ truth and a human study remain separate research milestones.
 
 After reviewing Foundation + DB-01, explicitly approve DB-02 before creating the
 database package, PostgreSQL Compose service, Drizzle schema or any migration.
+The next semantic milestone is a bounded in-memory symbol/relationship/evidence
+proof, allowed before database implementation by ADR-0003. Its specification is
+in the architecture document; this remediation does not implement that analyzer.
