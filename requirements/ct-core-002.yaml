@@ -1,0 +1,24 @@
+id: CT-CORE-002
+title: 'Requirements as code'
+module: foundation
+statement: >
+  Requirements shall have validated stable identities, acceptance criteria and
+  dependencies, with bounded deterministic agent context.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'Malformed YAML, duplicate identities or invalid acceptance criteria'
+    then: 'Validation fails with a structured error.'
+  - id: AC-02
+    given: 'Unknown dependencies or a dependency cycle'
+    then: 'Validation fails and identifies the offending references.'
+  - id: AC-03
+    given: 'A valid requirement and a large dependency closure'
+    then:
+      'Context stays within depth two, twenty dependency records and 65536 UTF-8
+      bytes, with explicit omissions.'
+depends_on:
+  - CT-CORE-001
+verification:
+  method: automated

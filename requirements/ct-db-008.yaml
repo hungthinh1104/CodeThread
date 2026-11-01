@@ -1,0 +1,21 @@
+id: CT-DB-008
+title: 'Static evidence semantics'
+module: contracts
+statement: >
+  Static syntax and assertions shall not be represented as proof of observed
+  execution, successful tests or external side effects.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A static trace containing assertions or mocks'
+    then:
+      'Its projection is labeled static and contains no fabricated pass or
+      runtime state.'
+  - id: AC-02
+    given: 'Syntax-ordered steps from hooks and conditions'
+    then: 'Their origin and syntax order remain distinct from execution order.'
+depends_on:
+  - CT-DB-005
+verification:
+  method: mixed

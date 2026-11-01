@@ -1,0 +1,20 @@
+id: CT-DB-010
+title: 'Stale activation protection'
+module: database
+statement: >
+  Activation shall compare the request generation with the repository's latest
+  intended generation within its publication transaction.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'An older request finishing after a newer request was accepted'
+    then: 'The older result cannot replace the intended active snapshot.'
+  - id: AC-02
+    given: 'A fenced writer resuming after ownership takeover'
+    then: 'Its writes and publication are rejected.'
+depends_on:
+  - CT-DB-004
+  - CT-DB-009
+verification:
+  method: mixed

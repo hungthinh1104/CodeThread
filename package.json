@@ -1,0 +1,38 @@
+{
+  "name": "codethread",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": "24.22.2",
+    "pnpm": "12.16.1"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
+    "build": "tsc -b",
+    "test": "vitest run",
+    "arch:check": "node scripts/architecture.ts",
+    "req:validate": "node scripts/requirements.ts validate",
+    "req:list": "node scripts/requirements.ts list",
+    "req:show": "node scripts/requirements.ts show",
+    "req:context": "node scripts/requirements.ts context",
+    "check": "pnpm format:check && pnpm lint && pnpm req:validate && pnpm arch:check && pnpm build && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@codethread/code-model": "workspace:*",
+    "@codethread/contracts": "workspace:*",
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "ajv": "8.20.0",
+    "eslint": "10.14.0",
+    "prettier": "3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.1",
+    "vitest": "5.0.5",
+    "yaml": "2.9.1"
+  }
+}

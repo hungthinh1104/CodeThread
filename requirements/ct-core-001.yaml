@@ -1,0 +1,20 @@
+id: CT-CORE-001
+title: 'Reproducible foundation'
+module: foundation
+statement: >
+  The workspace shall install and verify reproducibly with pinned stable tools
+  and a frozen lockfile.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A clean clone and the documented Node and pnpm versions'
+    then:
+      'Frozen installation, build, lint, typecheck, formatting and focused tests
+      succeed without local build artifacts.'
+  - id: AC-02
+    given: 'An unsupported tool or dependency combination'
+    then: 'Setup fails explicitly rather than weakening version or peer checks.'
+depends_on: []
+verification:
+  method: automated

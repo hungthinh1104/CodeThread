@@ -1,0 +1,27 @@
+id: CT-DB-013
+title: 'Recovery and least privilege'
+module: database
+statement: >
+  Database evolution and recovery shall use reviewed migrations, separate
+  migration privileges, verified database/cache restore and protected retention.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A migration candidate'
+    then:
+      'Fresh creation, upgrade with representative data and negative integrity
+      checks are required.'
+  - id: AC-02
+    given: 'A claimed recoverable backup'
+    then:
+      'Restoration into isolation and representative source and query checks
+      have succeeded.'
+  - id: AC-03
+    given: 'An active or in-use snapshot'
+    then: 'Retention cannot delete its referenced data or source objects.'
+depends_on:
+  - CT-DB-003
+  - CT-DB-011
+verification:
+  method: mixed

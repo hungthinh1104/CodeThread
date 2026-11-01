@@ -1,0 +1,23 @@
+id: CT-CORE-004
+title: 'Untrusted source boundary'
+module: foundation
+statement: >
+  Static indexing shall treat source repositories as untrusted input and shall
+  not execute their scripts, tests or dependency installation.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given:
+      'An analyzed repository containing scripts or instruction-like comments'
+    then:
+      'Static ingestion treats their contents as data and does not execute them.'
+  - id: AC-02
+    given:
+      'A path escape, symlink escape, unsupported encoding or resource limit'
+    then:
+      'Ingestion rejects or diagnoses it without reading outside the approved
+      source boundary.'
+depends_on: []
+verification:
+  method: mixed

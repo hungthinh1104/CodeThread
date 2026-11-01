@@ -1,0 +1,20 @@
+id: CT-DB-005
+title: 'No fabricated relationships'
+module: code-model
+statement: >
+  A resolved relationship shall have an exact target and evidence; unresolved,
+  ambiguous or unsupported sites shall retain no guessed target.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'An exactly resolved site'
+    then: 'A target and supporting evidence are mandatory.'
+  - id: AC-02
+    given: 'An unresolved or ambiguous site'
+    then:
+      'Its target is null and source evidence and diagnostics remain available.'
+depends_on:
+  - CT-DB-007
+verification:
+  method: mixed

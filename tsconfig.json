@@ -1,0 +1,7 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/code-model" },
+    { "path": "packages/contracts" }
+  ]
+}

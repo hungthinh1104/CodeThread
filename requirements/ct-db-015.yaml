@@ -1,0 +1,21 @@
+id: CT-DB-015
+title: 'Measured database scalability'
+module: database
+statement: >
+  Database performance decisions shall use reproducible workload baselines and
+  query plans rather than unverified latency promises.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'Small, medium and large benchmark datasets'
+    then:
+      'A seed, dataset checksum, hardware, software versions, commands and
+      measurement methodology identify the workload.'
+  - id: AC-02
+    given: 'A proposed nonessential index or cache'
+    then: 'Before and after query plans and measured benefit justify it.'
+depends_on:
+  - CT-DB-012
+verification:
+  method: benchmark

@@ -1,0 +1,20 @@
+id: CT-CORE-003
+title: 'Explicit module boundaries'
+module: foundation
+statement: >
+  Packages shall use declared public dependencies without package cycles,
+  cross-module deep imports or framework dependencies in the semantic core.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A valid core or contract import'
+    then: 'Architecture checks accept its declared public entry point.'
+  - id: AC-02
+    given:
+      'A forbidden dependency, package cycle or cross-package relative import'
+    then: 'Architecture checks fail.'
+depends_on:
+  - CT-CORE-001
+verification:
+  method: automated

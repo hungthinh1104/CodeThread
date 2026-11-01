@@ -1,0 +1,23 @@
+id: CT-DB-003
+title: 'Immutable published payload'
+module: database
+statement: >
+  Publication shall freeze indexed graph, test, configuration and evidence
+  payloads while allowing separate operational state and active-pointer changes.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given:
+      'An attempted payload insertion, update or individual deletion after
+      publication'
+    then: 'A database guard rejects the mutation.'
+  - id: AC-02
+    given: 'A later analysis or repository activation'
+    then:
+      'A new index identity or separate pointer is used without rewriting
+      historical payloads.'
+depends_on:
+  - CT-DB-002
+verification:
+  method: mixed

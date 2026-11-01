@@ -1,0 +1,45 @@
+name: Bug
+description:
+  Report a reproducible defect without disclosing private source or credentials.
+title: '[Bug] '
+body:
+  - type: input
+    id: identity
+    attributes:
+      label: Revision, affected requirement and module
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction and actual behavior
+      description:
+        Include commands, environment and a sanitized fixture where possible.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior and evidence
+    validations:
+      required: true
+  - type: dropdown
+    id: classification
+    attributes:
+      label: Initial failure classification
+      options:
+        [
+          Product defect,
+          Test-harness defect,
+          Environment or infrastructure,
+          Missing verification evidence,
+          Unknown,
+        ]
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Acceptance, regression check and blockers
+    validations:
+      required: true

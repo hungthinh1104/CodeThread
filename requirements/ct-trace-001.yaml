@@ -1,0 +1,24 @@
+id: CT-TRACE-001
+title: 'Equivalent trace presentations'
+module: contracts
+statement: >
+  Linear and graphical views shall consume the same semantic trace projection
+  and expose equivalent supporting information.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'The same selected test and snapshot'
+    then:
+      'Both views use identical facts, evidence references, resolution and
+      coverage.'
+  - id: AC-02
+    given: 'A graph node or edge selection'
+    then:
+      'Its corresponding source and provenance are available through the shared
+      projection.'
+depends_on:
+  - CT-DB-008
+  - CT-DB-012
+verification:
+  method: mixed

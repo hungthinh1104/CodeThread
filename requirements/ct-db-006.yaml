@@ -1,0 +1,22 @@
+id: CT-DB-006
+title: 'Call-site preservation'
+module: database
+statement: >
+  Different call occurrences shall remain distinguishable even when their source
+  and target symbols match.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'Two calls with the same endpoints and different source spans'
+    then:
+      'Two independently identified occurrences and their evidence remain
+      available.'
+  - id: AC-02
+    given: 'A retry of the same occurrence'
+    then: 'Occurrence uniqueness prevents duplicate facts.'
+depends_on:
+  - CT-DB-001
+  - CT-DB-007
+verification:
+  method: mixed

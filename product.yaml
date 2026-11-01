@@ -1,0 +1,40 @@
+name: CodeThread
+thesis_title: Code Comprehension Enhancement using Visual Test Trace
+north_star:
+  Help developers understand unfamiliar source through evidence-backed test
+  traces.
+audience: A single developer investigating a local repository.
+v0:
+  source: Committed local Git revisions retained in a verified local cache.
+  language: TypeScript
+  tests: Jest
+  production: TypeScript and supported NestJS patterns.
+  evidence: Static source facts with explicit resolution and coverage.
+  navigation:
+    - Test to behavior, production symbols, source, and provenance.
+    - Production symbol to related tests and behavior.
+  presentation: Equivalent textual and interactive visual traces.
+research:
+  questions:
+    - Accuracy and time compared with conventional source inspection.
+    - Additional value of visualization over equivalent textual information.
+  conditions: [IDE baseline, textual trace, visual trace]
+  measures:
+    [
+      correctness,
+      time,
+      unsupported conclusions,
+      confidence calibration,
+      usability,
+    ]
+  ai: Separate optional evaluation; disabled by default.
+non_goals:
+  - Requirement-impact, approval, report-generation, or enterprise workflows.
+  - Team tenancy, cloud source ingestion, or arbitrary runtime execution.
+  - Dirty working trees, non-Git folders, or broad language support in V0.
+  - A general AI coding platform, custom issue tracker, or speculative
+    infrastructure.
+first_batch:
+  deliverables: [Foundation, DB-01]
+  stop_before: DB-02
+  approval: Explicit user approval is required before DB-02.

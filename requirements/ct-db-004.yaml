@@ -1,0 +1,24 @@
+id: CT-DB-004
+title: 'Atomic validated publication'
+module: database
+statement: >
+  Only validated staging data complete to its declared capability shall become
+  published and eligible for activation.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A reader while staging batches are being persisted'
+    then: 'Public reads cannot observe the staging graph as published.'
+  - id: AC-02
+    given: 'Validation failure or transaction rollback'
+    then: 'No partial result or new activation becomes visible.'
+  - id: AC-03
+    given: 'Declared partial analysis coverage'
+    then: 'Publication retains explicit coverage and diagnostics.'
+depends_on:
+  - CT-DB-002
+  - CT-DB-007
+  - CT-DB-011
+verification:
+  method: mixed

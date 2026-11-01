@@ -1,0 +1,22 @@
+id: CT-DB-011
+title: 'Verified local source retention'
+module: database
+statement: >
+  Published evidence shall retrieve immutable source from a verified local
+  content-addressed cache without substituting working-tree content.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'The original repository is moved or deleted after publication'
+    then: 'Retained cache content still provides the same evidence.'
+  - id: AC-02
+    given: 'A missing or corrupted cache object'
+    then:
+      'Retrieval reports unavailability or a hash mismatch without displaying
+      replacement text.'
+depends_on:
+  - CT-DB-001
+  - CT-CORE-004
+verification:
+  method: mixed

@@ -1,0 +1,35 @@
+id: CT-DB-014
+title: 'DB-01 design gate'
+module: database
+statement: >
+  DB-01 shall define the reviewed logical model, ownership, invariants, query
+  access patterns, publication protocol and DB-02 handoff without production
+  migrations.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A DB-01 review'
+    then:
+      'Conceptual and logical ERDs, data dictionary, invariant enforcement
+      matrix and failure scenarios are available.'
+  - id: AC-02
+    given: 'Foundation and DB-01 deliverables are ready for review'
+    then: 'Work stops before DB-02 pending explicit user approval.'
+depends_on:
+  - CT-DB-001
+  - CT-DB-002
+  - CT-DB-003
+  - CT-DB-004
+  - CT-DB-005
+  - CT-DB-006
+  - CT-DB-007
+  - CT-DB-008
+  - CT-DB-009
+  - CT-DB-010
+  - CT-DB-011
+  - CT-DB-012
+  - CT-DB-013
+  - CT-DB-015
+verification:
+  method: manual

@@ -1,0 +1,19 @@
+id: CT-DB-001
+title: 'Snapshot analysis identity'
+module: database
+statement: >
+  An indexed snapshot shall be identified by repository identity, immutable
+  source fingerprint, analyzer identity and analysis configuration hash.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'The same source and equivalent canonical analysis inputs'
+    then: 'The logical analysis identity is identical.'
+  - id: AC-02
+    given: 'Changed source, analyzer build, configuration or resolution inputs'
+    then: 'A distinct analysis identity is required.'
+depends_on:
+  - CT-CORE-003
+verification:
+  method: mixed

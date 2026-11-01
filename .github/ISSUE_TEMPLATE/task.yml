@@ -1,0 +1,41 @@
+name: Scoped task
+description: Implement one bounded work package linked to accepted requirements.
+title: '[Task] '
+body:
+  - type: input
+    id: requirements
+    attributes:
+      label: Requirement IDs and module owner
+      placeholder: CT-DB-002; database
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Scheduling priority
+      options: [P0, P1, P2, P3]
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior and acceptance criteria
+      description:
+        Include supported input, observable result, failure cases and non-goals.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Parent epic, dependencies, blockers and gate
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of Done
+      description:
+        Required tests/evidence, contract and migration review, limitations and
+        linked PR.
+    validations:
+      required: true

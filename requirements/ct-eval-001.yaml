@@ -1,0 +1,27 @@
+id: CT-EVAL-001
+title: 'Independent comprehension evaluation'
+module: evaluation
+statement: >
+  Comprehension effectiveness shall be evaluated independently across IDE
+  baseline, textual trace and information-equivalent visual trace conditions.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A comprehension study'
+    then:
+      'Correctness, time, unsupported conclusions, confidence calibration and
+      usability are collected with provenance.'
+  - id: AC-02
+    given: 'Only implementation or schema tests have passed'
+    then:
+      'No comprehension improvement or semantic extraction accuracy is claimed.'
+  - id: AC-03
+    given: 'A future AI study'
+    then:
+      'Its treatment and conclusions remain separate from the visualization
+      comparison.'
+depends_on:
+  - CT-TRACE-001
+verification:
+  method: study

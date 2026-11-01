@@ -1,0 +1,34 @@
+name: Epic
+description: Define a capability and its independently reviewable work packages.
+title: '[Epic] '
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome and boundaries
+      description: State the capability, non-goals, module owner and phase gate.
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Stable requirement IDs
+      description: Link CT requirement IDs independently of Issue numbers.
+    validations:
+      required: true
+  - type: textarea
+    id: packages
+    attributes:
+      label: Child tasks, dependencies and blockers
+      description:
+        Link scoped tasks and their prerequisites; use the Project for status.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of Done and acceptance evidence
+      description:
+        Identify checks, reviewer, evidence tier, limitations and sign-off.
+    validations:
+      required: true

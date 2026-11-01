@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codethread.local/requirement.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "module",
+    "statement",
+    "lifecycle",
+    "priority",
+    "acceptance",
+    "depends_on",
+    "verification"
+  ],
+  "properties": {
+    "id": { "$ref": "#/$defs/requirementId" },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "module": {
+      "enum": [
+        "foundation",
+        "code-model",
+        "contracts",
+        "database",
+        "symbol-indexer",
+        "test-indexer",
+        "trace-engine",
+        "application",
+        "api",
+        "web",
+        "evaluation",
+        "ai"
+      ]
+    },
+    "statement": { "$ref": "#/$defs/text" },
+    "lifecycle": { "enum": ["proposed", "accepted", "deprecated"] },
+    "priority": { "enum": ["must", "should", "could"] },
+    "acceptance": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "given", "then"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-[0-9]{2,3}$" },
+          "given": { "$ref": "#/$defs/text" },
+          "when": { "$ref": "#/$defs/text" },
+          "then": { "$ref": "#/$defs/text" }
+        }
+      }
+    },
+    "depends_on": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/requirementId" }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method"],
+      "properties": {
+        "method": {
+          "enum": ["automated", "manual", "mixed", "benchmark", "study"]
+        },
+        "description": { "$ref": "#/$defs/text" },
+        "test_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 100,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "requirementId": {
+      "type": "string",
+      "pattern": "^CT-(CORE|DB|INDEX|TEST|LINK|TRACE|VIS|API|EVAL|AI)-[0-9]{3}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8192,
+      "pattern": "\\S"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+id: CT-DB-009
+title: 'Idempotent scan requests'
+module: database
+statement: >
+  A repository-scoped idempotency key shall identify one logical scan request
+  and its canonical payload.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'Concurrent identical requests using the same key'
+    then:
+      'They return the same logical request and do not duplicate published
+      results.'
+  - id: AC-02
+    given: 'The same key with a different payload'
+    then: 'The request fails with an explicit conflict.'
+depends_on:
+  - CT-DB-001
+verification:
+  method: mixed

@@ -1,0 +1,19 @@
+id: CT-DB-002
+title: 'Snapshot reference isolation'
+module: database
+statement: >
+  Symbols, tests, steps, relationships, diagnostics and evidence shall reference
+  compatible snapshots.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A child record that references a different snapshot'
+    then: 'Composite references or publication validation reject it.'
+  - id: AC-02
+    given: 'A snapshot-scoped query'
+    then: 'Every returned entity and reference belongs to that snapshot.'
+depends_on:
+  - CT-DB-001
+verification:
+  method: mixed

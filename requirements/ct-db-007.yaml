@@ -1,0 +1,22 @@
+id: CT-DB-007
+title: 'Evidence integrity'
+module: code-model
+statement: >
+  Evidence shall identify actual immutable source, snapshot, UTF-16 location,
+  content hash and extractor provenance.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'Valid UTF-8 source containing Unicode and CRLF'
+    then:
+      'Half-open UTF-16 offsets and one-based line and column coordinates match
+      the retained text.'
+  - id: AC-02
+    given:
+      'An invalid span, wrong file hash or cross-snapshot evidence reference'
+    then: 'Validation rejects the claim or returns an explicit source error.'
+depends_on:
+  - CT-DB-001
+verification:
+  method: mixed

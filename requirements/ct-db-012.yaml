@@ -1,0 +1,28 @@
+id: CT-DB-012
+title: 'Bounded deterministic queries'
+module: contracts
+statement: >
+  The six primary read contracts and graph traversal shall be snapshot-scoped,
+  deterministic and bounded with explicit truncation.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: 'A valid query and a published snapshot'
+    then:
+      'A validated projection reports static evidence basis, coverage and
+      applied limits.'
+  - id: AC-02
+    given: 'A cursor reused with another snapshot, query, filter or ordering'
+    then: 'Validation rejects it.'
+  - id: AC-03
+    given: 'A result exceeding a declared bound'
+    then:
+      'The result reports truncation without fabricated or dangling graph
+      endpoints.'
+depends_on:
+  - CT-DB-002
+  - CT-DB-005
+  - CT-DB-008
+verification:
+  method: mixed
