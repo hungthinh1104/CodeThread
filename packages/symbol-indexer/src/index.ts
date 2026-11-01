@@ -328,6 +328,11 @@ export async function analyzeManifest(
   );
   const files = new Map(facts.files.map((file) => [file.id, file]));
   const source: VerifiedSourceReader = Object.freeze({
+    readFile(fileId: string) {
+      const file = files.get(fileId.toLowerCase());
+      const retained = file && sources.get(file.path);
+      return retained ? Uint8Array.from(retained.bytes) : null;
+    },
     readEvidence(evidenceId: string) {
       const evidence = byId.get(evidenceId.toLowerCase());
       const unavailable = (

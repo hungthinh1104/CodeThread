@@ -19,6 +19,11 @@ const allowed: Record<string, readonly string[]> = {
     'typescript',
     '@types/node',
   ],
+  '@codethread/trace-engine': [
+    '@codethread/code-model',
+    '@codethread/contracts',
+    '@types/node',
+  ],
 };
 const nodeBuiltins: Record<string, readonly string[]> = {
   '@codethread/symbol-indexer': [
@@ -29,6 +34,7 @@ const nodeBuiltins: Record<string, readonly string[]> = {
     'node:url',
     'node:v8',
   ],
+  '@codethread/trace-engine': ['node:crypto'],
 };
 function inside(path: string, directory: string): boolean {
   const remainder = relative(directory, path);

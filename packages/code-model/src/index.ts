@@ -428,5 +428,7 @@ export type SourceReadResult =
         | 'EVIDENCE_NOT_FOUND';
     };
 export interface VerifiedSourceReader {
+  /** Returns a defensive copy of retained raw bytes, or null if unavailable. */
+  readFile(fileId: string): Uint8Array | null;
   readEvidence(evidenceId: string): SourceReadResult;
 }

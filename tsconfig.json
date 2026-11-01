@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/code-model" },
     { "path": "packages/contracts" },
-    { "path": "packages/symbol-indexer" }
+    { "path": "packages/symbol-indexer" },
+    { "path": "packages/trace-engine" }
   ]
 }
