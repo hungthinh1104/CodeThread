@@ -128,12 +128,15 @@ describe('textual investigation CLI', () => {
     ]);
     const ambiguous = await runCli(
       ['--manifest', ambiguousManifest],
-      'inspect name:same\n',
+      'help\ninspect name:same\nhelp\n',
     );
     expect(ambiguous.code).toBe(2);
     expect(ambiguous.stderr).toContain('ERROR[SYMBOL_AMBIGUOUS]');
     expect(ambiguous.stderr).toContain('a.ts@1:1');
     expect(ambiguous.stderr).toContain('b.ts@1:1');
+    expect(ambiguous.stdout.match(/files — list manifest paths/g)).toHaveLength(
+      1,
+    );
 
     const uncertainManifest = await manifestFile([
       {
@@ -190,6 +193,43 @@ describe('textual investigation CLI', () => {
     expect(result.stdout).not.toContain('No calls relationships were returned');
   });
 
+  it('does not allow following an exact target whose relationship row was byte-truncated', async () => {
+    const targets = Array.from({ length: 20 }, (_, index) => `target${index}`);
+    const bidi = String.fromCodePoint(0x202e);
+    const source = [
+      `export function root() {\n${targets
+        .map((name) => `  ${name}('${bidi.repeat(320)}');`)
+        .join('\n')}\n}`,
+      ...targets.map((name) => `export function ${name}(_value: string) {}`),
+    ].join('\n');
+    const manifest = await manifestFile([{ path: 'truncated.ts', source }]);
+    const hiddenTarget = await runCli(
+      ['--manifest', manifest],
+      [
+        'inspect truncated.ts@1:1 calls outgoing',
+        'follow truncated.ts@42:1 calls incoming',
+      ].join('\n'),
+    );
+    expect(hiddenTarget.stdout).toContain('20 exact');
+    expect(hiddenTarget.stdout).toContain('[Text response truncated');
+    expect(hiddenTarget.stdout).not.toContain('target19" (function)');
+    expect(hiddenTarget.code).toBe(2);
+    expect(hiddenTarget.stderr).toContain('ERROR[TARGET_NOT_IN_LAST_RESULTS]');
+    expect(hiddenTarget.stderr).toContain('truncated.ts@42:1');
+
+    const displayedTarget = await runCli(
+      ['--manifest', manifest],
+      [
+        'inspect truncated.ts@1:1 calls outgoing',
+        'follow truncated.ts@23:1 calls incoming',
+      ].join('\n'),
+    );
+    expect(displayedTarget.stdout).toContain('[Text response truncated');
+    expect(displayedTarget.stdout).toContain('"target0" (function)');
+    expect(displayedTarget.code).toBe(0);
+    expect(displayedTarget.stderr).toBe('');
+  });
+
   it('rejects duplicate JSON keys and unsafe paths before analysis', async () => {
     const directory = await mkdtemp(
       resolve(tmpdir(), 'codethread-investigate-'),
@@ -241,6 +281,50 @@ describe('textual investigation CLI', () => {
     );
     expect(result.stdout).toContain('UTF-16 page [4096,');
     expect(result.stdout).toContain('End of verified evidence.');
+  });
+
+  it('prints safe, reversible selectors for legal unusual source paths', async () => {
+    const formatCharacters = String.fromCodePoint(
+      0x7f,
+      0x85,
+      0x202e,
+      0x2066,
+      0xe0001,
+    );
+    const paths = [
+      '"leading.ts',
+      `control${formatCharacters}.ts`,
+      'folder with space/λ@file.ts',
+    ];
+    const manifest = await manifestFile(
+      paths.map((path) => ({ path, source: 'export function root() {}\n' })),
+    );
+    const listing = await runCli(['--manifest', manifest], 'symbols\nquit\n');
+    expect(listing.code).toBe(0);
+    expect(listing.stdout).not.toMatch(/[\u007f\u0085\u202e\u2066]/u);
+    expect(listing.stdout).not.toContain(String.fromCodePoint(0xe0001));
+
+    const selectorRows = listing.stdout
+      .split('\n')
+      .filter((line) => line.includes('  function  "root"'));
+    const selectors = selectorRows.map((line) =>
+      line.slice(0, line.indexOf('  function  "root"')).trim(),
+    );
+    expect(selectors).toEqual([
+      String.raw`"\"leading.ts@1:1"`,
+      String.raw`"control\u007f\u0085\u202e\u2066\udb40\udc01.ts@1:1"`,
+      String.raw`"folder with space/λ@file.ts@1:1"`,
+    ]);
+
+    const replay = await runCli(
+      ['--manifest', manifest],
+      [...selectors.map((selector) => `inspect ${selector}`), 'quit', ''].join(
+        '\n',
+      ),
+    );
+    expect(replay.code).toBe(0);
+    expect(replay.stderr).toBe('');
+    for (const selector of selectors) expect(replay.stdout).toContain(selector);
   });
 
   it('escapes terminal controls in source excerpts', async () => {

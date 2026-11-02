@@ -278,20 +278,22 @@ function escapeTerminal(value: string): string {
   let result = '';
   for (const character of value) {
     const point = character.codePointAt(0)!;
-    if (
-      point < 0x20 ||
-      (point >= 0x7f && point <= 0x9f) ||
-      point === 0x061c ||
-      (point >= 0x200e && point <= 0x200f) ||
-      (point >= 0x2028 && point <= 0x202e) ||
-      (point >= 0x2066 && point <= 0x2069)
-    )
+    if (isTerminalUnsafe(character, point))
       result += `\\u{${point.toString(16)}}`;
     else result += character;
   }
   return result;
 }
 
+function isTerminalUnsafe(character: string, point: number): boolean {
+  return (
+    point < 0x20 ||
+    (point >= 0x7f && point <= 0x9f) ||
+    point === 0x2028 ||
+    point === 0x2029 ||
+    /^\p{Cf}$/u.test(character)
+  );
+}
 function quoted(value: string): string {
   return JSON.stringify(escapeTerminal(value));
 }
@@ -308,7 +310,21 @@ function sourceSelector(symbol: CodeSymbol): string {
 }
 
 function commandArgument(value: string): string {
-  return /\s/.test(value) ? quoted(value) : value;
+  let result = '';
+  for (const character of JSON.stringify(value)) {
+    const point = character.codePointAt(0)!;
+    if (isTerminalUnsafe(character, point)) {
+      if (point <= 0xffff)
+        result += `\\u${point.toString(16).padStart(4, '0')}`;
+      else {
+        const scalar = point - 0x10000,
+          high = 0xd800 + (scalar >> 10),
+          low = 0xdc00 + (scalar & 0x3ff);
+        result += `\\u${high.toString(16)}\\u${low.toString(16)}`;
+      }
+    } else result += character;
+  }
+  return result;
 }
 
 function displaySelector(symbol: CodeSymbol): string {
@@ -338,11 +354,15 @@ function renderEvidence(
   ];
 }
 
-function appendBounded(blocks: readonly string[]): string {
+function appendBounded(blocks: readonly string[]): {
+  text: string;
+  visibleBlockCount: number;
+} {
   const marker = `[Text response truncated at ${MAX_RESPONSE_BYTES} bytes; whole later rows omitted.]`;
   const markerBytes = Buffer.byteLength(marker + '\n');
   const result: string[] = [];
-  let used = 0;
+  let used = 0,
+    visibleBlockCount = 0;
   for (const block of blocks) {
     const chunk = block.endsWith('\n') ? block : `${block}\n`;
     const bytes = Buffer.byteLength(chunk);
@@ -352,12 +372,15 @@ function appendBounded(blocks: readonly string[]): string {
     }
     result.push(chunk);
     used += bytes;
+    visibleBlockCount++;
   }
-  return result.join('').trimEnd() + '\n';
+  return { text: result.join('').trimEnd() + '\n', visibleBlockCount };
 }
 
-function writePage(blocks: readonly string[]): void {
-  process.stdout.write(appendBounded(blocks));
+function writePage(blocks: readonly string[]): number {
+  const page = appendBounded(blocks);
+  process.stdout.write(page.text);
+  return page.visibleBlockCount;
 }
 
 function diagnosticCounts(facts: AnalysisFacts): string[] {
@@ -650,7 +673,7 @@ function inspectBlocks(
   selected: CodeSymbol,
   kinds: RelationKind[],
   direction: Direction,
-  targets: Map<string, CodeSymbol>,
+  targets: Map<number, CodeSymbol>,
 ): string[] {
   const { facts } = snapshot;
   const request = {
@@ -781,8 +804,8 @@ function inspectBlocks(
         );
         continue;
       }
-      const selector = sourceSelector(counterpart);
-      targets.set(selector, counterpart);
+      const rowIndex = blocks.length;
+      targets.set(rowIndex, counterpart);
       blocks.push(
         [
           `${heading} ${quoted(counterpart.name)} (${counterpart.kind}) — ${displaySelector(counterpart)}`,
@@ -1024,7 +1047,7 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
             direction = parseDirection(
               args[2] ?? (command === 'follow' ? lastDirection : undefined),
             );
-          const nextTargets = new Map<string, CodeSymbol>(),
+          const nextTargets = new Map<number, CodeSymbol>(),
             blocks = inspectBlocks(
               snapshot,
               investigation,
@@ -1033,11 +1056,13 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
               direction,
               nextTargets,
             );
-          targets.clear();
-          for (const [key, value] of nextTargets) targets.set(key, value);
           lastKinds = kinds;
           lastDirection = direction;
-          writePage(blocks);
+          const visibleBlockCount = writePage(blocks);
+          targets.clear();
+          for (const [rowIndex, symbol] of nextTargets)
+            if (rowIndex < visibleBlockCount)
+              targets.set(sourceSelector(symbol), symbol);
         } else if (command === 'evidence') {
           if (args.length < 2 || args.length > 3)
             throw new CliError(
@@ -1060,9 +1085,11 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
           );
       } catch (error) {
         printError(error);
-        process.exitCode = 2;
-        readline.close();
-        break;
+        if (!terminal) {
+          process.exitCode = 2;
+          readline.close();
+          break;
+        }
       }
       if (terminal) readline.prompt();
     }

@@ -141,7 +141,11 @@ the fixed compiler profile. Invalid manifests fail with a typed error.
 Run a prepared, byte-pinned example with `pnpm --silent demo:investigation`, or
 provide your own manifest with
 `pnpm --silent investigate -- --manifest ./manifest.json`. In either session,
-start with `help`; the reproducible todo flow is:
+start with `help`. Copy source selectors exactly as printed; they are
+JSON-quoted tokens so unusual legal paths remain safe and reversible.
+Interactive command errors leave the prompt available; piped sessions stop on
+error with a typed diagnostic and nonzero exit status. The reproducible todo
+flow is:
 
 ```text
 symbols controllers/todo.controller.ts
