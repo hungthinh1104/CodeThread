@@ -18,6 +18,8 @@
     "security:check": "pnpm audit --audit-level=low",
     "bench:positions": "node scripts/benchmark-source-positions.ts",
     "demo:semantic": "node scripts/demo-semantic.ts",
+    "investigate": "node scripts/investigate.ts",
+    "demo:investigation": "node scripts/investigate.ts --demo todo",
     "eval:semantic": "node scripts/eval-semantic.ts",
     "eval:external": "node scripts/eval-external-semantic.ts",
     "arch:check": "node scripts/architecture.ts",

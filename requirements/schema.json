@@ -84,7 +84,7 @@
   "$defs": {
     "requirementId": {
       "type": "string",
-      "pattern": "^CT-(CORE|DB|INDEX|TEST|LINK|TRACE|VIS|API|EVAL|AI)-[0-9]{3}$"
+      "pattern": "^CT-(CORE|DB|INV|INDEX|TEST|LINK|TRACE|VIS|API|EVAL|AI)-[0-9]{3}$"
     },
     "text": {
       "type": "string",

@@ -112,6 +112,58 @@ default; callers must select relation kinds to traverse references. Limits, the
 compiler profile, ownership rules and error behavior are documented in the
 architecture; no source or repository script is executed.
 
+## Textual investigation
+
+Use the bounded CLI to inspect one immutable manifest without reading source
+paths from the analyzed repository or running its code. A manifest is UTF-8 JSON
+with exactly this shape:
+
+```json
+{
+  "version": 1,
+  "repositoryId": "00000000-0000-4000-8000-000000000012",
+  "files": [
+    {
+      "path": "src/example.ts",
+      "sha256": "<lowercase SHA-256 of the original bytes>",
+      "contentBase64": "<base64 of the original bytes>"
+    }
+  ]
+}
+```
+
+Paths are source identities, not disk paths. Include each required source file's
+original bytes; hashes are checked by the analyzer. The CLI accepts up to 20
+files, 256 KiB per file, 2 MiB total source, and a 3 MiB manifest. It enforces
+strict UTF-8, unique JSON keys, canonical base64 and safe POSIX paths, then uses
+the fixed compiler profile. Invalid manifests fail with a typed error.
+
+Run a prepared, byte-pinned example with `pnpm --silent demo:investigation`, or
+provide your own manifest with
+`pnpm --silent investigate -- --manifest ./manifest.json`. In either session,
+start with `help`. Copy source selectors exactly as printed; they are
+JSON-quoted tokens so unusual legal paths remain safe and reversible.
+Interactive command errors leave the prompt available; piped sessions stop on
+error with a typed diagnostic and nonzero exit status. The reproducible todo
+flow is:
+
+```text
+symbols controllers/todo.controller.ts
+inspect routes/todo.router.ts@4:1 references outgoing
+follow controllers/todo.controller.ts@10:3 references incoming
+evidence symbol controllers/todo.controller.ts@10:3
+quit
+```
+
+`inspect` defaults to `calls`; include `references` explicitly to see method
+references. Results label each relation kind, show verified occurrence and
+declaration excerpts with source hashes, and retain typed unknowns and query
+truncation. `follow` is limited to an exact target shown by the previous
+inspection and reuses the in-memory analysis. Select symbols by
+`path@line:column`; `name:<name>` works only when the name is unique. Static
+references do not assert execution, registration success or runtime dispatch.
+The session is bounded to 100 commands and 64 KiB of text per response.
+
 For repeated source positioning, own one immutable
 `createSourcePositionIndex(source)` per file and reuse its `positionAt` and
 `validateRange` methods. The convenience `positionAt(source, offset)` and

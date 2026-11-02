@@ -915,6 +915,40 @@ in `fixtures/external/README.md`; labels have no independent review. Correctness
 and coverage are reported separately per subset. Neither these samples nor
 static paths establish runtime execution or comprehension effectiveness.
 
+### Textual investigation CLI
+
+`scripts/investigate.ts` is the developer-facing adapter over the existing
+symbol indexer and trace engine; it owns no extraction, graph traversal or
+source verification logic. `pnpm investigate -- --manifest <path>` reads one
+UTF-8 JSON manifest. The manifest identifies repository UUID and lists source
+POSIX paths, lowercase SHA-256 hashes and original bytes encoded as canonical
+base64. It has an exact versioned shape, rejects duplicate JSON keys, and is
+bounded to 3 MiB, twenty files, 256 KiB per file and 2 MiB total source. The
+analyzer applies its existing strict compiler profile, source validation and
+worker limits. No source path from that manifest is opened on disk, repository
+scripts are not run, and dependencies are not installed.
+
+The session lists files and declarations, selects a symbol by exact
+`path@line:column` anchor or unique display name, inspects one-hop incoming or
+outgoing relationships, follows only an exact target shown in the immediately
+preceding result, and pages through verified evidence. `calls` is the default
+relation filter; `references` must be selected explicitly. Output labels the
+kind and direction, includes source hashes and escaped exact excerpts, and shows
+diagnostics, coverage, query truncation and bounded display omissions.
+Unavailable evidence omits the affected exact relationship from follow targets
+and is reported. The CLI does not infer an absent relationship from an empty
+partial result. It retains one immutable analysis in process memory for at most
+100 commands; each textual response is capped at 64 KiB, and excerpts are paged
+in 4,096 UTF-16 code units.
+
+`pnpm demo:investigation` supplies the verified pinned `ts-node-todo` sources
+and closure through the existing corpus loader. It is a local reproducible
+example, not repository crawling or proof of general accuracy. The documented
+route-to-controller `REFERENCES` describe source-level method references only;
+they do not assert handler registration, runtime receiver identity or method
+execution. Visual presentation and a general filesystem/Git manifest builder
+remain unimplemented.
+
 ## 13. Evidence-driven capability assessment
 
 Assessment date: 2026-11-02. This is a read-only assessment on byte-pinned

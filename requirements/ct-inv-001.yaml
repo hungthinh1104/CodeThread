@@ -1,0 +1,52 @@
+id: CT-INV-001
+title: Bounded textual code investigation
+module: application
+statement: >-
+  A developer shall inspect supported source relationships and verified evidence
+  from a caller-supplied immutable manifest through a bounded textual workflow
+  without relying on internal identifiers or inferring execution.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: An explicit source manifest with immutable bytes and claimed hashes
+    then: The CLI validates and analyzes only the listed bounded inputs.
+  - id: AC-02
+    given: A source path and declaration location or a non-unique display name
+    then:
+      Selection resolves through a stable source anchor or returns an explicit
+      ambiguity error.
+  - id: AC-03
+    given: A selected symbol and supported neighboring relationships
+    then:
+      Calls are the default, references require explicit selection, and exact
+      targets remain navigable in the same analysis session.
+  - id: AC-04
+    given: An exact displayed relationship
+    then:
+      Its occurrence and target declaration include verified source ranges,
+      hashes and escaped excerpts.
+  - id: AC-05
+    given: Unknown, unsupported, incomplete, empty or truncated analysis
+    then:
+      The CLI reports uncertainty and limits without fabricating targets or
+      claiming exhaustive absence.
+  - id: AC-06
+    given: Malformed, oversized or unsafe manifest content
+    then:
+      The CLI returns a typed error and nonzero exit status without executing
+      repository code or installing dependencies.
+depends_on:
+  - CT-CORE-004
+  - CT-CORE-005
+  - CT-DB-005
+  - CT-DB-007
+  - CT-INDEX-001
+verification:
+  method: mixed
+  description: >-
+    Verify the pinned todo flow and negative manifest, selection, relationship,
+    evidence, output-limit and terminal-safety cases; then run workspace checks,
+    semantic evaluations and the native dependency audit.
+  test_ids:
+    - tests/investigate-cli.test.ts
