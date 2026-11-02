@@ -164,12 +164,18 @@ function analyze(input: WorkerInput): WorkerOutput {
       code: 'COMPILER_INTEGRITY',
       message: 'The pinned compiler environment is incomplete',
     };
-  if (program.getSyntacticDiagnostics().length)
+  const syntaxDiagnostics = program.getSyntacticDiagnostics();
+  if (syntaxDiagnostics.length) {
+    const sourcePath = syntaxDiagnostics
+      .find((diagnostic) => diagnostic.file?.fileName.startsWith(sourceRoot))
+      ?.file?.fileName.slice(sourceRoot.length);
     return {
       ok: false,
       code: 'MALFORMED_SOURCE',
       message: 'A source file contains invalid TypeScript syntax',
+      ...(sourcePath === undefined ? {} : { sourcePath }),
     };
+  }
   const identityParts = {
     repositoryId: input.repositoryId,
     sourceFingerprint: input.sourceFingerprint,

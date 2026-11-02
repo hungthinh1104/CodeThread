@@ -17,13 +17,14 @@ No comprehension benefit is claimed by implementation tests.
 
 Current packages:
 
-| Owner              | Behavior                                                                                                        | Dependencies                                                     |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| code-model         | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
-| contracts          | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
-| symbol-indexer     | Bounded manifest validation, isolated TypeScript extraction and retained source                                 | code-model, pinned TypeScript and explicitly allowed Node APIs   |
-| trace-engine       | Source-verified, bounded in-memory graph exploration                                                            | code-model, contracts and Node crypto; no compiler or filesystem |
-| Foundation scripts | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
+| Owner               | Behavior                                                                                                        | Dependencies                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| code-model          | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
+| contracts           | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
+| symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction and retained source                                 | code-model, pinned TypeScript and explicitly allowed Node APIs   |
+| trace-engine        | Source-verified, bounded in-memory graph exploration                                                            | code-model, contracts and Node crypto; no compiler or filesystem |
+| Application scripts | Explicit local Git object acquisition and CLI orchestration; no extraction or graph implementation              | symbol-indexer, trace-engine, code-model/contracts and Node      |
+| Foundation scripts  | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
 
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
@@ -31,9 +32,11 @@ consumers toward the framework-independent model; the model never imports its
 extractors. Future code dependency direction is transport → application
 orchestration → semantic modules. Symbol/test indexers produce code-model facts;
 trace-engine consumes facts, not framework AST internals. Database owns
-adapters, not semantic rules. API uses contracts rather than exposing Drizzle
-rows. UI uses contracts/API rather than the database. No Next.js backend
-duplicates Fastify/application rules.
+adapters, not semantic rules. `scripts/git-source.ts` owns Git object
+acquisition; `scripts/investigate.ts` owns arguments, source selection display
+and session orchestration. API uses contracts rather than exposing Drizzle rows.
+UI uses contracts/API rather than the database. No Next.js backend duplicates
+Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -336,21 +339,26 @@ attachments are plural.
 
 ## 4. Identity, source and evidence conventions
 
-Resolve the selected commit to its full Git object ID and tree using argument
-arrays and a fixed repository boundary. Read Git object content without checkout
-filters or hooks. Submodules, symlinks and Git LFS pointer files are unsupported
-until explicit capabilities define their retained content and boundaries; do not
-treat their referents as ordinary tracked source.
+The CT-SOURCE-001 CLI adapter resolves the selected revision to a full Git
+commit ID once, then reads the commit, selected trees and selected blobs by
+object ID using argument arrays and binary tree framing. It verifies each
+object's declared type, size and Git object identity before retaining bytes, and
+computes a separate raw-source SHA-256 for the existing manifest analyzer.
+Checkout filters and hooks are not invoked. Submodules, symlinks, unsupported
+tree modes and Git LFS pointer interpretation are unsupported; pointer-file
+bytes, if explicitly selected as `.ts`, remain ordinary source bytes and are not
+hydrated.
 
-The source fingerprint is SHA-256 over a versioned canonical manifest containing
-the full commit/tree OIDs and selected Git paths, modes and raw content hashes.
-Different committed revisions have different snapshot identities even when their
-indexed files match; identical raw blobs still deduplicate in the cache. Include
-source, tests, tsconfig references, package/lock manifests and every analysis
-input in the declared scope; retain exclusions and reasons. The commit/tree OIDs
-remain provenance and are not the sole analysis identity. Paths use POSIX
-separators, preserve case and Unicode bytes, and are compared deterministically
-without locale normalization.
+Git commit and blob IDs are acquisition provenance, not inputs to the existing
+manifest fingerprint. The adapter passes the same repository UUID, selected
+POSIX paths, original bytes and raw SHA-256 hashes that a caller-provided
+manifest would supply. Therefore, two commits with identical selected paths and
+bytes have the same analyzer snapshot identity even if their commits differ.
+Changing a selected path, byte, analyzer build or compiler configuration still
+changes the applicable manifest-based identity. Database publication must store
+commit/blob provenance separately and reconcile it with this identity rule
+before DB-02. Paths preserve case and Unicode exactly; path matching uses raw
+UTF-8 component bytes without locale normalization.
 
 AnalysisConfiguration's verified canonical cache document contains explicit
 compiler/extractor versions, supported capability versions, effective compiler
@@ -947,7 +955,56 @@ example, not repository crawling or proof of general accuracy. The documented
 route-to-controller `REFERENCES` describe source-level method references only;
 they do not assert handler registration, runtime receiver identity or method
 execution. Visual presentation and a general filesystem/Git manifest builder
-remain unimplemented.
+remain unimplemented; the narrow CT-SOURCE-001 adapter accepts explicitly
+selected files from a pinned local Git commit but does not crawl or build a
+general manifest from filesystem state.
+
+### CT-SOURCE-001 local Git acquisition
+
+`pnpm investigate -- --repo <root> --repository-id <uuid> --revision <revision> --file <path> [--file=<path> ...]`
+reuses the same session after acquisition. The accepted revision forms are a
+full commit object ID, `HEAD`, or a valid fully qualified `refs/heads/...` /
+`refs/tags/...` name. Short names, abbreviated IDs, ranges, ancestry expressions
+and revision/path syntax are rejected. A ref is resolved once; subsequent object
+reads use only full object IDs.
+
+The root must be a standard non-bare checkout with a real `.git` directory,
+local `objects` directory, no linked-worktree `commondir`, and no
+`objects/info/alternates`. Dirty worktrees are accepted but never read. The
+adapter requires a caller repository UUID and one or more explicit literal `.ts`
+paths. It does not walk the repository, expand directories/globs, infer
+dependencies or include the current working-tree copy. Paths preserve Unicode,
+case and literal wildcard characters; control characters, unsafe components,
+duplicates and case-equivalent selections fail. Only regular blob modes `100644`
+and `100755` are admitted.
+
+Git executable discovery resolves an absolute executable outside the repository.
+Children use `shell: false`, an explicit Git directory/worktree, and a
+restricted environment with inherited `GIT_*`, tracing, global/system
+configuration, replacement objects, prompts, optional locks and lazy fetching
+disabled. Git ownership protection remains enabled. This is a safe
+object-reading boundary for repositories whose Git metadata and host Git
+installation are trusted; Git itself warns against operating on untrusted
+repository metadata. It is not a sandbox against a malicious local `.git`
+directory or compromised Git binary. No repository hook, filter, script, package
+manager or test is invoked.
+
+The adapter verifies commit/tree/blob object types, sizes and object IDs. Binary
+tree records are parsed using their NUL and fixed-width object-ID framing, and
+only directories needed by selected paths are traversed. It checks object sizes
+before reading bodies. The Git stage has a ten-second deadline, 1 MiB
+commit/tree object bounds, 4 MiB cumulative metadata, 128 unique trees, 10,000
+tree entries, 64 path components and 8 KiB retained stderr. Existing analyzer
+bounds remain 20 files, 256 KiB per file and 2 MiB total source. Any rejected
+selection fails atomically; the CLI reports
+selected/admitted/rejected/not-admitted counts. Typed failures do not expose
+absolute repository paths, raw Git stderr or source content. Cancellation kills
+the active Git child and exits with status 130.
+
+This adapter does not persist a source cache or make Git provenance part of
+semantic identity. Source bytes remain in the analyzer's verified in-memory
+reader for the session. Persistent database/cache design, Git crawling,
+dependency closure, bare/worktree support and remote Git are deferred.
 
 ## 13. Evidence-driven capability assessment
 

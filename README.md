@@ -13,8 +13,9 @@ depend on those frameworks. Static syntax is not proof of runtime execution or
 passing tests.
 
 The repository supplies Foundation validation/tooling, the proposed DB-01
-logical design, and a bounded in-memory TypeScript semantic proof. It contains
-no database implementation, Git crawler, API, UI or Gemini integration. See
+logical design, a bounded in-memory TypeScript semantic proof, and a local Git
+adapter for explicitly selected committed files. It contains no database
+implementation, recursive Git crawler, API, UI or Gemini integration. See
 `product.yaml` and `docs/architecture.md` for scope, ownership and gates.
 
 ## Developer setup
@@ -114,9 +115,8 @@ architecture; no source or repository script is executed.
 
 ## Textual investigation
 
-Use the bounded CLI to inspect one immutable manifest without reading source
-paths from the analyzed repository or running its code. A manifest is UTF-8 JSON
-with exactly this shape:
+Use the bounded CLI with an immutable manifest or the local Git adapter. A
+manifest is UTF-8 JSON with exactly this shape:
 
 ```json
 {
@@ -140,12 +140,30 @@ the fixed compiler profile. Invalid manifests fail with a typed error.
 
 Run a prepared, byte-pinned example with `pnpm --silent demo:investigation`, or
 provide your own manifest with
-`pnpm --silent investigate -- --manifest ./manifest.json`. In either session,
-start with `help`. Copy source selectors exactly as printed; they are
-JSON-quoted tokens so unusual legal paths remain safe and reversible.
-Interactive command errors leave the prompt available; piped sessions stop on
-error with a typed diagnostic and nonzero exit status. The reproducible todo
-flow is:
+`pnpm --silent investigate -- --manifest ./manifest.json`. To inspect selected
+files from a local commit, provide the repository UUID and explicit literal
+paths:
+
+```sh
+pnpm --silent investigate -- --repo ./my-repository \
+  --repository-id 00000000-0000-4000-8000-000000000012 \
+  --revision HEAD --file src/main.ts --file src/target.ts
+```
+
+The adapter supports full commit IDs, `HEAD`, and fully qualified local branch
+or tag refs. It resolves the revision once, reads only those committed `.ts`
+blobs, and ignores dirty working-tree changes. Directories, globs and automatic
+dependency discovery are not supported. The repository root must have a real
+`.git` directory; bare repositories, linked worktrees, symlinked Git metadata,
+and alternate object stores are rejected. No checkout, filter, hook, repository
+script or dependency installation is run. The developer is responsible for
+trusting the local Git executable and repository metadata. Git commit/blob
+identities are reported as provenance; the analyzer's existing manifest-based
+semantic identity is unchanged. In either session, start with `help`. Copy
+source selectors exactly as printed; they are JSON-quoted tokens so unusual
+legal paths remain safe and reversible. Interactive command errors leave the
+prompt available; piped sessions stop on error with a typed diagnostic and
+nonzero exit status. The reproducible todo flow is:
 
 ```text
 symbols controllers/todo.controller.ts

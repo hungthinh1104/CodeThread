@@ -5,7 +5,10 @@ north_star:
   evidence-backed code relationships and bounded interactive tracing.
 audience: A single developer investigating a local repository.
 v0:
-  source: Committed local Git revisions retained in a verified local cache.
+  source: >-
+    A local standard Git checkout supplies one pinned commit and an explicit
+    list of TypeScript files. Original verified bytes remain in the in-memory
+    analysis session; persistent source caching is not implemented.
   language: TypeScript
   optional_test_analysis: Jest behavior can provide supporting evidence.
   framework_extensions:
@@ -17,6 +20,11 @@ v0:
     - Symbol to supported references, dependencies, calls, and cross-file
       declarations.
     - Optional test to behavior and code, or code to related tests.
+  local_source_adapter:
+    revision: Full commit ID, HEAD, or fully qualified local branch/tag ref.
+    selection:
+      Explicit literal .ts paths only; no crawl, glob, or dependency discovery.
+    worktree: Dirty working-tree contents are ignored.
   presentation: >-
     A bounded textual CLI for the current semantic proof; visual traces remain
     planned.
@@ -40,7 +48,8 @@ research:
 non_goals:
   - Requirement-impact, approval, report-generation, or enterprise workflows.
   - Team tenancy, cloud source ingestion, or arbitrary runtime execution.
-  - Dirty working trees, non-Git folders, or broad language support in V0.
+  - Interpreting dirty working-tree source, non-Git folders, or broad language
+    support in V0.
   - A general AI coding platform, custom issue tracker, or speculative
     infrastructure.
 first_batch:

@@ -20,17 +20,24 @@ import type {
   AnalysisInput,
   AnalysisSnapshot,
 } from '@codethread/symbol-indexer';
+import { ANALYSIS_LIMITS } from '@codethread/symbol-indexer';
 import { createInvestigation } from '@codethread/trace-engine';
 import { TraceError } from '@codethread/trace-engine';
 import {
   loadExternalCorpus,
   loadTodoClosure,
 } from './external-semantic-corpus.ts';
+import {
+  acquireGitSources,
+  GitSourceError,
+  summarizeSelection,
+} from './git-source.ts';
+import type { AcquiredGitSources, GitSelectionStatus } from './git-source.ts';
 
 const MAX_MANIFEST_BYTES = 3 * 1024 * 1024;
-const MAX_SOURCE_FILES = 20;
-const MAX_SOURCE_FILE_BYTES = 256 * 1024;
-const MAX_TOTAL_SOURCE_BYTES = 2 * 1024 * 1024;
+const MAX_SOURCE_FILES = ANALYSIS_LIMITS.maxFiles;
+const MAX_SOURCE_FILE_BYTES = ANALYSIS_LIMITS.maxFileBytes;
+const MAX_TOTAL_SOURCE_BYTES = ANALYSIS_LIMITS.maxTotalBytes;
 const MAX_SESSION_COMMANDS = 100;
 const MAX_COMMAND_LENGTH = 4096;
 const MAX_RESPONSE_BYTES = 64 * 1024;
@@ -557,7 +564,7 @@ function listFiles(snapshot: AnalysisSnapshot): string[] {
     return ['No source files were analyzed.'];
   return snapshot.facts.files.map(
     (file) =>
-      `${quoted(file.path)} (${file.byteLength} bytes, sha256:${file.contentHash})`,
+      `${commandArgument(file.path)} (${file.byteLength} bytes, sha256:${file.contentHash})`,
   );
 }
 
@@ -962,7 +969,8 @@ function printError(error: unknown): void {
   const code =
     error instanceof CliError ||
     error instanceof AnalysisError ||
-    error instanceof TraceError
+    error instanceof TraceError ||
+    error instanceof GitSourceError
       ? error.code
       : 'INTERNAL_ERROR';
   const message =
@@ -970,6 +978,13 @@ function printError(error: unknown): void {
       ? escapeTerminal(error.message)
       : 'Unexpected failure.';
   process.stderr.write(`ERROR[${code}] ${message}\n`);
+  if (error instanceof GitSourceError && error.selection.length > 0) {
+    process.stderr.write(
+      `Source selection: ${summarizeSelection(error.selection)}.\n`,
+    );
+    for (const item of error.selection)
+      process.stderr.write(`  ${quoted(item.path)}: ${item.status}\n`);
+  }
 }
 
 async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
@@ -1098,44 +1113,186 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
   }
 }
 
-function parseArguments(
-  args: readonly string[],
-): { kind: 'manifest'; path: string } | { kind: 'demo' } | { kind: 'help' } {
+function parseArguments(args: readonly string[]):
+  | { kind: 'manifest'; path: string }
+  | { kind: 'demo' }
+  | {
+      kind: 'git';
+      repositoryPath: string;
+      repositoryId: string;
+      revision: string;
+      selectedPaths: string[];
+    }
+  | { kind: 'help' } {
   if (args.length === 1 && (args[0] === '--help' || args[0] === '-h'))
     return { kind: 'help' };
   if (args.length === 2 && args[0] === '--manifest' && args[1]!.length > 0)
     return { kind: 'manifest', path: args[1]! };
   if (args.length === 2 && args[0] === '--demo' && args[1] === 'todo')
     return { kind: 'demo' };
+  if (
+    args[0] === '--repo' ||
+    args.some((argument) => argument.startsWith('--repo='))
+  ) {
+    let repositoryPath: string | undefined,
+      repositoryId: string | undefined,
+      revision: string | undefined;
+    const selectedPaths: string[] = [];
+    const setValue = (option: string, value: string): void => {
+      if (option === '--repo') {
+        if (repositoryPath !== undefined)
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            '--repo may be specified once.',
+          );
+        repositoryPath = value;
+      } else if (option === '--repository-id') {
+        if (repositoryId !== undefined)
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            '--repository-id may be specified once.',
+          );
+        repositoryId = value;
+      } else if (option === '--revision') {
+        if (revision !== undefined)
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            '--revision may be specified once.',
+          );
+        revision = value;
+      } else selectedPaths.push(value);
+    };
+    for (let index = 0; index < args.length; index++) {
+      const argument = args[index]!;
+      const equals = /^(--repo|--repository-id|--revision|--file)=(.*)$/.exec(
+        argument,
+      );
+      if (equals) {
+        const value = equals[2]!;
+        setValue(equals[1]!, value);
+        continue;
+      }
+      if (
+        argument === '--repo' ||
+        argument === '--repository-id' ||
+        argument === '--revision' ||
+        argument === '--file'
+      ) {
+        const value = args[++index];
+        if (value === undefined || value.length === 0)
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            `${argument} requires a value.`,
+          );
+        setValue(argument, value);
+        continue;
+      }
+      throw new CliError(
+        'INVALID_ARGUMENT',
+        `Unknown Git source option ${quoted(argument)}.`,
+      );
+    }
+    if (
+      !repositoryPath ||
+      !repositoryId ||
+      !revision ||
+      selectedPaths.length === 0
+    )
+      throw new CliError(
+        'INVALID_ARGUMENT',
+        'Usage: pnpm investigate -- --repo <root> --repository-id <uuid> --revision <commit|HEAD|refs/heads/...|refs/tags/...> --file <path> [--file=<path> ...].',
+      );
+    return {
+      kind: 'git',
+      repositoryPath,
+      repositoryId,
+      revision,
+      selectedPaths,
+    };
+  }
   throw new CliError(
     'INVALID_ARGUMENT',
-    'Usage: pnpm investigate -- --manifest <manifest.json> | pnpm demo:investigation',
+    'Usage: pnpm investigate -- --manifest <manifest.json> | --repo <root> --repository-id <uuid> --revision <revision> --file <path> | pnpm demo:investigation',
   );
 }
 
 async function runInvestigationCli(
   args = process.argv.slice(2),
 ): Promise<void> {
+  let acquired: AcquiredGitSources | undefined;
   try {
     const command = parseArguments(args);
     if (command.kind === 'help') {
       writePage([
         'CodeThread bounded textual source investigation.',
         'Usage: pnpm investigate -- --manifest <manifest.json>',
+        '       pnpm investigate -- --repo <root> --repository-id <uuid> --revision <revision> --file <path> [--file=<path> ...]',
         'Pinned example: pnpm demo:investigation',
         `Manifest limit: ${MAX_MANIFEST_BYTES} bytes; source limits: ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes/file, ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
       ]);
       return;
     }
-    const input =
-      command.kind === 'demo'
-        ? await loadTodoDemo()
-        : parseManifest(await readManifestFile(command.path));
-    const snapshot = await analyzeManifest(input);
+    let input: AnalysisInput;
+    if (command.kind === 'demo') input = await loadTodoDemo();
+    else if (command.kind === 'manifest')
+      input = parseManifest(await readManifestFile(command.path));
+    else {
+      const controller = new AbortController(),
+        onInterrupt = () => controller.abort();
+      process.once('SIGINT', onInterrupt);
+      try {
+        acquired = await acquireGitSources({
+          repositoryPath: command.repositoryPath,
+          repositoryId: command.repositoryId,
+          revision: command.revision,
+          selectedPaths: command.selectedPaths,
+          signal: controller.signal,
+        });
+      } finally {
+        process.removeListener('SIGINT', onInterrupt);
+      }
+      input = acquired.input;
+    }
+    let snapshot: AnalysisSnapshot;
+    try {
+      snapshot = await analyzeManifest(input);
+    } catch (error) {
+      if (error instanceof AnalysisError && acquired) {
+        const failedPath = error.sourcePath;
+        const selection: GitSelectionStatus[] = acquired.selection.map(
+          (item) => ({
+            path: item.path,
+            status:
+              failedPath === undefined
+                ? 'not-admitted'
+                : item.path === failedPath
+                  ? 'rejected'
+                  : 'not-admitted',
+          }),
+        );
+        process.stderr.write(
+          `Source selection: ${summarizeSelection(selection)}.\n`,
+        );
+        for (const item of selection)
+          process.stderr.write(`  ${quoted(item.path)}: ${item.status}\n`);
+      }
+      throw error;
+    }
+    if (acquired) {
+      writePage([
+        `Pinned Git commit: ${acquired.provenance.commitId} (${acquired.provenance.objectFormat}).`,
+        `Source selection: ${summarizeSelection(acquired.selection)}.`,
+        ...acquired.provenance.files.map(
+          (file) =>
+            `Git object ${quoted(file.path)}: ${file.blobId} (${file.mode}, sha256:${file.sha256}).`,
+        ),
+      ]);
+    }
     await startSession(snapshot);
   } catch (error) {
     printError(error);
-    process.exitCode = 2;
+    process.exitCode =
+      error instanceof GitSourceError && error.code === 'CANCELLED' ? 130 : 2;
   }
 }
 

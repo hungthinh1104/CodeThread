@@ -1,0 +1,68 @@
+id: CT-SOURCE-001
+title: Safe local Git source adapter
+module: application
+statement: >-
+  The investigation CLI shall acquire only explicitly selected TypeScript source
+  blobs from one pinned commit in a supported local Git repository and pass the
+  verified original bytes through the existing immutable analyzer without
+  reading working-tree source or executing repository-controlled commands.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given:
+      A standard local repository, caller-supplied repository UUID and supported
+      revision
+    then:
+      The adapter resolves one full commit ID and uses only commit/tree/blob
+      object IDs afterward.
+  - id: AC-02
+    given: Repeated literal .ts paths within the declared file and byte limits
+    then:
+      Every selected path is admitted atomically or the request fails without
+      starting an analysis session.
+  - id: AC-03
+    given: A dirty working tree or a branch that moves after revision resolution
+    then:
+      Acquired bytes, blob identities, analyzer snapshot and evidence remain
+      tied to the resolved commit.
+  - id: AC-04
+    given:
+      A selected path with unsafe syntax, a missing entry, symlink, gitlink,
+      unsupported mode, duplicate or case collision
+    then:
+      The adapter returns a typed rejection and never substitutes a working-tree
+      file or a partial selection.
+  - id: AC-05
+    given: An acquired commit, tree or blob object
+    then:
+      Its declared type, size and Git object ID are verified before bytes are
+      retained, and raw source SHA-256 is supplied to the analyzer.
+  - id: AC-06
+    given:
+      An unavailable, corrupt, oversized, timed-out or cancelled Git operation
+    then:
+      The CLI returns a stable typed failure, sanitized diagnostics and truthful
+      selected/admitted/rejected/not-admitted counts.
+  - id: AC-07
+    given:
+      Inherited Git overrides, tracing, global configuration, checkout filters
+      or hooks
+    then:
+      The adapter suppresses inherited Git control settings and uses object
+      reads that do not execute filters, hooks or repository scripts.
+depends_on:
+  - CT-CORE-004
+  - CT-DB-001
+  - CT-DB-007
+  - CT-INDEX-001
+  - CT-INV-001
+verification:
+  method: mixed
+  description: >-
+    Use disposable Git repositories and real object operations for revision
+    pinning, path framing, evidence, mode, object-integrity, resource,
+    environment and all-or-error admission regressions. Run workspace checks,
+    semantic evaluations and the native dependency audit.
+  test_ids:
+    - tests/investigate-cli.test.ts

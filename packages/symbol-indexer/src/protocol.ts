@@ -15,4 +15,4 @@ export interface WorkerInput {
 }
 export type WorkerOutput =
   | { ok: true; facts: AnalysisFacts }
-  | { ok: false; code: string; message: string };
+  | { ok: false; code: string; message: string; sourcePath?: string };
