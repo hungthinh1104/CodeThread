@@ -67,6 +67,8 @@ This is a minimal experiment input set, not a claim that it is the application's
 complete compiler or runtime dependency closure. In particular, Express,
 Passport and other bare packages remain unavailable; no dependencies are
 installed and no repository code is executed. The controller and model inputs
-are used only to ask the pinned TypeScript checker which declarations the three
-handler-shaped property expressions name. They do not change the external gold
-labels or the analyzer's declared `references.v1: not_analyzed` coverage.
+let the bounded analyzer check the three handler-shaped property expressions
+against source declarations. The analyzer records these as static `REFERENCES`,
+not calls or framework registration. The inputs do not change the external gold
+labels; `references.v1` remains partial because only this narrow subset is
+implemented.

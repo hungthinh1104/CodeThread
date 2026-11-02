@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
+import {
+  loadExternalCorpus,
+  loadTodoClosure,
+} from '../scripts/external-semantic-corpus.ts';
 
 const repositoryId = '00000000-0000-4000-8000-000000000001';
 const sourceFile = (path: string, text: string) => {
@@ -202,6 +206,299 @@ describe('CT-INDEX-001A semantic extraction', () => {
       expect.objectContaining({ status: 'exact', targetId: target.id }),
     ]);
     expect(relations[0]?.siteEvidenceId).not.toBe(relations[1]?.siteEvidenceId);
+  }, 15000);
+  it('extracts the three pinned todo method references with exact source evidence', async () => {
+    const corpus = await loadExternalCorpus('todo');
+    const closure = await loadTodoClosure();
+    const files = [
+      corpus.files.find((file) => file.path === 'routes/todo.router.ts')!,
+      ...closure.filter(({ path }) =>
+        ['controllers/todo.controller.ts', 'models/todo.ts'].includes(path),
+      ),
+    ];
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files,
+    });
+    const routeFile = result.facts.files.find(
+      (file) => file.path === 'routes/todo.router.ts',
+    )!;
+    const references = result.facts.relations.filter(
+      (relation) =>
+        relation.kind === 'references' &&
+        result.facts.evidenceRefs.find(
+          (item) => item.id === relation.siteEvidenceId,
+        )?.fileId === routeFile.id,
+    );
+    expect(references).toHaveLength(3);
+    expect(references.every((item) => item.resolution.status === 'exact')).toBe(
+      true,
+    );
+    const resolved = references.map((relation) => {
+      const target = result.facts.symbols.find(
+        (symbol) =>
+          symbol.id ===
+          (relation.resolution.status === 'exact'
+            ? relation.resolution.targetId
+            : null),
+      )!;
+      const site = result.source.readEvidence(relation.siteEvidenceId);
+      const declaration = result.source.readEvidence(
+        target.declarationEvidenceId,
+      );
+      return {
+        relation,
+        target,
+        targetEvidenceIncluded:
+          relation.resolution.status === 'exact' &&
+          relation.resolution.evidenceIds.includes(
+            target.declarationEvidenceId,
+          ),
+        siteText: site.status === 'available' ? site.text : null,
+        siteRange: site.status === 'available' ? site.evidence.range : null,
+        declarationText:
+          declaration.status === 'available' ? declaration.text : null,
+        declarationRange:
+          declaration.status === 'available'
+            ? declaration.evidence.range
+            : null,
+      };
+    });
+    expect(
+      resolved.map(({ siteText, target, declarationText }) => [
+        siteText,
+        target.kind,
+        target.filePath,
+        target.name,
+        declarationText?.slice(0, 24),
+      ]),
+    ).toEqual([
+      [
+        'toDoCtrl.getAll',
+        'method',
+        'controllers/todo.controller.ts',
+        'getAll',
+        'async getAll(req: Reques',
+      ],
+      [
+        'toDoCtrl.getOne',
+        'method',
+        'controllers/todo.controller.ts',
+        'getOne',
+        'async getOne(req: Reques',
+      ],
+      [
+        'toDoCtrl.create',
+        'method',
+        'controllers/todo.controller.ts',
+        'create',
+        'async create(req: Reques',
+      ],
+    ]);
+    expect(
+      resolved.every(({ targetEvidenceIncluded }) => targetEvidenceIncluded),
+    ).toBe(true);
+    expect(
+      resolved.every(
+        ({ target, declarationRange }) =>
+          declarationRange &&
+          declarationRange.start.offset === target.range.start.offset &&
+          declarationRange.end.offset === target.range.end.offset,
+      ),
+    ).toBe(true);
+    expect(
+      resolved.map(({ siteRange, declarationRange }) => [
+        siteRange?.start.line,
+        siteRange?.start.column,
+        siteRange?.end.line,
+        siteRange?.end.column,
+        declarationRange?.start.line,
+        declarationRange?.end.line,
+      ]),
+    ).toEqual([
+      [8, 19, 8, 34, 10, 26],
+      [11, 22, 11, 37, 28, 40],
+      [14, 20, 14, 35, 42, 60],
+    ]);
+    expect(references.map((relation) => relation.kind)).toEqual([
+      'references',
+      'references',
+      'references',
+    ]);
+    const methodIds = new Set(resolved.map(({ target }) => target.id));
+    expect(
+      result.facts.relations.some(
+        (relation) =>
+          relation.kind === 'calls' &&
+          relation.resolution.status === 'exact' &&
+          methodIds.has(relation.resolution.targetId),
+      ),
+    ).toBe(false);
+    expect(result.facts.coverageByCapability['references.v1']).toBe('partial');
+  }, 30000);
+  it('keeps computed, accessor, overloaded, ambiguous and missing references unknown', async () => {
+    const source = [
+      'class Base { handle() {} }',
+      'class Derived extends Base { override handle() {} }',
+      'class Accessor { get handle(): () => void { return () => {}; } }',
+      'class Left { execute() {} }',
+      'class Right { execute() {} }',
+      "class Data { label = 'value'; }",
+      'class Overloaded { run(value: string): void; run(value: unknown) {} }',
+      "import type { MissingType } from './missing-type.js';",
+      "import { missing } from './missing.js';",
+      'function register(value: unknown) {}',
+      'export function inspect(base: Base, accessor: Accessor, choice: Left | Right, data: Data, overloaded: Overloaded, typeOnly: MissingType) {',
+      '  let reassigned: Base = new Derived();',
+      '  reassigned = new Derived();',
+      '  register(reassigned.handle);',
+      '  register(accessor.handle);',
+      '  register(choice.execute);',
+      '  register(data.label);',
+      "  register(base['handle']);",
+      '  register(overloaded.run);',
+      '  register(missing.handle);',
+      '  register(typeOnly.execute);',
+      '  (() => register(base.handle))();',
+      '}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('references.ts', source)],
+    });
+    const references = result.facts.relations.filter(
+      (relation) => relation.kind === 'references',
+    );
+    const byText = new Map(
+      references.map((relation) => {
+        const evidence = result.source.readEvidence(relation.siteEvidenceId);
+        return [evidence.status === 'available' ? evidence.text : '', relation];
+      }),
+    );
+    const targetName = (text: string) => {
+      const relation = byText.get(text)!;
+      return relation.resolution.status === 'exact'
+        ? result.facts.symbols.find(
+            (symbol) => symbol.id === relation.resolution.targetId,
+          )?.name
+        : null;
+    };
+    expect(targetName('reassigned.handle')).toBe('handle');
+    expect(byText.get('reassigned.handle')?.resolution.status).toBe('exact');
+    expect(byText.get('accessor.handle')?.resolution).toMatchObject({
+      status: 'unsupported',
+      targetId: null,
+    });
+    expect(byText.get('choice.execute')?.resolution).toMatchObject({
+      status: 'ambiguous',
+      targetId: null,
+    });
+    expect(byText.get("base['handle']")?.resolution).toMatchObject({
+      status: 'unsupported',
+      targetId: null,
+    });
+    expect(byText.get('overloaded.run')?.resolution).toMatchObject({
+      status: 'unsupported',
+      targetId: null,
+    });
+    expect(byText.get('missing.handle')?.resolution).toMatchObject({
+      status: 'unresolved',
+      targetId: null,
+    });
+    expect(byText.get('typeOnly.execute')?.resolution.targetId).toBeNull();
+    expect(byText.has('data.label')).toBe(false);
+    expect(
+      result.facts.diagnostics.some(
+        (diagnostic) => diagnostic.code === 'OWNER_UNSUPPORTED',
+      ),
+    ).toBe(true);
+    const reassigned = byText.get('reassigned.handle');
+    const reassignedTarget =
+      reassigned?.resolution.status === 'exact'
+        ? result.facts.symbols.find(
+            (symbol) => symbol.id === reassigned.resolution.targetId,
+          )
+        : undefined;
+    expect(reassignedTarget?.range.start.line).toBe(1);
+    expect(references.every((relation) => relation.kind === 'references')).toBe(
+      true,
+    );
+  }, 30000);
+  it('binds shadowed method references to the local declaration and lexical owner', async () => {
+    const source = [
+      'class Outer { handle() {} }',
+      'class Inner { handle() {} }',
+      'function register(value: unknown) {}',
+      'export function root(value: Outer) {',
+      '  register(value.handle);',
+      '  function nested(value: Inner) { register(value.handle); }',
+      '}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('shadowed.ts', source)],
+    });
+    const references = result.facts.relations.filter(
+      (relation) => relation.kind === 'references',
+    );
+    expect(references).toHaveLength(2);
+    const byLine = references.map((relation) => {
+      const site = result.facts.evidenceRefs.find(
+        (item) => item.id === relation.siteEvidenceId,
+      )!;
+      const owner = result.facts.symbols.find(
+        (item) => item.id === relation.sourceSymbolId,
+      )!;
+      const target = result.facts.symbols.find(
+        (item) =>
+          relation.resolution.status === 'exact' &&
+          item.id === relation.resolution.targetId,
+      )!;
+      return [
+        site.range.start.line,
+        owner.name,
+        target.filePath,
+        target.range.start.line,
+      ];
+    });
+    expect(byLine).toEqual([
+      [5, 'root', 'shadowed.ts', 1],
+      [6, 'nested', 'shadowed.ts', 2],
+    ]);
+  }, 15000);
+  it('keeps repeated method references as separate source occurrences', async () => {
+    const source = [
+      'class Handler { handle() {} }',
+      'function register(value: unknown) {}',
+      'export function root(handler: Handler) {',
+      '  register(handler.handle);',
+      '  register(handler.handle);',
+      '}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('occurrences.ts', source)],
+    });
+    const references = result.facts.relations.filter(
+      (relation) => relation.kind === 'references',
+    );
+    expect(references).toHaveLength(2);
+    expect(new Set(references.map((item) => item.key)).size).toBe(2);
+    expect(new Set(references.map((item) => item.siteEvidenceId)).size).toBe(2);
+    expect(
+      new Set(
+        references.map((item) =>
+          item.resolution.status === 'exact' ? item.resolution.targetId : null,
+        ),
+      ).size,
+    ).toBe(1);
   }, 15000);
   it('resolves a recursive function call and opens its exact source evidence', async () => {
     const result = await analyzeManifest({

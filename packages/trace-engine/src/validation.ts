@@ -105,7 +105,7 @@ function validate(
       Array.isArray(facts.symbols) &&
       facts.symbols.length <= 2000 &&
       Array.isArray(facts.relations) &&
-      facts.relations.length <= 5000 &&
+      facts.relations.length <= 10000 &&
       Array.isArray(facts.evidenceRefs) &&
       facts.evidenceRefs.length <= 17000 &&
       Array.isArray(facts.diagnostics) &&
@@ -227,7 +227,8 @@ function validate(
       owner &&
         site &&
         relation.snapshotId === snapshot &&
-        site.fileId === owner.fileId,
+        site.fileId === owner.fileId &&
+        (relation.kind !== 'calls' || owner.kind === 'function'),
     );
     ensure(
       sourceRangeSchema.safeParse({
@@ -247,6 +248,7 @@ function validate(
       const target = symbols.get(relation.resolution.targetId);
       ensure(
         target &&
+          (relation.kind !== 'references' || target.kind === 'method') &&
           relation.resolution.evidenceIds.includes(
             target.declarationEvidenceId,
           ),
@@ -276,6 +278,7 @@ function validate(
         observation.relationId && relationMap.get(observation.relationId);
       ensure(
         relation &&
+          relation.kind === 'calls' &&
           !seenRelations.has(relation.id) &&
           relation.sourceSymbolId === observation.ownerId &&
           relation.siteEvidenceId === site.id &&
@@ -300,7 +303,8 @@ function validate(
     }
   }
   ensure(
-    seenRelations.size === facts.relations.length &&
+    seenRelations.size ===
+      facts.relations.filter((relation) => relation.kind === 'calls').length &&
       facts.counts.files === facts.files.length &&
       facts.counts.declarations === facts.symbols.length &&
       facts.counts.callSites === facts.observations.length &&

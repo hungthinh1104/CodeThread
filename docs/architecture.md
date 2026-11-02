@@ -628,16 +628,16 @@ available excerpts. The in-memory proof verifies its private manifest copies and
 excerpts; a durable cache adapter, SQL query implementation and runtime
 observation do not exist here.
 
-| Contract                    | Inputs/defaults                                                                    | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                      |
-| --------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ListTests                   | Snapshot, optional text/filePath/suite filters; limit 50, max 200; cursor          | Select tests joined to declaration evidence/files within one published snapshot. Text is a bounded literal case-insensitive substring, with LIKE metacharacters escaped; suite filter is an exact suite-path component. Order path COLLATE C, start_utf16, canonical_key. Fetch limit+1 for continuation.                                                                              |
-| GetTestTrace                | Snapshot/test; ≤500 steps, ≤200 symbols, ≤1000 combined links/production relations | Return one test plus step/link/symbol/relation/evidence/diagnostic dictionaries. Test declaration is included first; bulk-select bounded steps, then links and only admitted symbol endpoints, then bounded induced production relations and support. Total ≤5000 evidence refs and ≤200 diagnostics. Omit complete supported units when a budget prevents closure; report truncation. |
-| GetRelatedProductionSymbols | Snapshot/test; page 50, max 200                                                    | Select distinct exact linked production symbols in source order. Retrieve their site links in a separate bulk query using admitted symbol IDs, preserving occurrences. Combined link budget 1000; explicit truncation if more sites exist. Unresolved sites remain in the trace/diagnostics rather than a fabricated symbol list.                                                      |
-| FindTestsForSymbol          | Snapshot/symbol; page 50, max 200                                                  | Reverse exact TestCodeLink target lookup, distinct tests in declaration source order. Bulk-select at most 1000 supporting occurrences. Include matching test/step/evidence IDs; do not claim transitive relatedness from a direct-link query.                                                                                                                                          |
-| GetSourceEvidence           | Snapshot and 1–100 unique evidence IDs                                             | One scoped evidence/file lookup plus cache batch reads. Return one item per requested ID in input order: verified exact excerpt or typed EVIDENCE_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH, INVALID_ENCODING or EVIDENCE_TOO_LARGE. Never accept paths as an alternative.                                                                                                          |
-| GetDiagnostics              | Snapshot; optional severity/code/fileId; page 50, max 200                          | Scoped select with optional source evidence/file join. Sort empty path/offset 0 for source-free diagnostics, otherwise path COLLATE C, start offset, then diagnostic ID.                                                                                                                                                                                                               |
-| GraphNeighbors              | Snapshot/root, outgoing/incoming/both, depth 2 (max 5), ≤200 nodes                 | Deterministic bounded breadth-first expansion; scope every frontier join to snapshot. Retain site-level parallel relations and diagnostics. At most 1000 relations, 5000 support refs, 200 diagnostics and 10000 examined relations.                                                                                                                                                   |
-| FindSymbolPaths             | Snapshot/from/to; directed depth 2 (max 5), ≤200 visited nodes, ≤20 paths          | Deterministic bounded search over exact outgoing relations, with per-path visited symbols and a global work budget of 10000 examined relations. Return paths as symbol/relation ID sequences with support dictionaries. No repeated symbol within a path; a root-to-itself path may contain zero edges. Hitting depth/work/result budgets is explicit.                                 |
+| Contract                    | Inputs/defaults                                                                                                  | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ListTests                   | Snapshot, optional text/filePath/suite filters; limit 50, max 200; cursor                                        | Select tests joined to declaration evidence/files within one published snapshot. Text is a bounded literal case-insensitive substring, with LIKE metacharacters escaped; suite filter is an exact suite-path component. Order path COLLATE C, start_utf16, canonical_key. Fetch limit+1 for continuation.                                                                                        |
+| GetTestTrace                | Snapshot/test; ≤500 steps, ≤200 symbols, ≤1000 combined links/production relations                               | Return one test plus step/link/symbol/relation/evidence/diagnostic dictionaries. Test declaration is included first; bulk-select bounded steps, then links and only admitted symbol endpoints, then bounded induced production relations and support. Total ≤5000 evidence refs and ≤200 diagnostics. Omit complete supported units when a budget prevents closure; report truncation.           |
+| GetRelatedProductionSymbols | Snapshot/test; page 50, max 200                                                                                  | Select distinct exact linked production symbols in source order. Retrieve their site links in a separate bulk query using admitted symbol IDs, preserving occurrences. Combined link budget 1000; explicit truncation if more sites exist. Unresolved sites remain in the trace/diagnostics rather than a fabricated symbol list.                                                                |
+| FindTestsForSymbol          | Snapshot/symbol; page 50, max 200                                                                                | Reverse exact TestCodeLink target lookup, distinct tests in declaration source order. Bulk-select at most 1000 supporting occurrences. Include matching test/step/evidence IDs; do not claim transitive relatedness from a direct-link query.                                                                                                                                                    |
+| GetSourceEvidence           | Snapshot and 1–100 unique evidence IDs                                                                           | One scoped evidence/file lookup plus cache batch reads. Return one item per requested ID in input order: verified exact excerpt or typed EVIDENCE_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH, INVALID_ENCODING or EVIDENCE_TOO_LARGE. Never accept paths as an alternative.                                                                                                                    |
+| GetDiagnostics              | Snapshot; optional severity/code/fileId; page 50, max 200                                                        | Scoped select with optional source evidence/file join. Sort empty path/offset 0 for source-free diagnostics, otherwise path COLLATE C, start offset, then diagnostic ID.                                                                                                                                                                                                                         |
+| GraphNeighbors              | Snapshot/root, outgoing/incoming/both, `relationKinds` defaults to `[calls]`, depth 2 (max 5), ≤200 nodes        | Deterministic bounded breadth-first expansion across only the requested kinds; every response edge retains its kind and is checked against the request. Scope every frontier join to snapshot. Retain site-level parallel relations and diagnostics. At most 1000 relations, 5000 support refs, 200 diagnostics and 10000 examined relations.                                                    |
+| FindSymbolPaths             | Snapshot/from/to, `relationKinds` defaults to `[calls]`; directed depth 2 (max 5), ≤200 visited nodes, ≤20 paths | Deterministic bounded search over exact outgoing relations of selected kinds, with per-path visited symbols and a global work budget of 10000 examined relations. Return paths as symbol/relation ID sequences with support dictionaries and explicit edge kinds. No repeated symbol within a path; a root-to-itself path may contain zero edges. Hitting depth/work/result budgets is explicit. |
 
 There is no backend or SQL adapter in this batch. These are required SQL shapes
 for DB-03 verification, not performance observations. Add no unbounded recursive
@@ -809,7 +809,8 @@ Frontend and optional AI remain later phases.
 
 ## 12. Bounded in-memory semantic proof
 
-ADR-0003 permits CT-INDEX-001A before DB-02. `analyzeManifest` accepts a
+ADR-0003 permits CT-INDEX-001A before DB-02; CT-INDEX-001B adds a narrow
+method-reference slice without starting DB-02. `analyzeManifest` accepts a
 repository UUID, explicit `COMPILER_PROFILE`, and caller-supplied files with
 POSIX paths, raw UTF-8 bytes and claimed SHA-256 hashes. It copies the buffers,
 rejects unsafe/case-equivalent paths, verifies hashes and strict UTF-8, and
@@ -832,35 +833,49 @@ calls, including nested named functions, local calls, named relative imports,
 aliases and recursion. Each declaration's primary evidence spans the complete
 declaration, while call ownership is restricted separately to the nearest
 supported function body. Calls in parameter initializers, file scope, arrows,
-function expressions or methods have evidence and diagnostics but no invented
-function owner. Calls to type-only values, re-exports, overloads, default or
-namespace imports, external packages, computed/property calls and dynamic
-imports are unsupported. Missing bindings are unresolved; conflicting function
-implementations are ambiguous. A binding written elsewhere or affected by a
-compiler error cannot produce an exact relation. Named imports serve resolution;
-import and reference occurrence facts remain unimplemented. Static exactness is
-not a runtime observation.
+function expressions or methods retain diagnostics without an invented function
+owner. Calls to type-only values, re-exports, overloads, default or namespace
+imports, external packages, computed/property calls and dynamic imports remain
+unsupported. Missing bindings are unresolved; conflicting function
+implementations are ambiguous. A direct call affected by a compiler error cannot
+produce an exact relation.
+
+CT-INDEX-001B additionally emits method symbols for body-bearing method
+declarations and occurrence-level `references` relations for noncomputed method
+properties passed directly as call arguments. The checker must identify exactly
+one source method declaration; overloads, accessors, computed or optional
+access, ambiguous candidates, absent declarations and compiler errors affecting
+the member or target retain null targets and diagnostics. Reference ownership is
+the nearest supported named function or method body; unsupported lexical owners
+receive evidence and diagnostics without a graph edge. Calls inside methods
+remain outside the direct-call ownership subset. A reference is a static
+compiler-selected declaration only: it does not identify a runtime receiver,
+prove successful registration, or establish method execution. Named imports
+serve resolution, but import occurrence facts and general property/reference
+support remain unimplemented.
 
 The `declarations.v1` and `relationships.v1` coverage fields are partial because
 their broader domains are not fully implemented. `named_functions.v1` describes
 the named-function subset; `direct_calls.v1` describes supported calls and is
 partial/unsupported when analysis or unsupported cases prevent completeness.
-Import occurrences, reference occurrences and test behavior are `not_analyzed`.
+`references.v1` is partial and covers only the method-property argument subset;
+general references, import occurrences and test behavior remain unimplemented.
 Coverage, target resolution and graph truncation are independent
 classifications. Decorator syntax receives a source-anchored unsupported
 diagnostic; runtime framework wiring and constructor relationships remain
 `not_analyzed`.
 
 The public analysis boundary allows twenty files, 256 KiB per file, 2 MiB total,
-2,000 named function declarations with bodies and 5,000 call sites. Compiler
-diagnostics and unsupported decorator occurrences are each capped at 10,000. A
-parent starts a short-lived child, clears inherited Node injection settings,
-enforces a ten-second maximum deadline and limits the V8 heap to at most 512
-MiB; callers may request lower limits. The child verifies the actual V8 heap
-ceiling. The heap limit does not bound total RSS. IPC is bounded. Malformed
-source, invalid inputs, resource exhaustion, timeout and compiler failure return
-typed failures rather than empty successful graphs. These limits are
-proof-of-concept safety bounds, not scalability guarantees.
+2,000 supported body-bearing function/method declarations, 5,000 call sites and
+5,000 method-reference candidate sites. Compiler diagnostics and unsupported
+decorator occurrences are each capped at 10,000. A parent starts a short-lived
+child, clears inherited Node injection settings, enforces a ten-second maximum
+deadline and limits the V8 heap to at most 512 MiB; callers may request lower
+limits. The child verifies the actual V8 heap ceiling. The heap limit does not
+bound total RSS. IPC is bounded. Malformed source, invalid inputs, resource
+exhaustion, timeout and compiler failure return typed failures rather than empty
+successful graphs. These limits are proof-of-concept safety bounds, not
+scalability guarantees.
 
 `createInvestigation` copies facts, verifies retained raw source hashes and
 positions, and builds source-ordered occurrence indexes. Neighbors use bounded
@@ -907,7 +922,9 @@ tinyexec and ts-node-todo subsets. Supplementary ts-node-todo inputs in
 `fixtures/external/todo/closure/` are verified against raw SHA-256 and upstream
 Git blob IDs. Existing gold annotations and analyzer behavior are unchanged. No
 repository code was executed and no analyzed-repository dependencies were
-installed. The labels are authored by Codex and have no independent review.
+installed. The labels are authored by Codex and have no independent review. The
+findings below record the assessment baseline; CT-INDEX-001B implements the
+selected method-reference slice without changing the external gold labels.
 
 ### Input completeness
 
@@ -956,11 +973,11 @@ missing-module diagnostics for dependencies outside the admitted inputs. The
 focused regression checks the expression and declaration spans against the
 pinned source bytes.
 
-The analyzer currently reports each enclosing `router.get`/`router.post` call as
-unsupported property-call syntax and leaves `references.v1` as `not_analyzed`;
-it emits no relation to these methods. The one selected next capability is a
-narrow `REFERENCES` relation for a noncomputed method property passed as an
-argument when the checker finds one source method declaration with a body. It
+At the assessment baseline, the analyzer reported each enclosing `router.get` /
+`router.post` call as unsupported property-call syntax, left `references.v1` as
+`not_analyzed`, and emitted no relation to these methods. The selected follow-on
+was a narrow `REFERENCES` relation for a noncomputed method property passed as
+an argument when the checker finds one source method declaration with a body. It
 describes a compiler-selected declaration at that occurrence. It is not a
 `CALLS` edge, framework-specific `PASSES_HANDLER` edge, evidence that
 registration succeeds, or evidence that the method executes.
@@ -976,17 +993,19 @@ and must keep that declaration anchor. Incomplete manifests cannot prove absence
 of writes elsewhere; the projection must not imply runtime dispatch or
 function-object identity.
 
-The model already admits `method` symbols, `references` relations, static source
-evidence and not-analyzed coverage. A later implementation should add method
-declaration symbols in `symbol-indexer`, preserve each argument occurrence, and
-attach its site and full declaration evidence. No package split or new framework
-is justified. Trace paths currently traverse every exact relation kind. Before
-reference facts are emitted, the path request must select relationship kinds
-with current call-path semantics as the default, or a separate reference
-projection must prevent `REFERENCES` from being presented as a call path. That
-contract change belongs to implementation, not this assessment.
+The model already admits `method` symbols, `references` relations and static
+source evidence. CT-INDEX-001B now emits body-bearing method declaration symbols
+and retains each method-shaped argument occurrence with its source and
+declaration evidence. Computed, accessor, ambiguous, missing and other
+unsupported method candidates with a supported owner become null-target
+reference facts plus diagnostics; known non-method data properties receive a
+diagnostic without a reference edge. Unsupported owners retain diagnostics
+without an edge. `references.v1` is partial. No package split or new framework
+was needed. Path and neighbor requests now default to `[calls]`; explicit
+`relationKinds` can select references or mixed traversal, response parsers
+reject unselected edge kinds, and every path relation remains explicitly typed.
 
-### Independently verifiable next-step gate
+### CT-INDEX-001B acceptance and remaining boundary
 
 - Produce exactly three references for the pinned todo argument spans, each
   targeting its unique method declaration and carrying verified site and
@@ -1000,11 +1019,14 @@ contract change belongs to implementation, not this assessment.
 - Verify local shadowing selects its local declaration. Verify mutation and
   override examples remain declaration-level static references and never imply
   runtime dispatch.
-- Keep `references.v1` coverage explicit and retain deterministic occurrence
-  ordering, source hashes, UTF-16 spans and full declaration evidence.
+- Keep `references.v1` partial and retain deterministic occurrence ordering,
+  source hashes, UTF-16 spans and full declaration evidence.
+- Preserve call-only paths when `relationKinds` is omitted; verify a mixed path
+  only when both `calls` and `references` are explicitly selected.
 - Evaluate against source-authored occurrence labels with explicit denominators;
   the current external labels remain unreviewed.
 
-This recommendation rests on three positive occurrences and focused negative
-checker probes in two small subsets. It does not establish general TypeScript
-accuracy, runtime behavior or comprehension benefit.
+The original recommendation rested on three positive occurrences and focused
+negative checker probes in two small subsets. The implementation regressions
+cover those anchors and selected adversarial cases, but do not establish general
+TypeScript accuracy, runtime behavior or comprehension benefit.

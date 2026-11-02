@@ -10,6 +10,7 @@ import {
 } from './integrity.js';
 import {
   codeRelationSchema,
+  codeRelationKindSchema,
   coverageSchema,
   coverageByCapabilitySchema,
   summarizeCoverage,
@@ -194,10 +195,18 @@ export const getSourceEvidenceRequestSchema = z.strictObject({
       'Duplicate evidence IDs',
     ),
 });
+const relationKindsSchema = z
+  .array(codeRelationKindSchema)
+  .min(1)
+  .max(3)
+  .refine((kinds) => new Set(kinds).size === kinds.length)
+  .default(['calls']);
+
 export const graphNeighborsRequestSchema = z.strictObject({
   snapshotId: idSchema,
   symbolId: idSchema,
   direction: z.enum(['outgoing', 'incoming', 'both']).default('outgoing'),
+  relationKinds: relationKindsSchema,
   depth: z.number().int().min(1).max(5).default(2),
   nodeLimit: z.number().int().min(1).max(200).default(200),
 });
@@ -205,6 +214,7 @@ export const findSymbolPathsRequestSchema = z.strictObject({
   snapshotId: idSchema,
   fromSymbolId: idSchema,
   toSymbolId: idSchema,
+  relationKinds: relationKindsSchema,
   depth: z.number().int().min(1).max(5).default(2),
   nodeLimit: z.number().int().min(1).max(200).default(200),
   pathLimit: z.number().int().min(1).max(20).default(20),

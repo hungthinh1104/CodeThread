@@ -63,6 +63,71 @@ describe('CT-INDEX-001A in-memory code investigation', () => {
     expect(larger.symbols.length).toBeLessThanOrEqual(4);
     expect(larger.symbols.map((symbol) => symbol.name)).not.toContain('dead');
   }, 15000);
+  it('requires explicit mixed relation kinds and labels every selected path edge', async () => {
+    const bytes = new TextEncoder().encode(
+      [
+        'class Handler { handle() {} }',
+        'function register(value: unknown) {}',
+        'function middle(handler: Handler) { register(handler.handle); }',
+        'export function root(handler: Handler) { middle(handler); }',
+        '',
+      ].join('\n'),
+    );
+    const fixture = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-000000000001',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'mixed.ts',
+          bytes,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    });
+    const investigation = createInvestigation(fixture.facts, fixture.source);
+    const root = fixture.facts.symbols.find(
+      (symbol) => symbol.name === 'root',
+    )!;
+    const target = fixture.facts.symbols.find(
+      (symbol) => symbol.kind === 'method' && symbol.name === 'handle',
+    )!;
+    const request = {
+      snapshotId: fixture.facts.snapshotId,
+      fromSymbolId: root.id,
+      toSymbolId: target.id,
+      depth: 2,
+    };
+    expect(investigation.paths(request).paths).toEqual([]);
+    const mixed = investigation.paths({
+      ...request,
+      relationKinds: ['calls', 'references'],
+    });
+    expect(mixed.paths).toHaveLength(1);
+    expect(
+      mixed.paths[0]!.relationIds.map(
+        (id) => mixed.relations.find((relation) => relation.id === id)!.kind,
+      ),
+    ).toEqual(['calls', 'references']);
+    expect(
+      investigation
+        .neighbors({
+          snapshotId: fixture.facts.snapshotId,
+          symbolId: root.id,
+          depth: 2,
+        })
+        .symbols.map((symbol) => symbol.id),
+    ).not.toContain(target.id);
+    expect(
+      investigation
+        .neighbors({
+          snapshotId: fixture.facts.snapshotId,
+          symbolId: root.id,
+          depth: 2,
+          relationKinds: ['calls', 'references'],
+        })
+        .symbols.map((symbol) => symbol.id),
+    ).toContain(target.id);
+  }, 15000);
   it('retains unresolved sites and diagnostics without creating target symbols', async () => {
     const corpus = await loadSemanticCorpus();
     const all = await analyzeManifest({
