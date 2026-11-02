@@ -50,6 +50,11 @@ describe('CT-CORE-002 registry validation', () => {
           lifecycle: 'accepted',
           module: 'symbol-indexer',
         }),
+        expect.objectContaining({
+          id: 'CT-SOURCE-001',
+          lifecycle: 'accepted',
+          module: 'application',
+        }),
       ]),
     );
     expect(registry.map((entry) => entry.id)).toEqual(

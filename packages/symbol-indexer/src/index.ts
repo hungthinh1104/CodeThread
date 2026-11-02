@@ -25,6 +25,11 @@ export const COMPILER_PROFILE = Object.freeze({
   types: Object.freeze([] as string[]),
   lib: Object.freeze(['es2023']),
 });
+export const ANALYSIS_LIMITS = Object.freeze({
+  maxFiles: 20,
+  maxFileBytes: 256 * 1024,
+  maxTotalBytes: 2 * 1024 * 1024,
+});
 export interface AnalysisInput {
   repositoryId: string;
   compilerOptions: typeof COMPILER_PROFILE;
@@ -52,6 +57,7 @@ export class AnalysisError extends Error {
   constructor(
     public readonly code: AnalysisErrorCode,
     message: string,
+    public readonly sourcePath?: string,
   ) {
     super(message);
     this.name = 'AnalysisError';
@@ -211,15 +217,22 @@ export async function analyzeManifest(
       'INVALID_MANIFEST',
       'Invalid repository or source list',
     );
-  if (input.files.length > 20)
+  if (input.files.length > ANALYSIS_LIMITS.maxFiles)
     throw new AnalysisError('RESOURCE_LIMIT', 'Too many source files');
   let totalBytes = 0;
   for (const file of input.files) {
     if (!file || !(file.bytes instanceof Uint8Array))
       throw new AnalysisError('INVALID_MANIFEST', 'Invalid source bytes');
     totalBytes += file.bytes.byteLength;
-    if (file.bytes.byteLength > 262144 || totalBytes > 2097152)
-      throw new AnalysisError('RESOURCE_LIMIT', 'Source byte limit exceeded');
+    if (
+      file.bytes.byteLength > ANALYSIS_LIMITS.maxFileBytes ||
+      totalBytes > ANALYSIS_LIMITS.maxTotalBytes
+    )
+      throw new AnalysisError(
+        'RESOURCE_LIMIT',
+        'Source byte limit exceeded',
+        typeof file.path === 'string' ? file.path : undefined,
+      );
   }
   const paths = new Set<string>();
   const prepared: PreparedFile[] = [];
@@ -243,6 +256,7 @@ export async function analyzeManifest(
       throw new AnalysisError(
         'INVALID_MANIFEST',
         'Unsafe or conflicting source path',
+        typeof file.path === 'string' ? file.path : undefined,
       );
     paths.add(file.path.toLowerCase());
     const bytes = Uint8Array.from(file.bytes);
@@ -254,6 +268,7 @@ export async function analyzeManifest(
       throw new AnalysisError(
         'HASH_MISMATCH',
         'Source bytes do not match the declared hash',
+        file.path,
       );
     let text: string;
     try {
@@ -264,6 +279,7 @@ export async function analyzeManifest(
       throw new AnalysisError(
         'INVALID_ENCODING',
         'Source bytes are not valid UTF-8',
+        file.path,
       );
     }
     prepared.push({
@@ -309,8 +325,21 @@ export async function analyzeManifest(
       'ANALYSIS_FAILED',
       'Invalid analysis process response',
     );
-  if (!output.ok)
-    throw new AnalysisError(output.code as AnalysisErrorCode, output.message);
+  if (!output.ok) {
+    if (
+      output.sourcePath !== undefined &&
+      !input.files.some((file) => file.path === output.sourcePath)
+    )
+      throw new AnalysisError(
+        'ANALYSIS_FAILED',
+        'Analysis process returned an unknown source path',
+      );
+    throw new AnalysisError(
+      output.code as AnalysisErrorCode,
+      output.message,
+      output.sourcePath,
+    );
+  }
   const facts = output.facts;
   try {
     verifyFacts(facts, workerInput, sources);
