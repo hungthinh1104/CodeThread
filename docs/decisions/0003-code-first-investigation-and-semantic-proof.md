@@ -36,3 +36,22 @@ Validate with consistent product/requirement wording, public contract
 regressions and the separately implemented source-pinned semantic proof. Tests
 cannot establish that source analysis or comprehension improvement already
 exists.
+
+## CT-INDEX-001B method references
+
+For method properties passed as call arguments, record a `REFERENCES` edge only
+when the TypeScript checker selects one body-bearing source method declaration.
+The edge is tied to the full occurrence and declaration evidence. It does not
+assert a function value at runtime, a call, successful framework registration or
+execution. Keep computed access, accessors, overloads, ambiguous and missing
+targets unresolved or unsupported. Preserve `CALLS` as the default graph query
+kind; mixed traversal requires explicit relation-kind selection and retains the
+edge kind on each path segment.
+
+The alternative of treating callback-looking values as calls or framework
+handlers was rejected because static property typing cannot establish runtime
+receiver identity, registration outcomes or dispatch. Risks include incomplete
+manifests hiding assignments, overrides changing runtime dispatch and compiler
+errors obscuring member identity. Evidence for this slice is limited to the
+three pinned todo routes and focused adversarial fixtures; general TypeScript
+reference accuracy remains unproven.

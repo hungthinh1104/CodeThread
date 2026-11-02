@@ -334,6 +334,50 @@ describe('CT-FIX-005 request-aware graph traversal', () => {
       ).paths,
     ).toHaveLength(1);
   });
+  it('keeps paths call-only by default and admits references only when selected', () => {
+    const graph = graphFixture();
+    graph.relations[0]!.kind = 'references';
+    const response = {
+      ...graph,
+      fromSymbolId: id(7),
+      toSymbolId: id(8),
+      paths: [{ symbolIds: [id(7), id(8)], relationIds: [id(9)] }],
+    };
+    expect(() =>
+      contracts.parseFindSymbolPathsResult(
+        { snapshotId, fromSymbolId: id(7), toSymbolId: id(8) },
+        response,
+      ),
+    ).toThrow(/relation kind/i);
+    expect(
+      contracts.parseFindSymbolPathsResult(
+        {
+          snapshotId,
+          fromSymbolId: id(7),
+          toSymbolId: id(8),
+          relationKinds: ['references'],
+        },
+        response,
+      ).paths,
+    ).toEqual(response.paths);
+  });
+  it('validates neighbor edge kinds against the requested relation filter', () => {
+    const graph = graphFixture();
+    graph.relations[0]!.kind = 'references';
+    const response = { ...graph, rootSymbolId: id(7) };
+    expect(() =>
+      contracts.parseGraphNeighborsResult(
+        { snapshotId, symbolId: id(7) },
+        response,
+      ),
+    ).toThrow(/relation kind/i);
+    expect(
+      contracts.parseGraphNeighborsResult(
+        { snapshotId, symbolId: id(7), relationKinds: ['references'] },
+        response,
+      ).relations,
+    ).toHaveLength(1);
+  });
   it('rejects an otherwise connected path beyond the requested depth', () => {
     const graph = chainGraphFixture();
     const response = {

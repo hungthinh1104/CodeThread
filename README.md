@@ -86,6 +86,12 @@ reported input rejections. The annotations were authored by Codex and have not
 been independently reviewed. A passing sample does not establish general
 TypeScript accuracy or comprehension improvement.
 
+Run `pnpm --silent eval:external` after building to evaluate two small,
+source-pinned public repository subsets and inspect bounded investigation
+results. Their source selection, licenses, pre-prediction annotations and
+investigation questions are in `fixtures/external/README.md`. The labels are not
+independently reviewed, and subset coverage is not repository coverage.
+
 Programmatic consumers provide a repository UUID, the exported
 `COMPILER_PROFILE`, and files containing POSIX paths, raw UTF-8 bytes and
 SHA-256 hashes to `analyzeManifest` from `@codethread/symbol-indexer`. The
@@ -96,10 +102,14 @@ snapshot-scoped contracts. `readFile` returns a defensive byte copy.
 
 This slice recognizes named function declarations with bodies and direct
 identifier calls, including local calls, named relative import aliases and
-recursion. Unsupported owners, property calls, dynamic imports, re-exports,
-overloads, external targets and invalid value bindings are disclosed rather than
-guessed. Imports and references are not emitted as independent facts. Limits,
-the compiler profile, ownership rules and error behavior are documented in the
+recursion. It also emits narrowly scoped `REFERENCES` facts when a noncomputed
+method property is passed directly as a call argument and the compiler selects
+one source method declaration. These facts carry exact source evidence and do
+not claim a call, successful handler registration or runtime execution. Computed
+access, accessors, overloads, ambiguous or unavailable targets, and unsupported
+owners remain explicit unknowns. Path and neighbor queries include `CALLS` by
+default; callers must select relation kinds to traverse references. Limits, the
+compiler profile, ownership rules and error behavior are documented in the
 architecture; no source or repository script is executed.
 
 For repeated source positioning, own one immutable

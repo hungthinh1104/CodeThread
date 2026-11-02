@@ -311,18 +311,23 @@ export const testStepSchema = z
     (step) => step.evidenceIds.includes(step.sourceEvidenceId),
     'Source evidence must support the step',
   );
+export const codeRelationKindSchema = z.enum([
+  'calls',
+  'constructs',
+  'references',
+]);
 export const codeRelationSchema = z
   .strictObject({
     ...entityFields,
     sourceSymbolId: idSchema,
-    kind: z.enum(['calls', 'constructs', 'references']),
+    kind: codeRelationKindSchema,
     siteEvidenceId: idSchema,
     resolution: resolutionSchema,
   })
   .refine(
     (relation) =>
       relation.resolution.evidenceIds.includes(relation.siteEvidenceId),
-    'Call-site evidence must support the relation',
+    'Site evidence must support the relation',
   );
 export const testCodeLinkSchema = z
   .strictObject({
