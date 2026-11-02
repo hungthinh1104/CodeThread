@@ -899,3 +899,112 @@ Source selection, licenses, exclusions, questions and pre-prediction labels are
 in `fixtures/external/README.md`; labels have no independent review. Correctness
 and coverage are reported separately per subset. Neither these samples nor
 static paths establish runtime execution or comprehension effectiveness.
+
+## 13. Evidence-driven capability assessment
+
+Assessment date: 2026-11-02. This is a read-only assessment on byte-pinned
+tinyexec and ts-node-todo subsets. Supplementary ts-node-todo inputs in
+`fixtures/external/todo/closure/` are verified against raw SHA-256 and upstream
+Git blob IDs. Existing gold annotations and analyzer behavior are unchanged. No
+repository code was executed and no analyzed-repository dependencies were
+installed. The labels are authored by Codex and have no independent review.
+
+### Input completeness
+
+The original todo subset contains two files and 35 annotated call occurrences: 1
+exact, 3 unresolved and 31 unsupported. Comparing those same 35 complete source
+spans before and after adding verified source files identifies exactly three
+status changes:
+
+| Source occurrence                   | Baseline   | Added verified source   | Result                         |
+| ----------------------------------- | ---------- | ----------------------- | ------------------------------ |
+| `routes/index.ts:40` `authRouter()` | unresolved | `routes/auth.router.ts` | exact declaration in that file |
+| `routes/index.ts:41` `userRouter()` | unresolved | `routes/user.router.ts` | exact declaration in that file |
+| `routes/index.ts:14` `initialize()` | unresolved | `config/passport.ts`    | exact declaration in that file |
+| `routes/index.ts:42` `todoRouter()` | exact      | none required           | remains exact                  |
+
+Adding just the two router files changes the first two occurrences; adding
+`config/passport.ts` changes `initialize()`. Other original call statuses remain
+the same by full path and source span. This demonstrates an input-completeness
+gain within existing syntax support, not new analyzer behavior. With those three
+added route-resolution files, the subset still has 17 module-not-found
+diagnostic occurrences across 12 distinct module specifiers, including bare
+packages such as `express`, `passport` and `passport-jwt`, as well as omitted
+local files. The manifest remains partial.
+
+For tinyexec, the one-file, 13-call subset contains 1 exact, 1 unresolved and 11
+unsupported observations. The call at `src/env.ts:73` to `addNodeBinToPath`
+remains unresolved because the target declaration at lines 38–57 overlaps two
+compiler errors: missing `URL` at line 38 and Node global `process` at line 52.
+The nested call to `getPathFromEnv` on that line is exact. A controlled target
+with an unrelated name error inside its body is also rejected; an error outside
+the target declaration does not block a positive-control exact call. A
+wrong-arity call is rejected. This is a conservative limitation around errors
+inside the target declaration, not evidence that omitted repository files
+explain tinyexec's result. The pinned profile deliberately has no ambient Node
+types; this assessment neither adds types nor relaxes that boundary.
+
+### Missing semantic capability
+
+In `routes/todo.router.ts`, the argument expressions at lines 8, 11 and 14 are
+`toDoCtrl.getAll`, `toDoCtrl.getOne` and `toDoCtrl.create`. A restricted
+TypeScript 6.0.3 checker host serving only supplied manifest files and the
+compiler-library closure resolves them to unique `MethodDeclaration` spans in
+`controllers/todo.controller.ts` at lines 10, 28 and 42. Those declaration spans
+have no overlapping compiler diagnostics, although the controller has
+missing-module diagnostics for dependencies outside the admitted inputs. The
+focused regression checks the expression and declaration spans against the
+pinned source bytes.
+
+The analyzer currently reports each enclosing `router.get`/`router.post` call as
+unsupported property-call syntax and leaves `references.v1` as `not_analyzed`;
+it emits no relation to these methods. The one selected next capability is a
+narrow `REFERENCES` relation for a noncomputed method property passed as an
+argument when the checker finds one source method declaration with a body. It
+describes a compiler-selected declaration at that occurrence. It is not a
+`CALLS` edge, framework-specific `PASSES_HANDLER` edge, evidence that
+registration succeeds, or evidence that the method executes.
+
+The checker binds a base-typed `dynamic.handle` expression to the base method
+even when the initializer constructs a derived instance that overrides it. A
+method property may also be overwritten at runtime while the property expression
+still resolves to the class declaration. Therefore the proposed relation must
+retain declaration-level static semantics only. Computed access, accessors,
+unresolved members and unions with multiple method declarations do not yield an
+exact method target in this slice. Shadowed names resolve in their local scope
+and must keep that declaration anchor. Incomplete manifests cannot prove absence
+of writes elsewhere; the projection must not imply runtime dispatch or
+function-object identity.
+
+The model already admits `method` symbols, `references` relations, static source
+evidence and not-analyzed coverage. A later implementation should add method
+declaration symbols in `symbol-indexer`, preserve each argument occurrence, and
+attach its site and full declaration evidence. No package split or new framework
+is justified. Trace paths currently traverse every exact relation kind. Before
+reference facts are emitted, the path request must select relationship kinds
+with current call-path semantics as the default, or a separate reference
+projection must prevent `REFERENCES` from being presented as a call path. That
+contract change belongs to implementation, not this assessment.
+
+### Independently verifiable next-step gate
+
+- Produce exactly three references for the pinned todo argument spans, each
+  targeting its unique method declaration and carrying verified site and
+  declaration evidence.
+- Keep `router.get`/`router.post` unsupported while Express is unavailable; do
+  not claim calls, handler registration, or runtime execution from these
+  references.
+- Emit no exact method target for computed access, an accessor, missing source,
+  or a checker result with multiple candidate methods. Preserve uncertainty and
+  source locations.
+- Verify local shadowing selects its local declaration. Verify mutation and
+  override examples remain declaration-level static references and never imply
+  runtime dispatch.
+- Keep `references.v1` coverage explicit and retain deterministic occurrence
+  ordering, source hashes, UTF-16 spans and full declaration evidence.
+- Evaluate against source-authored occurrence labels with explicit denominators;
+  the current external labels remain unreviewed.
+
+This recommendation rests on three positive occurrences and focused negative
+checker probes in two small subsets. It does not establish general TypeScript
+accuracy, runtime behavior or comprehension benefit.

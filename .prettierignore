@@ -5,3 +5,4 @@ node_modules/
 artifacts/
 *.tsbuildinfo
 fixtures/semantic/sources/
+fixtures/external/**/closure/
