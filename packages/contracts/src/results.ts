@@ -366,6 +366,14 @@ export function parseGraphNeighborsResult(
   );
   const depth = applied(response.meta, 'depth', request.depth, 0);
   applied(response.meta, 'nodes', request.nodeLimit, response.symbols.length);
+  const selectedKinds = new Set(request.relationKinds);
+  response.relations.forEach((relation, index) =>
+    ensure(selectedKinds.has(relation.kind), 'Unselected relation kind', [
+      'relations',
+      index,
+      'kind',
+    ]),
+  );
   const adjacency = new Map<string, string[]>();
   function connect(from: string, to: string): void {
     const neighbors = adjacency.get(from);
@@ -437,6 +445,7 @@ export function parseFindSymbolPathsResult(
   const depth = applied(response.meta, 'depth', request.depth, 0);
   applied(response.meta, 'nodes', request.nodeLimit, response.symbols.length);
   applied(response.meta, 'paths', request.pathLimit, response.paths.length);
+  const selectedKinds = new Set(request.relationKinds);
   const admittedSymbols = new Set([request.fromSymbolId, request.toSymbolId]),
     admittedRelations = new Set<string>();
   const pathSequences = new Set<string>();
@@ -462,12 +471,17 @@ export function parseFindSymbolPathsResult(
       ['symbols', index],
     ),
   );
-  response.relations.forEach((relation, index) =>
+  response.relations.forEach((relation, index) => {
     ensure(
       admittedRelations.has(relation.id),
       'Path graph contains an unrelated relation',
       ['relations', index],
-    ),
-  );
+    );
+    ensure(selectedKinds.has(relation.kind), 'Unselected relation kind', [
+      'relations',
+      index,
+      'kind',
+    ]);
+  });
   return response;
 }

@@ -2,3 +2,4 @@
 *.png binary
 fixtures/semantic/sources/** -text
 fixtures/external/**/sources/** -text
+fixtures/external/**/closure/** -text

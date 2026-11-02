@@ -54,12 +54,23 @@ describe('CT-DB-012 query inputs and scoped cursors', () => {
       graphNeighborsRequestSchema.parse({ snapshotId, symbolId: id(7) }).depth,
     ).toBe(2);
     expect(
+      graphNeighborsRequestSchema.parse({ snapshotId, symbolId: id(7) })
+        .relationKinds,
+    ).toEqual(['calls']);
+    expect(
       findSymbolPathsRequestSchema.parse({
         snapshotId,
         fromSymbolId: id(7),
         toSymbolId: id(8),
       }).pathLimit,
     ).toBe(20);
+    expect(
+      findSymbolPathsRequestSchema.parse({
+        snapshotId,
+        fromSymbolId: id(7),
+        toSymbolId: id(8),
+      }).relationKinds,
+    ).toEqual(['calls']);
   });
   it('rejects unbounded pages, batches, traces and traversal', () => {
     expect(
@@ -97,6 +108,22 @@ describe('CT-DB-012 query inputs and scoped cursors', () => {
         fromSymbolId: id(7),
         toSymbolId: id(8),
         pathLimit: 21,
+      }).success,
+    ).toBe(false);
+    expect(
+      findSymbolPathsRequestSchema.safeParse({
+        snapshotId,
+        fromSymbolId: id(7),
+        toSymbolId: id(8),
+        relationKinds: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      findSymbolPathsRequestSchema.safeParse({
+        snapshotId,
+        fromSymbolId: id(7),
+        toSymbolId: id(8),
+        relationKinds: ['calls', 'calls'],
       }).success,
     ).toBe(false);
   });

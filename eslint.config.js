@@ -8,6 +8,7 @@ export default [
       '**/node_modules/**',
       '.tooling/**',
       'artifacts/**',
+      'fixtures/external/**/closure/**',
     ],
   },
   js.configs.recommended,

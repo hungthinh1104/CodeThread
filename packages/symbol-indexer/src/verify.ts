@@ -75,7 +75,9 @@ export function verifyFacts(
   requireFact(
     Array.isArray(facts.observations) && facts.observations.length <= 5000,
   );
-  requireFact(Array.isArray(facts.relations) && facts.relations.length <= 5000);
+  requireFact(
+    Array.isArray(facts.relations) && facts.relations.length <= 10000,
+  );
   requireFact(
     Array.isArray(facts.evidenceRefs) &&
       facts.evidenceRefs.length <= 17000 &&
@@ -113,7 +115,7 @@ export function verifyFacts(
         retained &&
         item.snapshotId === snapshot &&
         item.contentHash === file.contentHash &&
-        item.extractor.name === 'ct-index-001a' &&
+        item.extractor.name === 'ct-index-001b' &&
         item.extractor.version === '0.1.0',
     );
     requireFact(
@@ -137,7 +139,7 @@ export function verifyFacts(
       file &&
         primary &&
         symbol.snapshotId === snapshot &&
-        symbol.kind === 'function' &&
+        (symbol.kind === 'function' || symbol.kind === 'method') &&
         symbol.filePath === file.path &&
         primary.fileId === file.id &&
         sameRange(symbol.range, primary.range),
@@ -150,7 +152,7 @@ export function verifyFacts(
           file.path,
           symbol.range.start.offset,
           symbol.range.end.offset,
-          'function',
+          symbol.kind,
         ]),
       );
     requireFact(
@@ -180,8 +182,9 @@ export function verifyFacts(
       owner &&
         site &&
         relation.snapshotId === snapshot &&
-        relation.kind === 'calls' &&
-        site.fileId === owner.fileId,
+        (relation.kind === 'calls' || relation.kind === 'references') &&
+        site.fileId === owner.fileId &&
+        (relation.kind === 'references' || owner.kind === 'function'),
     );
     requireFact(
       sourceRangeSchema.safeParse({
@@ -197,6 +200,18 @@ export function verifyFacts(
       relation.resolution.evidenceIds.every((id: string) => evidence.has(id)) &&
         relation.resolution.evidenceIds.includes(owner.declarationEvidenceId),
     );
+    if (relation.resolution.status === 'exact') {
+      const target = symbols.get(relation.resolution.targetId);
+      requireFact(
+        target &&
+          (relation.kind === 'calls'
+            ? target.kind === 'function'
+            : target.kind === 'method') &&
+          relation.resolution.evidenceIds.includes(
+            target.declarationEvidenceId,
+          ),
+      );
+    }
     const key =
       'relation:v1:' +
       hash(
@@ -205,22 +220,14 @@ export function verifyFacts(
           owner.filePath,
           site.range.start.offset,
           site.range.end.offset,
-          'calls',
+          relation.kind,
         ]),
       );
     requireFact(
       relation.key === key &&
         relation.id === identity('relation', [snapshot, key]),
     );
-    if (relation.resolution.status === 'exact') {
-      const target = symbols.get(relation.resolution.targetId);
-      requireFact(
-        target &&
-          relation.resolution.evidenceIds.includes(
-            target.declarationEvidenceId,
-          ),
-      );
-    } else
+    if (relation.resolution.status !== 'exact')
       requireFact(
         relation.resolution.diagnosticIds.every((id: string) =>
           diagnostics.has(id),
@@ -275,7 +282,10 @@ export function verifyFacts(
       }
     }
   }
-  requireFact(seenRelations.size === facts.relations.length);
+  requireFact(
+    seenRelations.size ===
+      facts.relations.filter((relation) => relation.kind === 'calls').length,
+  );
   requireFact(
     facts.counts.files === facts.files.length &&
       facts.counts.declarations === facts.symbols.length &&

@@ -29,12 +29,14 @@ describe('CT-INDEX-001A source-pinned semantic gold', () => {
     expect(semanticFingerprint(snapshot.facts)).toBe(expected.sha256);
   });
   it('matches manually annotated function declaration spans', () => {
-    const declarations = snapshot.facts.symbols.map((symbol) => ({
-      file: symbol.filePath,
-      name: symbol.name,
-      start: [symbol.range.start.line, symbol.range.start.column],
-      end: [symbol.range.end.line, symbol.range.end.column],
-    }));
+    const declarations = snapshot.facts.symbols
+      .filter((symbol) => symbol.kind === 'function')
+      .map((symbol) => ({
+        file: symbol.filePath,
+        name: symbol.name,
+        start: [symbol.range.start.line, symbol.range.start.column],
+        end: [symbol.range.end.line, symbol.range.end.column],
+      }));
     expect(declarations).toHaveLength(gold.declarations.length);
     expect(declarations).toEqual(expect.arrayContaining(gold.declarations));
   });
