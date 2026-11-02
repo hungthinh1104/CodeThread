@@ -13,10 +13,12 @@ depend on those frameworks. Static syntax is not proof of runtime execution or
 passing tests.
 
 The repository supplies Foundation validation/tooling, the proposed DB-01
-logical design, a bounded in-memory TypeScript semantic proof, and a local Git
-adapter for explicitly selected committed files. It contains no database
-implementation, recursive Git crawler, API, UI or Gemini integration. See
-`product.yaml` and `docs/architecture.md` for scope, ownership and gates.
+logical design, a bounded in-memory TypeScript semantic proof, a local Git
+adapter for explicitly selected committed files, and an opt-in ephemeral local
+browser viewer over the same investigation projections. It contains no database
+implementation, recursive Git crawler, persistent frontend, public API or Gemini
+integration. See `product.yaml` and `docs/architecture.md` for scope, ownership
+and gates.
 
 ## Developer setup
 
@@ -52,6 +54,12 @@ build, typecheck and focused tests. Individual commands are `format:check`,
 `lint`, `req:validate`, `arch:check`, `build`, `typecheck` and `test`. Run
 `pnpm build` before standalone tests: tests import the packages' public compiled
 entry points. Use `pnpm format` when intentionally formatting changes.
+
+The opt-in browser proof uses test-only Playwright. For a local browser test,
+install Chromium with `pnpm exec playwright install chromium`, then run
+`pnpm test:browser`. Hosted CI installs Chromium on Windows and Ubuntu. The
+viewer itself uses Node's built-in HTTP server and browser-native HTML/CSS/SVG;
+it adds no runtime dependency or persistent application service.
 
 Run `pnpm security:check` separately with network access. It uses the pinned
 pnpm's native audit, including the project document of the multi-document
@@ -181,6 +189,24 @@ inspection and reuses the in-memory analysis. Select symbols by
 `path@line:column`; `name:<name>` works only when the name is unique. Static
 references do not assert execution, registration success or runtime dispatch.
 The session is bounded to 100 commands and 64 KiB of text per response.
+
+## Local visual investigation
+
+For the same pinned todo sources in a browser, run `pnpm --silent demo:visual`.
+The CLI prints an ephemeral `127.0.0.1` URL; open it in a browser and press
+Ctrl+C in the CLI to stop the viewer. The browser lets you search
+source-anchored symbols, select CALLS or REFERENCES explicitly, follow only
+exact targets returned by the current query, and inspect verified
+occurrence/declaration evidence. The visual graph and accessible relationship
+list represent the same bounded trace-engine result. Unknowns, coverage and
+truncation remain visible; an empty bounded result is not proof of absence.
+
+For a caller-owned manifest, append `--view` to the existing input command, for
+example `pnpm investigate -- --manifest ./manifest.json --view`. The viewer
+binds only to IPv4 loopback, uses a per-session token and same-origin checks,
+persists no data, loads no external resources and stops with the CLI. It is a
+local investigation proof, not a general frontend or API service. See
+CT-VIEW-001 and ADR-0005 for the security boundary and exact limits.
 
 For repeated source positioning, own one immutable
 `createSourcePositionIndex(source)` per file and reuse its `positionAt` and

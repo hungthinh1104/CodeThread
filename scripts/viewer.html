@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>CodeThread local investigation</title>
+    <link rel="stylesheet" href="/viewer.css" />
+    <script src="/viewer.js" defer></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">Static source facts · no execution observed</p>
+        <h1>CodeThread investigation</h1>
+      </div>
+      <button id="back" type="button" disabled>Back</button>
+    </header>
+    <main>
+      <section class="overview" aria-labelledby="snapshot-heading">
+        <h2 id="snapshot-heading">Analysis snapshot</h2>
+        <p id="snapshot-summary" role="status">
+          Connecting to the local analysis…
+        </p>
+        <ul
+          id="coverage"
+          class="coverage-list"
+          aria-label="Capability coverage"
+        ></ul>
+      </section>
+      <div class="workspace">
+        <aside aria-labelledby="symbols-heading">
+          <h2 id="symbols-heading">1. Select a source symbol</h2>
+          <form id="symbol-search">
+            <label for="symbol-query">Name or source path</label>
+            <div class="search-row">
+              <input
+                id="symbol-query"
+                name="query"
+                maxlength="256"
+                autocomplete="off"
+              />
+              <button type="submit">Search</button>
+            </div>
+          </form>
+          <p id="symbol-count" class="muted"></p>
+          <ul
+            id="symbol-results"
+            class="symbol-list"
+            aria-label="Matching symbols"
+          ></ul>
+          <div class="pager">
+            <button id="previous-symbols" type="button" disabled>
+              Previous
+            </button>
+            <button id="next-symbols" type="button" disabled>Next</button>
+          </div>
+        </aside>
+        <section class="investigation" aria-labelledby="investigation-heading">
+          <h2 id="investigation-heading">2. Investigate relationships</h2>
+          <div class="filters">
+            <fieldset>
+              <legend>Relationship kinds</legend>
+              <label
+                ><input type="checkbox" name="kind" value="calls" checked />
+                CALLS</label
+              >
+              <label
+                ><input type="checkbox" name="kind" value="references" />
+                REFERENCES</label
+              >
+            </fieldset>
+            <label for="direction">Direction</label>
+            <select id="direction">
+              <option value="both">Incoming and outgoing</option>
+              <option value="outgoing">Outgoing</option>
+              <option value="incoming">Incoming</option>
+            </select>
+          </div>
+          <p id="investigation-status" role="status" class="muted">
+            Select a symbol to begin.
+          </p>
+          <section
+            id="root-symbol"
+            class="root-symbol"
+            aria-live="polite"
+          ></section>
+          <p class="graph-legend">
+            Solid arrow: CALLS · dashed arrow: REFERENCES. The list below
+            includes every returned relation row.
+          </p>
+          <svg id="graph" class="graph" aria-hidden="true"></svg>
+          <section aria-labelledby="relationships-heading">
+            <h3 id="relationships-heading">
+              Returned relationship occurrences
+            </h3>
+            <p class="semantic-note">
+              CALLS describes a static call site. REFERENCES describes a
+              source-level reference. Neither establishes runtime execution or
+              dispatch.
+            </p>
+            <ol id="relationships" class="relationship-list"></ol>
+          </section>
+          <section aria-labelledby="unknowns-heading">
+            <h3 id="unknowns-heading">
+              Unsupported or unresolved observations
+            </h3>
+            <ol id="unknowns" class="relationship-list"></ol>
+          </section>
+          <section aria-labelledby="evidence-heading">
+            <h3 id="evidence-heading">Verified source evidence</h3>
+            <div id="evidence" class="evidence-panel" aria-live="polite">
+              Choose an evidence control to inspect retained source.
+            </div>
+          </section>
+        </section>
+      </div>
+      <p id="error" class="error" role="alert" hidden></p>
+    </main>
+    <footer>
+      Source bytes remain in this local process. Close the CLI to end the viewer
+      session.
+    </footer>
+  </body>
+</html>
