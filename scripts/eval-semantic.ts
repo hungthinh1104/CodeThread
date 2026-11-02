@@ -245,7 +245,10 @@ export function evaluateSemantic(
       JSON.stringify([item.file, item.name, item.start, item.end]),
     ),
   );
-  const actualDeclarations = facts.symbols.map((item) =>
+  const functionSymbols = facts.symbols.filter(
+    (item) => item.kind === 'function',
+  );
+  const actualDeclarations = functionSymbols.map((item) =>
     JSON.stringify([
       item.filePath,
       item.name,
@@ -256,6 +259,7 @@ export function evaluateSemantic(
   const declarationMatch =
     goldDeclarations.size === gold.declarations.length &&
     expectedDeclarations.size === gold.declarations.length &&
+    functionSymbols.length === gold.declarations.length &&
     new Set(actualDeclarations).size === gold.declarations.length &&
     actualDeclarations.every((item) => expectedDeclarations.has(item));
   const eligibleSupportedCallOccurrences = gold.calls.filter(
@@ -301,7 +305,8 @@ export function evaluateSemantic(
       goldCalls: gold.calls.length,
     },
     extracted: {
-      declarations: facts.symbols.length,
+      declarations: functionSymbols.length,
+      methods: facts.symbols.length - functionSymbols.length,
       relations: facts.relations.length,
       callSites: facts.observations.length,
     },

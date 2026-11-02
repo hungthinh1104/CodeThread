@@ -29,15 +29,17 @@ export function extractFacts(
     );
   let declarationCount = 0,
     callCount = 0,
+    referenceCandidateCount = 0,
     decoratorCount = 0;
   for (const file of sourceFiles) {
     const stack: ts.Node[] = [file];
     while (stack.length) {
       const node = stack.pop()!;
       if (
-        ts.isFunctionDeclaration(node) &&
-        node.name &&
-        node.body &&
+        ((ts.isFunctionDeclaration(node) && node.name && node.body) ||
+          (ts.isMethodDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.body)) &&
         ++declarationCount > 2000
       )
         return {
@@ -51,6 +53,18 @@ export function extractFacts(
           code: 'RESOURCE_LIMIT',
           message: 'Relationship site limit exceeded',
         };
+      if (ts.isCallExpression(node))
+        for (const argument of node.arguments)
+          if (
+            (ts.isPropertyAccessExpression(argument) ||
+              ts.isElementAccessExpression(argument)) &&
+            ++referenceCandidateCount > 5000
+          )
+            return {
+              ok: false,
+              code: 'RESOURCE_LIMIT',
+              message: 'Reference site limit exceeded',
+            };
       if (ts.isDecorator(node) && ++decoratorCount > 10000)
         return {
           ok: false,
@@ -73,7 +87,8 @@ export function extractFacts(
     evidenceRefs: SourceEvidence[] = [],
     diagnostics: Diagnostic[] = [],
     observations: AnalysisObservation[] = [];
-  const declarations = new Map<ts.FunctionDeclaration, CodeSymbol>();
+  const declarations = new Map<ts.FunctionDeclaration, CodeSymbol>(),
+    methods = new Map<ts.MethodDeclaration, CodeSymbol>();
   const evidences = new Map<string, SourceEvidence>();
   const errors = new Map<string, { starts: number[]; maxEnds: number[] }>();
   for (const file of sourceFiles) {
@@ -215,7 +230,7 @@ export function extractFacts(
       contentHash: owner.contentHash,
       range: { start: index.positionAt(start), end: index.positionAt(end) },
       kind: 'static_source',
-      extractor: { name: 'ct-index-001a', version: '0.1.0' },
+      extractor: { name: 'ct-index-001b', version: '0.1.0' },
     };
     evidences.set(id, value);
     evidenceRefs.push(value);
@@ -245,6 +260,31 @@ export function extractFacts(
         };
         declarations.set(node, symbol);
         symbols.push(symbol);
+      } else if (
+        ts.isMethodDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.body
+      ) {
+        const start = node.getStart(file),
+          end = node.end;
+        const anchor = evidence(file, start, end);
+        const key =
+          'symbol:v1:' +
+          hash(JSON.stringify([source.path, start, end, 'method']));
+        const symbol: CodeSymbol = {
+          snapshotId: base.snapshotId,
+          id: identity('symbol', [base.snapshotId, key]),
+          key,
+          fileId: source.id,
+          filePath: source.path,
+          name: node.name.text,
+          kind: 'method',
+          range: anchor.range,
+          declarationEvidenceId: anchor.id,
+          evidenceIds: [anchor.id],
+        };
+        methods.set(node, symbol);
+        symbols.push(symbol);
       }
       ts.forEachChild(node, visit);
     }
@@ -258,7 +298,137 @@ export function extractFacts(
     };
   for (const file of sourceFiles) {
     const source = files.get(file.fileName)!;
-    function visit(node: ts.Node, inheritedOwner?: CodeSymbol): void {
+    function addReference(
+      node: ts.Expression,
+      owner: CodeSymbol | undefined,
+    ): void {
+      const site = evidence(file, node.getStart(file), node.end);
+      let target: CodeSymbol | undefined;
+      let status: 'exact' | 'unresolved' | 'ambiguous' | 'unsupported' =
+        'unsupported';
+      let code = 'REFERENCE_TARGET_UNSUPPORTED';
+      let relationCandidate = true;
+      let member: ts.Symbol | undefined;
+      let methodDeclarations: ts.MethodDeclaration[] = [];
+      if (ts.isElementAccessExpression(node)) {
+        code = 'REFERENCE_COMPUTED_UNSUPPORTED';
+      } else if (!ts.isPropertyAccessExpression(node)) {
+        code = 'REFERENCE_SYNTAX_UNSUPPORTED';
+      } else if (node.questionDotToken) {
+        code = 'REFERENCE_OPTIONAL_UNSUPPORTED';
+      } else {
+        member = checker.getSymbolAtLocation(node.name);
+        const memberDeclarations = member?.declarations ?? [];
+        methodDeclarations = memberDeclarations.filter(ts.isMethodDeclaration);
+        const hasAccessor = memberDeclarations.some(
+          (declaration) =>
+            ts.isGetAccessorDeclaration(declaration) ||
+            ts.isSetAccessorDeclaration(declaration),
+        );
+        if (hasAccessor) {
+          code = 'REFERENCE_ACCESSOR_UNSUPPORTED';
+        } else if (methodDeclarations.length > 1) {
+          const sameOwner = methodDeclarations.every(
+            (declaration) =>
+              declaration.parent === methodDeclarations[0]!.parent,
+          );
+          if (sameOwner) {
+            code = 'REFERENCE_OVERLOAD_UNSUPPORTED';
+          } else {
+            status = 'ambiguous';
+            code = 'REFERENCE_TARGET_AMBIGUOUS';
+          }
+        } else if (
+          methodDeclarations.length === 1 &&
+          memberDeclarations.length === 1
+        ) {
+          const declaration = methodDeclarations[0]!;
+          if (!declaration.body || !ts.isIdentifier(declaration.name)) {
+            code = 'REFERENCE_TARGET_UNSUPPORTED';
+          } else if (hasErrors(node) || hasErrors(declaration)) {
+            status = 'unresolved';
+            code = 'INVALID_BINDING';
+          } else {
+            target = methods.get(declaration);
+            if (target) status = 'exact';
+            else code = 'REFERENCE_TARGET_UNAVAILABLE';
+          }
+        } else if (memberDeclarations.length > 0) {
+          code = 'REFERENCE_TARGET_UNSUPPORTED';
+          relationCandidate = false;
+        } else {
+          status = 'unresolved';
+          code = hasErrors(node)
+            ? 'REFERENCE_TARGET_UNRESOLVED'
+            : 'REFERENCE_BINDING_UNAVAILABLE';
+        }
+      }
+      if (!owner) {
+        status = 'unsupported';
+        code = 'OWNER_UNSUPPORTED';
+      }
+      let diagnostic: Diagnostic | undefined;
+      if (status !== 'exact') {
+        diagnostic = {
+          snapshotId: base.snapshotId,
+          id: identity('diagnostic', [
+            base.snapshotId,
+            source.id,
+            site.range.start.offset,
+            site.range.end.offset,
+            code,
+          ]),
+          code,
+          severity: 'warning',
+          message: code,
+          fileId: source.id,
+          filePath: source.path,
+          range: site.range,
+        };
+        diagnostics.push(diagnostic);
+      }
+      if (!owner || !relationCandidate) return;
+      const key =
+        'relation:v1:' +
+        hash(
+          JSON.stringify([
+            owner.key,
+            source.path,
+            site.range.start.offset,
+            site.range.end.offset,
+            'references',
+          ]),
+        );
+      const support = [
+        ...new Set([
+          site.id,
+          owner.declarationEvidenceId,
+          ...(target ? [target.declarationEvidenceId] : []),
+        ]),
+      ];
+      relations.push({
+        snapshotId: base.snapshotId,
+        id: identity('relation', [base.snapshotId, key]),
+        key,
+        sourceSymbolId: owner.id,
+        kind: 'references',
+        siteEvidenceId: site.id,
+        resolution:
+          status === 'exact'
+            ? { status, targetId: target!.id, evidenceIds: support }
+            : {
+                status,
+                targetId: null,
+                evidenceIds: support,
+                diagnosticIds: [diagnostic!.id],
+              },
+      });
+    }
+    function visit(
+      node: ts.Node,
+      inheritedOwner?: CodeSymbol,
+      inheritedReferenceOwner?: CodeSymbol,
+    ): void {
       if (ts.isDecorator(node)) {
         const anchor = evidence(file, node.getStart(file), node.end);
         const code = 'DECORATOR_UNSUPPORTED';
@@ -475,18 +645,32 @@ export function extractFacts(
           status,
           eligible: status !== 'unsupported',
         });
+        for (const argument of node.arguments) {
+          if (
+            ts.isPropertyAccessExpression(argument) ||
+            ts.isElementAccessExpression(argument)
+          )
+            addReference(argument, inheritedReferenceOwner);
+        }
       }
       if (ts.isFunctionLike(node)) {
         const owner = ts.isFunctionDeclaration(node)
           ? declarations.get(node)
           : undefined;
+        const referenceOwner =
+          owner ??
+          (ts.isMethodDeclaration(node) ? methods.get(node) : undefined);
         const body = 'body' in node ? node.body : undefined;
         ts.forEachChild(node, (child) => {
-          visit(child, child === body ? owner : undefined);
+          visit(
+            child,
+            child === body ? owner : undefined,
+            child === body ? referenceOwner : undefined,
+          );
         });
       } else
         ts.forEachChild(node, (child) => {
-          visit(child, inheritedOwner);
+          visit(child, inheritedOwner, inheritedReferenceOwner);
         });
     }
     visit(file);
@@ -565,7 +749,7 @@ export function extractFacts(
               : 'unsupported'
             : 'complete',
         'imports.v1': 'not_analyzed',
-        'references.v1': 'not_analyzed',
+        'references.v1': 'partial',
         'test_behavior.v1': 'not_analyzed',
         'decorators.v1': decoratorCount > 0 ? 'unsupported' : 'not_analyzed',
         'framework_wiring.v1': 'not_analyzed',

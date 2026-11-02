@@ -100,15 +100,22 @@ export function createInvestigation(
   function adjacent(
     id: string,
     direction: 'outgoing' | 'incoming' | 'both',
+    relationKinds: ReadonlySet<CodeRelation['kind']>,
   ): CodeRelation[] {
-    if (direction === 'outgoing') return outgoing.get(id) ?? [];
-    if (direction === 'incoming') return incoming.get(id) ?? [];
+    if (direction === 'outgoing')
+      return (outgoing.get(id) ?? []).filter((relation) =>
+        relationKinds.has(relation.kind),
+      );
+    if (direction === 'incoming')
+      return (incoming.get(id) ?? []).filter((relation) =>
+        relationKinds.has(relation.kind),
+      );
     const distinct = new Map<string, CodeRelation>();
     for (const relation of [
       ...(outgoing.get(id) ?? []),
       ...(incoming.get(id) ?? []),
     ])
-      distinct.set(relation.id, relation);
+      if (relationKinds.has(relation.kind)) distinct.set(relation.id, relation);
     return [...distinct.values()].sort(compareRelation);
   }
   function metadata(limits: Record<string, number>, reasons: Set<Reason>) {
@@ -200,13 +207,18 @@ export function createInvestigation(
         'Root evidence exceeds the graph budget',
       );
     const distances = new Map([[request.symbolId, 0]]),
-      queue = [request.symbolId];
+      queue = [request.symbolId],
+      relationKinds = new Set(request.relationKinds);
     let examined = 0,
       stop = false;
     for (let index = 0; index < queue.length && !stop; index++) {
       const current = queue[index]!,
         depth = distances.get(current)!;
-      for (const relation of adjacent(current, request.direction)) {
+      for (const relation of adjacent(
+        current,
+        request.direction,
+        relationKinds,
+      )) {
         if (++examined > 10000) {
           reasons.add('search_budget');
           stop = true;
@@ -265,6 +277,7 @@ export function createInvestigation(
     type Path = { symbolIds: string[]; relationIds: string[] };
     const returned: Path[] = [];
     const visited = new Set(rootIds);
+    const relationKinds = new Set(request.relationKinds);
     const queue: Path[] = [
       { symbolIds: [request.fromSymbolId], relationIds: [] },
     ];
@@ -276,6 +289,7 @@ export function createInvestigation(
         const path = queue[index]!,
           current = path.symbolIds.at(-1)!;
         for (const relation of outgoing.get(current) ?? []) {
+          if (!relationKinds.has(relation.kind)) continue;
           if (++examined > 10000) {
             reasons.add('search_budget');
             stop = true;

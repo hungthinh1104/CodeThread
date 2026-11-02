@@ -4,10 +4,10 @@ Read `product.yaml`, the relevant requirement via `pnpm req:context <id>`, and
 `docs/architecture.md` before changing behavior. Requirement lifecycle is not
 task status; GitHub Issues/Projects own execution tracking.
 
-- Keep changes small and within the requested work package. CT-INDEX-001A owns
-  the bounded in-memory semantic proof; do not claim the broader CT-INDEX-001
-  capability is complete. Migrations, full backend, frontend and AI retain their
-  explicit gates.
+- Keep changes small and within the requested work package. CT-INDEX-001A/B own
+  the bounded in-memory semantic proof and its narrow method-reference slice; do
+  not claim the broader CT-INDEX-001 capability is complete. Migrations, full
+  backend, frontend and AI retain their explicit gates.
 - Code investigations may start from files, modules or symbols. Tests are
   optional supporting evidence; preserve reusable test projections without
   requiring them in core code relationships. See ADR-0003 for the revised

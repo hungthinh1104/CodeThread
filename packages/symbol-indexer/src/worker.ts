@@ -43,7 +43,7 @@ function libraries(): { files: Map<string, string>; buildHash: string } {
       pending.push(`lib.${match[1]}.d.ts`);
   }
   const digest = createHash('sha256');
-  digest.update('codethread-analyzer-build-v1\0typescript-6.0.3\0');
+  digest.update('codethread-analyzer-build-v2\0typescript-6.0.3\0');
   for (const [name, text] of [...contents].sort(([a], [b]) =>
     a < b ? -1 : a > b ? 1 : 0,
   ))
@@ -173,7 +173,7 @@ function analyze(input: WorkerInput): WorkerOutput {
   const identityParts = {
     repositoryId: input.repositoryId,
     sourceFingerprint: input.sourceFingerprint,
-    analyzerVersion: 'ct-index-001a/0.1.0;typescript/6.0.3',
+    analyzerVersion: 'ct-index-001b/0.1.0;typescript/6.0.3',
     analyzerBuildHash: pinned.buildHash,
     configurationHash: input.configurationHash,
   };

@@ -497,11 +497,21 @@ describe('evidence-driven capability assessment', () => {
       compilerOptions: COMPILER_PROFILE,
       files: [...corpus.files, ...methodInputs],
     });
+    const pinnedReferences = existing.facts.relations.filter(
+      ({ kind, siteEvidenceId }) => {
+        if (kind !== 'references') return false;
+        const site = existing.source.readEvidence(siteEvidenceId);
+        return site.status === 'available' && site.text.startsWith('toDoCtrl.');
+      },
+    );
+    expect(pinnedReferences).toHaveLength(3);
     expect(
-      existing.facts.relations.some(({ kind }) => kind === 'references'),
-    ).toBe(false);
+      pinnedReferences.every(
+        (relation) => relation.resolution.status === 'exact',
+      ),
+    ).toBe(true);
     expect(existing.facts.coverageByCapability['references.v1']).toBe(
-      'not_analyzed',
+      'partial',
     );
     expect(
       observationForText(
