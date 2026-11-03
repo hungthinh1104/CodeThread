@@ -1,4 +1,4 @@
-/* global document, fetch, location */
+/* global document, Element, fetch, location */
 
 const MAX_HISTORY = 20;
 const token = location.hash.slice(1);
@@ -9,6 +9,7 @@ const state = {
   relationKinds: ['calls'],
   direction: 'both',
   selectedRelationId: null,
+  selectedGraphSymbolId: null,
   evidenceId: null,
 };
 const historyStack = [];
@@ -101,15 +102,35 @@ function cloneState() {
   return { ...state, relationKinds: [...state.relationKinds] };
 }
 
-function applyState(next, remember = true) {
+function applyQueryState(
+  next,
+  { remember = true, restore = null, focusRoot = false } = {},
+) {
+  const rootSymbolId = next.rootSymbolId ?? state.rootSymbolId;
+  const relationKinds = next.relationKinds ?? state.relationKinds;
+  const direction = next.direction ?? state.direction;
+  const queryChanged =
+    rootSymbolId !== state.rootSymbolId ||
+    direction !== state.direction ||
+    relationKinds.length !== state.relationKinds.length ||
+    relationKinds.some((kind) => !state.relationKinds.includes(kind));
+  if (!queryChanged) return false;
   if (remember && state.rootSymbolId !== null) {
     historyStack.push(cloneState());
     if (historyStack.length > MAX_HISTORY) historyStack.shift();
   }
-  Object.assign(state, next);
+  Object.assign(state, {
+    rootSymbolId,
+    relationKinds: [...relationKinds],
+    direction,
+    selectedRelationId: null,
+    selectedGraphSymbolId: null,
+    evidenceId: null,
+  });
   renderHistoryButton();
   renderFilters();
-  void loadGraph();
+  void loadGraph(restore, focusRoot);
+  return true;
 }
 
 function renderHistoryButton() {
@@ -163,7 +184,54 @@ async function loadSymbolPage(query = symbolPage.query, offset = 0) {
   }
 }
 
-async function loadGraph() {
+function restoreEligibleSelection(previous) {
+  if (!graphResult) return;
+  const graph = graphResult.graph;
+  const relation = previous.selectedRelationId
+    ? graph.relations.find((item) => item.id === previous.selectedRelationId)
+    : undefined;
+  const symbol = previous.selectedGraphSymbolId
+    ? graph.symbols.find((item) => item.id === previous.selectedGraphSymbolId)
+    : undefined;
+  const evidenceId = previous.evidenceId;
+  const evidenceAvailable =
+    evidenceId !== null &&
+    (graph.evidenceRefs.some((item) => item.id === evidenceId) ||
+      graphResult.unknowns.items.some(
+        (item) => item.evidenceId === evidenceId,
+      ));
+  const relationEvidenceMatches =
+    !previous.selectedRelationId ||
+    Boolean(
+      relation &&
+      evidenceId &&
+      (relation.siteEvidenceId === evidenceId ||
+        relation.resolution.evidenceIds.includes(evidenceId)),
+    );
+  const symbolEvidenceMatches =
+    !previous.selectedGraphSymbolId ||
+    Boolean(symbol && symbol.declarationEvidenceId === evidenceId);
+  const evidenceMatches =
+    evidenceAvailable && relationEvidenceMatches && symbolEvidenceMatches;
+
+  state.selectedRelationId = relationEvidenceMatches
+    ? (relation?.id ?? null)
+    : null;
+  state.selectedGraphSymbolId = symbolEvidenceMatches
+    ? (symbol?.id ?? null)
+    : null;
+  state.evidenceId = evidenceMatches ? evidenceId : null;
+  if (
+    (previous.selectedRelationId && !relation) ||
+    (previous.selectedGraphSymbolId && !symbol)
+  ) {
+    state.selectedRelationId = null;
+    state.selectedGraphSymbolId = null;
+    state.evidenceId = null;
+  }
+}
+
+async function loadGraph(restore = null, focusRoot = false) {
   const sequence = ++graphQuerySequence;
   evidenceQuerySequence++;
   const status = byId('investigation-status');
@@ -171,6 +239,8 @@ async function loadGraph() {
     graphResult = null;
     status.textContent = 'Select a symbol to begin.';
     byId('root-symbol').replaceChildren();
+    byId('graph-symbol-selection').replaceChildren();
+    byId('graph-symbol-selection').hidden = true;
     byId('relationships').replaceChildren();
     byId('unknowns').replaceChildren();
     byId('evidence').textContent =
@@ -182,6 +252,8 @@ async function loadGraph() {
   status.textContent = 'Loading bounded source relationships…';
   graphResult = null;
   byId('root-symbol').replaceChildren();
+  byId('graph-symbol-selection').replaceChildren();
+  byId('graph-symbol-selection').hidden = true;
   byId('relationships').replaceChildren();
   byId('unknowns').replaceChildren();
   byId('evidence').textContent =
@@ -199,7 +271,10 @@ async function loadGraph() {
     const result = await api('/api/neighbors', 'POST', request);
     if (sequence !== graphQuerySequence) return;
     graphResult = result;
+    if (restore) restoreEligibleSelection(restore);
     renderInvestigation();
+    if (focusRoot)
+      byId('root-symbol').querySelector('h3')?.focus({ preventScroll: true });
   } catch (error) {
     if (sequence !== graphQuerySequence) return;
     graphResult = null;
@@ -214,6 +289,148 @@ function clearGraph() {
   svg.setAttribute('viewBox', '0 0 640 150');
 }
 
+function renderSelection() {
+  for (const edge of byId('graph').querySelectorAll(
+    '.graph-edge[data-relation-id]',
+  ))
+    edge.classList.toggle(
+      'selected',
+      edge.dataset.relationId === state.selectedRelationId,
+    );
+  for (const edge of byId('graph').querySelectorAll(
+    '.graph-edge-hit[data-relation-id]',
+  ))
+    edge.setAttribute(
+      'aria-pressed',
+      String(edge.dataset.relationId === state.selectedRelationId),
+    );
+  for (const node of byId('graph').querySelectorAll('[data-symbol-id]')) {
+    const selected = node.dataset.symbolId === state.selectedGraphSymbolId;
+    const isRoot = node.dataset.symbolId === state.rootSymbolId;
+    node.classList.toggle('selected', selected);
+    node.setAttribute('aria-pressed', String(selected || isRoot));
+  }
+  for (const row of byId('relationships').querySelectorAll(
+    '.relationship-item[data-relation-id]',
+  )) {
+    const selected = row.dataset.relationId === state.selectedRelationId;
+    row.classList.toggle('selected', selected);
+    row
+      .querySelector('[data-action="select-relation"]')
+      ?.setAttribute('aria-pressed', String(selected));
+  }
+  renderGraphSymbolSelection();
+}
+
+function renderGraphSymbolSelection() {
+  const panel = byId('graph-symbol-selection');
+  const symbol = graphResult?.graph.symbols.find(
+    (item) => item.id === state.selectedGraphSymbolId,
+  );
+  panel.replaceChildren();
+  panel.hidden = !symbol;
+  if (!symbol) return;
+  appendText(panel, 'h3', `Selected symbol: ${symbol.kind} ${symbol.name}`);
+  appendText(panel, 'p', symbolAnchor(symbol));
+  const actions = document.createElement('div');
+  actions.className = 'row-actions';
+  actionButton(actions, 'View declaration evidence', 'evidence', {
+    evidenceId: symbol.declarationEvidenceId,
+    symbolId: symbol.id,
+  });
+  if (symbol.id !== state.rootSymbolId)
+    actionButton(actions, `Follow symbol ${symbol.name}`, 'follow', {
+      symbolId: symbol.id,
+    });
+  panel.append(actions);
+}
+
+function selectEvidence(
+  evidenceId,
+  { relationId = null, symbolId = null } = {},
+) {
+  if (!graphResult) {
+    showError('Evidence selection requires a current validated projection.');
+    return false;
+  }
+  const relation = relationId
+    ? graphResult.graph.relations.find((item) => item.id === relationId)
+    : undefined;
+  const symbol = symbolId
+    ? graphResult.graph.symbols.find((item) => item.id === symbolId)
+    : undefined;
+  const evidenceAvailable =
+    graphResult.graph.evidenceRefs.some((item) => item.id === evidenceId) ||
+    graphResult.unknowns.items.some((item) => item.evidenceId === evidenceId);
+  const relationEvidenceMatches =
+    relationId === null ||
+    Boolean(
+      relation &&
+      (relation.siteEvidenceId === evidenceId ||
+        relation.resolution.evidenceIds.includes(evidenceId)),
+    );
+  const symbolEvidenceMatches =
+    symbolId === null || Boolean(symbol?.declarationEvidenceId === evidenceId);
+  const symbolBelongsToRelation =
+    !relation ||
+    !symbol ||
+    relation.sourceSymbolId === symbol.id ||
+    (relation.resolution.status === 'exact' &&
+      relation.resolution.targetId === symbol.id);
+  if (
+    !evidenceAvailable ||
+    (relationId !== null && !relation) ||
+    (symbolId !== null && !symbol) ||
+    !relationEvidenceMatches ||
+    !symbolEvidenceMatches ||
+    !symbolBelongsToRelation
+  ) {
+    showError('The evidence is not in the current validated projection.');
+    return false;
+  }
+  clearError();
+  Object.assign(state, {
+    selectedRelationId: relation?.id ?? null,
+    selectedGraphSymbolId: symbol?.id ?? null,
+    evidenceId,
+  });
+  renderSelection();
+  void showEvidence(evidenceId);
+  return true;
+}
+
+function selectRelation(relationId) {
+  const relation = graphResult?.graph.relations.find(
+    (item) => item.id === relationId,
+  );
+  if (!relation) {
+    showError('The relationship is not in the current validated projection.');
+    return false;
+  }
+  return selectEvidence(relation.siteEvidenceId, { relationId });
+}
+
+function selectGraphSymbol(symbolId) {
+  const symbol = graphResult?.graph.symbols.find(
+    (item) => item.id === symbolId,
+  );
+  if (!symbol) {
+    showError('The symbol is not in the current validated projection.');
+    return false;
+  }
+  return selectEvidence(symbol.declarationEvidenceId, { symbolId });
+}
+
+function followGraphSymbol(symbolId) {
+  if (!graphResult?.graph.symbols.some((item) => item.id === symbolId)) {
+    showError(
+      'Only a symbol in the current validated projection can be followed.',
+    );
+    return false;
+  }
+  return applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
+}
+
 function renderInvestigation() {
   const result = graphResult;
   if (!result) return;
@@ -225,12 +442,14 @@ function renderInvestigation() {
   }
   const rootPanel = byId('root-symbol');
   rootPanel.replaceChildren();
-  appendText(rootPanel, 'h3', `${root.kind} ${root.name}`);
+  const rootHeading = appendText(rootPanel, 'h3', `${root.kind} ${root.name}`);
+  rootHeading.tabIndex = -1;
   appendText(rootPanel, 'p', symbolAnchor(root));
   const rootActions = document.createElement('div');
   rootActions.className = 'row-actions';
   actionButton(rootActions, 'View declaration evidence', 'evidence', {
     evidenceId: root.declarationEvidenceId,
+    symbolId: root.id,
   });
   rootPanel.append(rootActions);
 
@@ -244,13 +463,20 @@ function renderInvestigation() {
   renderGraph(graph);
   renderRelationships(graph);
   renderUnknowns(result.unknowns);
+  renderSelection();
   if (state.evidenceId) void showEvidence(state.evidenceId);
 }
 
 function renderGraph(graph) {
   const svg = byId('graph');
   svg.replaceChildren();
+  svg.setAttribute('role', 'group');
+  svg.setAttribute(
+    'aria-label',
+    'Bounded static source relationship graph. Activate a node for declaration evidence or an edge for occurrence evidence.',
+  );
   const symbols = [...graph.symbols];
+  const symbolMap = new Map(symbols.map((symbol) => [symbol.id, symbol]));
   const positions = new Map();
   const cellWidth = 210;
   const rowHeight = 105;
@@ -299,7 +525,7 @@ function renderGraph(graph) {
     const edgeIndex = edgeSeen.get(edgeKey) ?? 0;
     edgeSeen.set(edgeKey, edgeIndex + 1);
     const edgeCount = edgeTotals.get(edgeKey);
-    const offset = (edgeIndex - (edgeCount - 1) / 2) * 10;
+    const offset = (edgeIndex - (edgeCount - 1) / 2) * 22;
     const deltaX = target.x - source.x;
     const deltaY = target.y - source.y;
     const distance = Math.hypot(deltaX, deltaY) || 1;
@@ -316,13 +542,47 @@ function renderGraph(graph) {
       edge.setAttribute('x2', String(target.x + 75 + normalX * offset));
       edge.setAttribute('y2', String(target.y + 24 + normalY * offset));
     } else {
-      const lift = 24 + edgeIndex * 9;
+      const lift = 30 + edgeIndex * 24;
       edge.setAttribute(
         'd',
         `M ${source.x + 48} ${source.y + 12} C ${source.x + 45} ${source.y - lift}, ${source.x + 105} ${source.y - lift}, ${source.x + 102} ${source.y + 12}`,
       );
     }
-    svg.append(edge);
+    const sourceSymbol = symbolMap.get(relation.sourceSymbolId);
+    const targetSymbol = symbolMap.get(relation.resolution.targetId);
+    const siteEvidence = graph.evidenceRefs.find(
+      (item) => item.id === relation.siteEvidenceId,
+    );
+    if (!sourceSymbol || !targetSymbol || !siteEvidence) continue;
+    edge.dataset.relationId = relation.id;
+    edge.setAttribute('aria-hidden', 'true');
+    const hitTarget = edge.cloneNode(false);
+    hitTarget.classList.remove('graph-edge', relation.kind);
+    hitTarget.classList.add('graph-edge-hit');
+    if (hitTarget.tagName.toLowerCase() === 'line') {
+      const x1 = hitTarget.getAttribute('x1');
+      const x2 = hitTarget.getAttribute('x2');
+      const y1 = hitTarget.getAttribute('y1');
+      const y2 = hitTarget.getAttribute('y2');
+      if (y1 === y2 && y2 !== null)
+        hitTarget.setAttribute('y2', String(Number(y2) + 1));
+      else if (x1 === x2 && x2 !== null)
+        hitTarget.setAttribute('x2', String(Number(x2) + 1));
+    }
+    hitTarget.removeAttribute('aria-hidden');
+    hitTarget.dataset.relationId = relation.id;
+    hitTarget.dataset.action = 'select-relation';
+    hitTarget.setAttribute('role', 'button');
+    hitTarget.setAttribute('tabindex', '0');
+    hitTarget.setAttribute('focusable', 'true');
+    hitTarget.setAttribute('aria-pressed', 'false');
+    hitTarget.setAttribute(
+      'aria-label',
+      visibleText(
+        `${relation.kind.toUpperCase()} occurrence at ${sourceSymbol.filePath}:${siteEvidence.range.start.line}:${siteEvidence.range.start.column}, from ${sourceSymbol.name} to ${targetSymbol.name}; select and inspect verified occurrence evidence`,
+      ),
+    );
+    svg.append(hitTarget, edge);
     const label = document.createElementNS(
       'http://www.w3.org/2000/svg',
       'text',
@@ -342,6 +602,27 @@ function renderGraph(graph) {
   symbols.forEach((symbol) => {
     const position = positions.get(symbol.id);
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    group.classList.add('graph-node-control');
+    if (symbol.id === state.rootSymbolId)
+      group.classList.add('graph-node-root');
+    group.dataset.symbolId = symbol.id;
+    group.dataset.action = 'select-node';
+    group.setAttribute('role', 'button');
+    group.setAttribute('tabindex', '0');
+    group.setAttribute('focusable', 'true');
+    group.setAttribute(
+      'aria-label',
+      visibleText(
+        `${symbol.kind} ${symbol.name} at ${symbolAnchor(symbol)}${symbol.id === state.rootSymbolId ? ', current investigation root' : ', select symbol and inspect declaration evidence'}`,
+      ),
+    );
+    group.setAttribute(
+      'aria-pressed',
+      String(
+        symbol.id === state.rootSymbolId ||
+          symbol.id === state.selectedGraphSymbolId,
+      ),
+    );
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.classList.add('graph-node');
     rect.setAttribute('x', String(position.x));
@@ -391,6 +672,7 @@ function renderRelationships(graph) {
   for (const relation of graph.relations) {
     const row = document.createElement('li');
     row.className = 'relationship-item';
+    row.dataset.relationId = relation.id;
     if (relation.id === state.selectedRelationId) row.classList.add('selected');
     const source = symbolMap.get(relation.sourceSymbolId);
     const target =
@@ -447,6 +729,7 @@ function renderRelationships(graph) {
     });
     actionButton(actions, 'View occurrence evidence', 'evidence', {
       evidenceId: relation.siteEvidenceId,
+      relationId: relation.id,
     });
     if (status === 'exact') {
       const followable = [source, target].filter(
@@ -457,7 +740,11 @@ function renderRelationships(graph) {
           actions,
           `View ${symbol.name} declaration evidence`,
           'evidence',
-          { evidenceId: symbol.declarationEvidenceId },
+          {
+            evidenceId: symbol.declarationEvidenceId,
+            relationId: relation.id,
+            symbolId: symbol.id,
+          },
         );
         actionButton(actions, `Follow ${symbol.name}`, 'follow', {
           symbolId: symbol.id,
@@ -553,11 +840,42 @@ async function showEvidence(evidenceId) {
 function restorePrevious() {
   const previous = historyStack.pop();
   if (!previous) return;
-  Object.assign(state, previous);
-  renderHistoryButton();
-  renderFilters();
-  void loadGraph();
+  const changed = applyQueryState(
+    {
+      rootSymbolId: previous.rootSymbolId,
+      relationKinds: previous.relationKinds,
+      direction: previous.direction,
+    },
+    { remember: false, restore: previous },
+  );
+  if (!changed && graphResult) {
+    restoreEligibleSelection(previous);
+    renderSelection();
+    if (state.evidenceId) void showEvidence(state.evidenceId);
+  }
 }
+
+function activateGraphControl(target) {
+  if (!(target instanceof Element)) return;
+  const control = target.closest(
+    '#graph [data-action="select-relation"], #graph [data-action="select-node"]',
+  );
+  if (!control) return;
+  if (control.dataset.action === 'select-relation')
+    selectRelation(control.dataset.relationId);
+  else if (control.dataset.action === 'select-node')
+    selectGraphSymbol(control.dataset.symbolId);
+}
+
+byId('graph').addEventListener('click', (event) => {
+  activateGraphControl(event.target);
+});
+
+byId('graph').addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  activateGraphControl(event.target);
+});
 
 document.addEventListener('submit', (event) => {
   if (event.target.id !== 'symbol-search') return;
@@ -575,17 +893,9 @@ document.addEventListener('change', (event) => {
       showError('Choose at least one relationship kind.');
       return;
     }
-    applyState({
-      relationKinds: selected,
-      selectedRelationId: null,
-      evidenceId: null,
-    });
+    applyQueryState({ relationKinds: selected });
   } else if (event.target.id === 'direction') {
-    applyState({
-      direction: event.target.value,
-      selectedRelationId: null,
-      evidenceId: null,
-    });
+    applyQueryState({ direction: event.target.value });
   }
 });
 
@@ -596,29 +906,23 @@ document.addEventListener('click', (event) => {
   if (action === 'select-root') {
     const symbolId = button.dataset.symbolId;
     if (!symbolId) return;
-    applyState({
-      rootSymbolId: symbolId,
-      selectedRelationId: null,
-      evidenceId: null,
-    });
+    applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
     void loadSymbolPage(symbolPage.query, symbolPage.offset);
   } else if (action === 'follow') {
     const symbolId = button.dataset.symbolId;
     if (!symbolId) return;
-    applyState({
-      rootSymbolId: symbolId,
-      selectedRelationId: null,
-      evidenceId: null,
-    });
+    followGraphSymbol(symbolId);
   } else if (action === 'select-relation') {
     const relationId = button.dataset.relationId;
     if (!relationId) return;
-    applyState({ selectedRelationId: relationId, evidenceId: null });
+    selectRelation(relationId);
   } else if (action === 'evidence') {
     const evidenceId = button.dataset.evidenceId;
     if (!evidenceId) return;
-    Object.assign(state, { evidenceId });
-    void showEvidence(evidenceId);
+    selectEvidence(evidenceId, {
+      relationId: button.dataset.relationId ?? null,
+      symbolId: button.dataset.symbolId ?? null,
+    });
   }
 });
 

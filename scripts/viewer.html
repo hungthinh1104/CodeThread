@@ -85,11 +85,23 @@
             class="root-symbol"
             aria-live="polite"
           ></section>
+          <section
+            id="graph-symbol-selection"
+            class="root-symbol"
+            aria-live="polite"
+            hidden
+          ></section>
           <p class="graph-legend">
-            Solid arrow: CALLS · dashed arrow: REFERENCES. The list below
-            includes every returned relation row.
+            Solid arrow: CALLS · dashed arrow: REFERENCES. Focus an SVG node or
+            edge and press Enter or Space, or use the accessible relationship
+            list below.
           </p>
-          <svg id="graph" class="graph" aria-hidden="true"></svg>
+          <svg
+            id="graph"
+            class="graph"
+            role="group"
+            aria-label="Bounded static source relationship graph"
+          ></svg>
           <section aria-labelledby="relationships-heading">
             <h3 id="relationships-heading">
               Returned relationship occurrences

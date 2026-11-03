@@ -282,6 +282,20 @@ legend {
   stroke-width: 1.5;
 }
 
+.graph-node-control {
+  cursor: pointer;
+}
+
+.graph-node-control.graph-node-root .graph-node {
+  stroke-dasharray: 4 3;
+}
+
+.graph-node-control.selected .graph-node,
+.graph-node-control:focus-visible .graph-node {
+  stroke: var(--focus);
+  stroke-width: 3;
+}
+
 .graph-node-text,
 .graph-edge-label {
   fill: CanvasText;
@@ -294,6 +308,30 @@ legend {
   stroke: currentColor;
   stroke-width: 2;
   marker-end: url(#arrow);
+  pointer-events: none;
+}
+
+.graph-edge.selected {
+  stroke: var(--focus);
+  stroke-width: 3.5;
+}
+
+.graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.graph-edge-hit:hover,
+.graph-edge-hit:focus-visible {
+  stroke: var(--focus);
+  stroke-opacity: 0.3;
+}
+
+.graph-edge-label {
+  pointer-events: none;
 }
 
 .graph-edge.references {
