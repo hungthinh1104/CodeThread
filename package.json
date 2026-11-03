@@ -20,6 +20,8 @@
     "demo:semantic": "node scripts/demo-semantic.ts",
     "investigate": "node scripts/investigate.ts",
     "demo:investigation": "node scripts/investigate.ts --demo todo",
+    "demo:visual": "node scripts/investigate.ts --demo todo --view",
+    "test:browser": "node tests/viewer-browser.ts",
     "eval:semantic": "node scripts/eval-semantic.ts",
     "eval:external": "node scripts/eval-external-semantic.ts",
     "arch:check": "node scripts/architecture.ts",
@@ -38,10 +40,12 @@
     "@types/node": "24.19.2",
     "ajv": "8.20.0",
     "eslint": "10.14.0",
+    "playwright": "1.64.1",
     "prettier": "3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "8.72.1",
     "vitest": "5.0.5",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
   }
 }

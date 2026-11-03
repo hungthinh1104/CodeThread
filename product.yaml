@@ -26,8 +26,8 @@ v0:
       Explicit literal .ts paths only; no crawl, glob, or dependency discovery.
     worktree: Dirty working-tree contents are ignored.
   presentation: >-
-    A bounded textual CLI for the current semantic proof; visual traces remain
-    planned.
+    A bounded textual CLI plus an opt-in ephemeral loopback browser proof for
+    the current semantic snapshot. A persistent product frontend remains gated.
 research:
   title_role:
     The official thesis title is academic metadata, not a mandatory product

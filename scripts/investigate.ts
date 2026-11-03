@@ -33,6 +33,7 @@ import {
   summarizeSelection,
 } from './git-source.ts';
 import type { AcquiredGitSources, GitSelectionStatus } from './git-source.ts';
+import { runViewer } from './viewer.ts';
 
 const MAX_MANIFEST_BYTES = 3 * 1024 * 1024;
 const MAX_SOURCE_FILES = ANALYSIS_LIMITS.maxFiles;
@@ -1113,26 +1114,45 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
   }
 }
 
-function parseArguments(args: readonly string[]):
-  | { kind: 'manifest'; path: string }
-  | { kind: 'demo' }
+type InvestigationCommand =
+  | { kind: 'manifest'; path: string; view: boolean }
+  | { kind: 'demo'; view: boolean }
   | {
       kind: 'git';
       repositoryPath: string;
       repositoryId: string;
       revision: string;
       selectedPaths: string[];
+      view: boolean;
     }
-  | { kind: 'help' } {
-  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h'))
-    return { kind: 'help' };
-  if (args.length === 2 && args[0] === '--manifest' && args[1]!.length > 0)
-    return { kind: 'manifest', path: args[1]! };
-  if (args.length === 2 && args[0] === '--demo' && args[1] === 'todo')
-    return { kind: 'demo' };
+  | { kind: 'help' };
+
+function parseArguments(args: readonly string[]): InvestigationCommand {
+  const viewCount = args.filter((argument) => argument === '--view').length;
+  if (viewCount > 1)
+    throw new CliError('INVALID_ARGUMENT', '--view may be specified once.');
+  const view = viewCount === 1,
+    sourceArgs = args.filter((argument) => argument !== '--view');
   if (
-    args[0] === '--repo' ||
-    args.some((argument) => argument.startsWith('--repo='))
+    sourceArgs.length === 1 &&
+    (sourceArgs[0] === '--help' || sourceArgs[0] === '-h')
+  )
+    return { kind: 'help' };
+  if (
+    sourceArgs.length === 2 &&
+    sourceArgs[0] === '--manifest' &&
+    sourceArgs[1]!.length > 0
+  )
+    return { kind: 'manifest', path: sourceArgs[1]!, view };
+  if (
+    sourceArgs.length === 2 &&
+    sourceArgs[0] === '--demo' &&
+    sourceArgs[1] === 'todo'
+  )
+    return { kind: 'demo', view };
+  if (
+    sourceArgs[0] === '--repo' ||
+    sourceArgs.some((argument) => argument.startsWith('--repo='))
   ) {
     let repositoryPath: string | undefined,
       repositoryId: string | undefined,
@@ -1162,8 +1182,8 @@ function parseArguments(args: readonly string[]):
         revision = value;
       } else selectedPaths.push(value);
     };
-    for (let index = 0; index < args.length; index++) {
-      const argument = args[index]!;
+    for (let index = 0; index < sourceArgs.length; index++) {
+      const argument = sourceArgs[index]!;
       const equals = /^(--repo|--repository-id|--revision|--file)=(.*)$/.exec(
         argument,
       );
@@ -1178,7 +1198,7 @@ function parseArguments(args: readonly string[]):
         argument === '--revision' ||
         argument === '--file'
       ) {
-        const value = args[++index];
+        const value = sourceArgs[++index];
         if (value === undefined || value.length === 0)
           throw new CliError(
             'INVALID_ARGUMENT',
@@ -1208,6 +1228,7 @@ function parseArguments(args: readonly string[]):
       repositoryId,
       revision,
       selectedPaths,
+      view,
     };
   }
   throw new CliError(
@@ -1225,9 +1246,9 @@ async function runInvestigationCli(
     if (command.kind === 'help') {
       writePage([
         'CodeThread bounded textual source investigation.',
-        'Usage: pnpm investigate -- --manifest <manifest.json>',
-        '       pnpm investigate -- --repo <root> --repository-id <uuid> --revision <revision> --file <path> [--file=<path> ...]',
-        'Pinned example: pnpm demo:investigation',
+        'Usage: pnpm investigate -- [--view] --manifest <manifest.json>',
+        '       pnpm investigate -- [--view] --repo <root> --repository-id <uuid> --revision <revision> --file <path> [--file=<path> ...]',
+        'Pinned examples: pnpm demo:investigation | pnpm demo:visual',
         `Manifest limit: ${MAX_MANIFEST_BYTES} bytes; source limits: ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes/file, ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
       ]);
       return;
@@ -1288,7 +1309,8 @@ async function runInvestigationCli(
         ),
       ]);
     }
-    await startSession(snapshot);
+    if (command.view) await runViewer(snapshot);
+    else await startSession(snapshot);
   } catch (error) {
     printError(error);
     process.exitCode =

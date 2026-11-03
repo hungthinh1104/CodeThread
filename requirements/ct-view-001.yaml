@@ -1,0 +1,86 @@
+id: CT-VIEW-001
+title: Bounded local visual investigation
+module: application
+statement: >-
+  A developer shall inspect source-backed semantic relationships in an ephemeral
+  local browser view that consumes the same validated snapshot projections as
+  the textual investigation workflow.
+lifecycle: accepted
+priority: must
+acceptance:
+  - id: AC-01
+    given: A selected source symbol in one immutable analysis snapshot
+    then:
+      The viewer identifies it by source path and declaration location and
+      queries the existing trace engine rather than parsing CLI text or
+      implementing graph traversal.
+  - id: AC-02
+    given: A selected root and explicit relation-kind and direction filters
+    then:
+      Every displayed relationship retains its relation ID, CALLS or REFERENCES
+      kind, direction, source and target identity, resolution status and
+      supporting evidence from the validated query result.
+  - id: AC-03
+    given: A reference, static call, unresolved or unsupported relation
+    then:
+      The interface labels its semantic kind and resolution accurately, and only
+      an exact target returned by the current result may be followed.
+  - id: AC-04
+    given: A selected relationship with verified source evidence
+    then:
+      The evidence inspector shows source path, line and column, source hash and
+      the exact verified excerpt or a typed unavailable result.
+  - id: AC-05
+    given: A graph result, filter change, root change or back-navigation action
+    then:
+      Snapshot identity is preserved; stale relation and evidence selections are
+      cleared; history restores the prior root, filters and selection; and
+      omitted or truncated relationships are not interactable.
+  - id: AC-06
+    given:
+      A graph query reaches an existing result limit or the viewer's
+      presentation bound
+    then:
+      Applied limits and truncation remain visible, and the viewer does not
+      claim an exhaustive negative result.
+  - id: AC-07
+    given: A running viewer session
+    then:
+      It binds only to IPv4 loopback on an ephemeral port, validates host,
+      origin and a random session token, bounds request and response sizes,
+      serves no external resources, persists no source data and closes when the
+      user stops the CLI.
+  - id: AC-08
+    given: Source text, paths, names, diagnostics or malformed requests
+    then:
+      The browser uses safe text rendering, exposes typed failures, and never
+      executes analyzed source or treats it as markup.
+  - id: AC-09
+    given: Keyboard-only operation or a narrow laptop viewport
+    then:
+      Symbols, filters, relationships, evidence and target-follow controls
+      remain operable with visible focus and accessible names; relation kinds
+      are not distinguished by color alone.
+  - id: AC-10
+    given: The pinned todo corpus and a pinned direct-call corpus
+    then:
+      Browser-level tests demonstrate source selection, explicit REFERENCES,
+      exact evidence and declaration inspection, target following, back
+      navigation, direct CALLS and visible uncertainty without asserting runtime
+      execution or comprehension improvement.
+depends_on:
+  - CT-CORE-004
+  - CT-INDEX-001
+  - CT-INV-001
+  - CT-SOURCE-001
+  - CT-TRACE-001
+verification:
+  method: mixed
+  description: >-
+    Verify loopback request and payload boundaries, semantic projection parity,
+    state restoration, safe source rendering and typed failure behavior with
+    focused tests and real browser interactions. Run workspace checks, both
+    semantic evaluations and the native dependency audit on the final commit.
+  test_ids:
+    - tests/viewer.test.ts
+    - tests/viewer-browser.ts

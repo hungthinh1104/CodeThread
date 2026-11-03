@@ -17,14 +17,14 @@ No comprehension benefit is claimed by implementation tests.
 
 Current packages:
 
-| Owner               | Behavior                                                                                                        | Dependencies                                                     |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| code-model          | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
-| contracts           | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                 | code-model and Zod                                               |
-| symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction and retained source                                 | code-model, pinned TypeScript and explicitly allowed Node APIs   |
-| trace-engine        | Source-verified, bounded in-memory graph exploration                                                            | code-model, contracts and Node crypto; no compiler or filesystem |
-| Application scripts | Explicit local Git object acquisition and CLI orchestration; no extraction or graph implementation              | symbol-indexer, trace-engine, code-model/contracts and Node      |
-| Foundation scripts  | Requirements and package-boundary verification                                                                  | Node, TypeScript API, YAML and Ajv                               |
+| Owner               | Behavior                                                                                                                            | Dependencies                                                     |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| code-model          | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives                     | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
+| contracts           | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                                     | code-model and Zod                                               |
+| symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction and retained source                                                     | code-model, pinned TypeScript and explicitly allowed Node APIs   |
+| trace-engine        | Source-verified, bounded in-memory graph exploration                                                                                | code-model, contracts and Node crypto; no compiler or filesystem |
+| Application scripts | Explicit local Git object acquisition, CLI orchestration and bounded loopback viewer presentation; no extraction or graph traversal | symbol-indexer, trace-engine, code-model/contracts and Node      |
+| Foundation scripts  | Requirements and package-boundary verification                                                                                      | Node, TypeScript API, YAML and Ajv                               |
 
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
@@ -1121,3 +1121,76 @@ The original recommendation rested on three positive occurrences and focused
 negative checker probes in two small subsets. The implementation regressions
 cover those anchors and selected adversarial cases, but do not establish general
 TypeScript accuracy, runtime behavior or comprehension benefit.
+
+## 14. CT-VIEW-001 bounded local visual investigation
+
+The current user request explicitly authorizes one bounded browser proof. This
+approval covers an opt-in local viewer only; it does not open the later full
+frontend or backend phases. The viewer reuses the source-selection CLI,
+`analyzeManifest`, immutable `AnalysisSnapshot`, `createInvestigation` and the
+existing request/result parsers. Data flows as:
+
+```text
+Git / manifest
+  -> analyzeManifest()
+  -> immutable AnalysisSnapshot
+  -> createInvestigation(facts, verified source reader)
+  -> contract-validated symbol / neighbor / evidence projection
+  -> loopback HTTP response
+  -> browser layout and interaction
+```
+
+The browser does not parse textual CLI output, resolve symbols, discover edges
+or traverse the graph. It selects source-identified symbols, sends the existing
+neighbor request shape to the in-memory trace engine and renders the returned
+projection. Exact relation rows keep their IDs, kind, direction, resolution,
+endpoints and evidence. A target can be followed only from an exact row in the
+current projection. Unsupported and uncertain relations remain visible in the
+relationship list without invented graph nodes. The evidence panel requests only
+evidence IDs returned by that projection and shows the verified reader's path,
+range, hash and excerpt, or a typed unavailable state.
+
+The accepted ephemeral loopback viewer starts only with the CLI `--view` flag,
+binds to `127.0.0.1` on an OS-selected port, prints its URL and waits until the
+user exits. It does not open a browser automatically. The browser obtains a
+per-session random token from the URL fragment and sends it in a request header;
+the server checks Host, same-origin Origin, token and loopback remote address.
+It grants no CORS access and sets a restrictive Content Security Policy,
+`Cache-Control: no-store`, `Referrer-Policy: no-referrer` and
+`X-Content-Type-Options: nosniff`. The API has a 64 KiB request-body limit and a
+1 MiB serialized-response limit. Symbol search pages contain at most 50 rows.
+Each visual graph asks the existing engine for depth two with a 50-symbol limit;
+the engine retains its 1,000 relationship, evidence and diagnostic caps. Any
+engine truncation is shown. A result exceeding the response-size cap returns a
+typed error instead of a partial JSON projection.
+
+The viewer stays in process memory and writes no report or source cache. It has
+no export action, browser storage, telemetry, external font, script or network
+resource. Closing the CLI closes the listener. Source strings, paths and
+diagnostics are rendered as text nodes, with terminal/bidi control characters
+displayed visibly. The relationship list is the keyboard-accessible equivalent
+of the SVG; both represent the same returned rows. Relation kind labels and
+textual markers accompany color. The renderer keeps a bounded navigation stack
+of root, relation filters, direction and selected relation; changing a root or
+filter clears stale relation/evidence state, and back restores the prior
+snapshot-scoped query state.
+
+| Option                             | Browser compatibility                                                      | Confidentiality and lifecycle                                         | Attack surface                                                                                  | Cost and maintenance                                                                                                                                   |
+| ---------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Self-contained local HTML          | Avoids `file:` fetch requirements when all data is embedded; works offline | Writes source-bearing reports to disk; no live process                | No listener, but embedded application code must still treat source as text                      | No runtime dependency, but interactive target following requires precomputed projections or a second traversal engine; precomputation expands payloads |
+| Ephemeral loopback viewer (chosen) | One HTTP origin; no local-file fetch assumptions                           | Source remains in process/browser memory until exit; no report export | Adds local HTTP surface, bounded by loopback binding, Host/Origin/token checks, no CORS and CSP | Node built-in HTTP and native browser UI; test-only Playwright is used for real interaction tests; query semantics remain in trace-engine              |
+
+The self-contained report is rejected because continued investigation after a
+root change would require speculative precomputation of all reachable query
+results or duplicated graph behavior in the browser. The loopback process is an
+application-local proof boundary, not a reusable API service. The only browser
+automation dependency is development/test tooling. ADR-0005 records this choice
+and the deferred boundaries.
+
+Acceptance requires browser-level todo navigation with explicit `REFERENCES`,
+exact occurrence and declaration evidence, target follow and back-navigation; a
+pinned direct-call investigation; semantic parity against the existing trace
+projection; explicit unknown/truncation states; keyboard use and narrow viewport
+behavior; safe rendering of HTML/script/bidi source; and proof that requests
+never leave loopback. Implementation tests do not establish improved
+comprehension; that remains CT-EVAL-001 study work.

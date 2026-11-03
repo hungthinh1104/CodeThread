@@ -12,7 +12,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,6 +26,14 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Install Chromium for visual investigation tests (Linux)
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Install Chromium for visual investigation tests (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm exec playwright install chromium
+      - name: Browser-level visual investigation
+        run: pnpm test:browser
       - name: Semantic fixture evaluation
         run: pnpm --silent eval:semantic
       - name: Dependency security audit (requires advisory service)

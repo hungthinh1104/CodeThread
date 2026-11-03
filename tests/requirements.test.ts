@@ -55,6 +55,11 @@ describe('CT-CORE-002 registry validation', () => {
           lifecycle: 'accepted',
           module: 'application',
         }),
+        expect.objectContaining({
+          id: 'CT-VIEW-001',
+          lifecycle: 'accepted',
+          module: 'application',
+        }),
       ]),
     );
     expect(registry.map((entry) => entry.id)).toEqual(

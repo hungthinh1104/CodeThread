@@ -7,7 +7,8 @@ task status; GitHub Issues/Projects own execution tracking.
 - Keep changes small and within the requested work package. CT-INDEX-001A/B own
   the bounded in-memory semantic proof and its narrow method-reference slice; do
   not claim the broader CT-INDEX-001 capability is complete. Migrations, full
-  backend, frontend and AI retain their explicit gates.
+  backend, general frontend and AI retain their explicit gates. The bounded
+  ephemeral viewer is authorized only by CT-VIEW-001 and ADR-0005.
 - Code investigations may start from files, modules or symbols. Tests are
   optional supporting evidence; preserve reusable test projections without
   requiring them in core code relationships. See ADR-0003 for the revised
