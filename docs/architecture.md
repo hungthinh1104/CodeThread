@@ -1168,12 +1168,28 @@ The viewer stays in process memory and writes no report or source cache. It has
 no export action, browser storage, telemetry, external font, script or network
 resource. Closing the CLI closes the listener. Source strings, paths and
 diagnostics are rendered as text nodes, with terminal/bidi control characters
-displayed visibly. The relationship list is the keyboard-accessible equivalent
-of the SVG; both represent the same returned rows. Relation kind labels and
-textual markers accompany color. The renderer keeps a bounded navigation stack
-of root, relation filters, direction and selected relation; changing a root or
-filter clears stale relation/evidence state, and back restores the prior
-snapshot-scoped query state.
+displayed visibly. Each exact SVG edge control keeps the returned relation ID;
+parallel occurrences and self-calls remain independently selectable. Node
+controls keep the returned symbol ID. Selecting a node, relation or evidence
+only updates presentation state from the current validated projection; it does
+not issue a neighbor request. Edge selection highlights the same occurrence in
+the relationship list and requests that occurrence's evidence. Node selection
+shows declaration evidence and a follow action only for a symbol returned in the
+projection. Root, direction or relationship-kind changes, following a symbol,
+and back navigation issue one bounded neighbor query. The client rejects stale
+relation, symbol and evidence IDs against the current projection, and discards
+out-of-order graph and evidence responses. Back navigation restores prior
+selections only when the returned projection still contains the same symbol,
+relation and evidence.
+
+SVG edges and nodes expose button roles, accessible names, visible focus and
+Enter/Space activation. The HTML relationship list remains an equivalent
+keyboard path. The automated browser tests exercise Chromium on Windows and
+Ubuntu; they do not verify every browser's assistive-technology tree. Relation
+kind labels and line styles accompany color. The renderer keeps a bounded
+navigation stack of root, relation filters, direction and selected context;
+changing a root or filter clears active selections before the new result
+arrives.
 
 | Option                             | Browser compatibility                                                      | Confidentiality and lifecycle                                         | Attack surface                                                                                  | Cost and maintenance                                                                                                                                   |
 | ---------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |

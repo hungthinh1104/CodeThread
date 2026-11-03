@@ -195,11 +195,16 @@ The session is bounded to 100 commands and 64 KiB of text per response.
 For the same pinned todo sources in a browser, run `pnpm --silent demo:visual`.
 The CLI prints an ephemeral `127.0.0.1` URL; open it in a browser and press
 Ctrl+C in the CLI to stop the viewer. The browser lets you search
-source-anchored symbols, select CALLS or REFERENCES explicitly, follow only
-exact targets returned by the current query, and inspect verified
-occurrence/declaration evidence. The visual graph and accessible relationship
-list represent the same bounded trace-engine result. Unknowns, coverage and
-truncation remain visible; an empty bounded result is not proof of absence.
+source-anchored symbols, select CALLS or REFERENCES explicitly, and inspect
+verified occurrence/declaration evidence. Click or keyboard-activate SVG edges
+to select that exact occurrence and open its evidence; activate a node to
+inspect its declaration and choose whether to follow it. Parallel occurrences
+remain separate. Selection reuses the current graph result, while following a
+symbol or changing filters runs a new bounded query. Back restores only
+selections and evidence still present in the returned snapshot. The accessible
+relationship list provides the same path if a browser or assistive technology
+handles SVG controls differently. Unknowns, coverage and truncation remain
+visible; an empty bounded result is not proof of absence.
 
 For a caller-owned manifest, append `--view` to the existing input command, for
 example `pnpm investigate -- --manifest ./manifest.json --view`. The viewer

@@ -35,7 +35,10 @@ acceptance:
     then:
       Snapshot identity is preserved; stale relation and evidence selections are
       cleared; history restores the prior root, filters and selection; and
-      omitted or truncated relationships are not interactable.
+      omitted or truncated relationships are not interactable. Relation, node
+      and evidence selection reuse the current projection without a neighbor
+      request; root/filter changes, target following and Back issue one bounded
+      query and restore only selections still present in that result.
   - id: AC-06
     given:
       A graph query reaches an existing result limit or the viewer's
