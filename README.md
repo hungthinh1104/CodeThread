@@ -261,6 +261,10 @@ success.
 The authoring sources are this README, `product.yaml`, requirement YAML/schema,
 `docs/architecture.md`, significant decisions and `AGENTS.md`. Keep execution
 reports in review/Issue discussions; do not add competing progress documents.
+The current operation inventory is in
+[`docs/api/inventory.md`](docs/api/inventory.md); the implementation and DB/API
+readiness evidence is in
+[`docs/reviews/architecture-api-db-readiness.md`](docs/reviews/architecture-api-db-readiness.md).
 
 ## Evidence and next gate
 

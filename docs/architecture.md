@@ -87,10 +87,16 @@ they are not the sole future investigation API. The logical database proposal
 remains unimplemented and must be reviewed against the semantic proof before
 DB-02.
 
+The database/API readiness review and operation inventory are linked from the
+[README](../README.md). They distinguish logical proposals, executable in-memory
+behavior and actual local HTTP routes.
+
 ```mermaid
 erDiagram
     Repository ||--o{ RepositorySnapshot : owns
     Repository ||--o{ ScanJob : requests
+    ScanJob ||--o{ ScanInputFile : acquires
+    AnalysisConfiguration ||--o{ ScanJob : submitted_with
     AnalysisConfiguration ||--o{ RepositorySnapshot : configures
     RepositorySnapshot ||--o{ SourceFile : indexes
     RepositorySnapshot ||--o{ SnapshotCapability : declares
@@ -134,8 +140,6 @@ erDiagram
         uuid id PK
         uuid repository_id FK
         text source_fingerprint
-        text git_commit_oid
-        text git_tree_oid
         text analyzer_version
         text analyzer_build_hash
         text configuration_hash FK
@@ -149,12 +153,26 @@ erDiagram
         uuid id PK
         uuid repository_id FK
         uuid snapshot_id FK
+        text revision_selector
+        text configuration_hash FK
+        text analyzer_version
+        text analyzer_build_hash
         text idempotency_key
         text request_hash
+        text git_object_format
+        text git_commit_oid
+        text git_tree_oid
         bigint generation
         text state
         integer attempt
         text activation_result
+    }
+    ScanInputFile {
+        uuid scan_job_id PK,FK
+        text path PK
+        text git_blob_oid
+        integer git_mode
+        text content_hash
     }
     SnapshotCapability {
         uuid snapshot_id PK,FK
@@ -170,8 +188,6 @@ erDiagram
         uuid id PK
         text path
         text content_hash
-        text git_blob_oid
-        integer git_mode
         bigint byte_length
         bigint utf16_length
         text encoding
@@ -268,6 +284,8 @@ erDiagram
     }
     Repository ||--o{ RepositorySnapshot : repository_id
     Repository ||--o{ ScanJob : repository_id
+    ScanJob ||--o{ ScanInputFile : selected_input
+    AnalysisConfiguration ||--o{ ScanJob : configuration_hash
     AnalysisConfiguration ||--o{ RepositorySnapshot : configuration_hash
     RepositorySnapshot ||--o{ SourceFile : snapshot_id
     RepositorySnapshot ||--o{ SnapshotCapability : snapshot_id
@@ -301,23 +319,24 @@ Timestamps are UTC `timestamptz`; API locations are integers within JavaScript's
 safe range. SQL `bigint` generation counters are never transported as unsafe
 JSON numbers.
 
-| Entity / owner                                | Required data and uniqueness                                                                                                                                                                                                                                                                      | Nullable data / deletion                                                                                                                                                                                                                |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Repository / source lifecycle                 | UUID; locator; generation ≥ 0; timestamps. One registered lineage owns many snapshots/jobs.                                                                                                                                                                                                       | Desired job and active snapshot are nullable; each must belong to this repository. Moving the locator preserves identity. Repository deletion is explicit maintenance, never a query side effect.                                       |
-| AnalysisConfiguration / indexing lifecycle    | Lowercase SHA-256 PK; format/compiler/resolver versions; verified canonical configuration object in cache. It can be shared by snapshots.                                                                                                                                                         | No mutable configuration payload. Referenced configurations and cache manifests are protected; unreferenced ones are maintenance candidates.                                                                                            |
-| RepositorySnapshot / indexing lifecycle       | Repository, source fingerprint, commit/tree OIDs, analyzer version/build digest, configuration hash, state, coverage, creation time. UNIQUE over repository + fingerprint + analyzer version/build + configuration hash; UNIQUE(repository_id, id) for scoped pointers.                           | Publication time is absent in staging. Writer job/lease absent before ownership and after failed cleanup. Published state and payload freeze. Active/in-use snapshots cannot be purged.                                                 |
-| ScanJob / indexing lifecycle                  | Repository, nonempty bounded idempotency key, request hash, generation, state, attempt and timestamps. UNIQUE(repository_id, idempotency_key), UNIQUE(repository_id, generation), UNIQUE(repository_id, id).                                                                                      | Result snapshot, terminal error code and activation outcome absent until available. Snapshot reference must match repository. Retain jobs while needed for idempotency; explicit expiry is required before deleting keys.               |
-| SnapshotCapability / indexing lifecycle       | Snapshot + capability key PK; capability version, coverage, nonnegative eligible/analyzed/excluded counts. analyzed + excluded ≤ eligible; completeness validated against the declared scope.                                                                                                     | No nullable structural fields. Frozen with snapshot; deleted only during guarded whole-snapshot purge.                                                                                                                                  |
-| SourceFile / source ingestion                 | Snapshot, file UUID, exact case-preserved Git path, SHA-256 raw content hash, Git blob OID/mode, byte/UTF-16 lengths, UTF-8 encoding, source/test/declaration/config role and coverage. UNIQUE(snapshot_id, path COLLATE C); UNIQUE(snapshot_id, id, content_hash) supports evidence consistency. | Unsupported/invalid UTF-8 files have a SourceFile identity with nullable UTF-16 length and an encoding diagnostic; they cannot support text evidence. Content metadata is otherwise required. Whole-snapshot purge only.                |
-| SourceEvidence / extraction                   | Snapshot, UUID, file ID/content hash composite FK, half-open UTF-16 offsets, one-based coordinates, extractor name/version and static_source kind. Row bounds: 0 ≤ start ≤ end. File bounds and coordinate agreement checked against cache at publication.                                        | No guessed source, nullable provenance or unverified content hash. Retained with the snapshot.                                                                                                                                          |
-| CodeSymbol / symbol-indexer                   | Snapshot, UUID, file ID, canonical key, display name/kind and declaration evidence. UNIQUE(snapshot_id, canonical_key). Range/path projections derive from the declaration evidence/file.                                                                                                         | No unresolved placeholder symbols. Initial declarations have one authoritative evidence span; projection evidenceIds contains that span. Merged declarations requiring unsupported identity semantics remain diagnostic cases.          |
-| CodeRelation / trace-engine                   | Snapshot, UUID, source symbol, occurrence key, relation kind, resolution and call-site evidence. UNIQUE(snapshot_id, canonical_key), not source/target uniqueness. Evidence join contains the site and supporting records.                                                                        | Target exists iff resolution=exact. Primary diagnostic required otherwise; exact rows have no primary diagnostic. Composite FKs scope all references.                                                                                   |
-| RelationEvidence / trace-engine               | Snapshot + relation ID + evidence ID composite PK/FKs. One occurrence can have several supporting spans, one span can support several facts.                                                                                                                                                      | No nullable endpoint or JSON evidence-ID list. Publication requires ≥ 1 row and the site attachment.                                                                                                                                    |
-| TestCase / test-indexer                       | Snapshot, UUID, file ID, occurrence key, display name, suite path, declaration evidence and none/static/dynamic parameterization. UNIQUE(snapshot_id, canonical_key).                                                                                                                             | case_key is null for an ordinary test or unresolved/template parameterization. Only safely extracted literal rows receive case keys; dynamic rows are never executed or invented.                                                       |
-| TestStep / test-indexer                       | Snapshot, UUID, test ID, occurrence key, source evidence, kind, phase, nonnegative syntax ordinal. UNIQUE(snapshot_id, test_id, id) and UNIQUE(snapshot_id, canonical_key).                                                                                                                       | Parent step optional; FK(snapshot_id, test_id, parent_step_id) keeps containment inside one test. Publication checks containment cycles. Contextual hooks may share original evidence across tests without implying repeated execution. |
-| TestCodeLink / trace-engine                   | Snapshot, UUID, test/step ownership, occurrence key, kind, resolution and site evidence. FK(snapshot_id, test_id, step_id) references the step owner.                                                                                                                                             | Target iff exact; primary diagnostic otherwise. No guessed production target. Several sites to the same symbol remain distinct.                                                                                                         |
-| TestLinkEvidence / trace-engine               | Snapshot + link ID + evidence ID PK/FKs, with site attachment required at publication.                                                                                                                                                                                                            | Explicit typed join; no polymorphic reference that escapes a foreign key.                                                                                                                                                               |
-| Diagnostic / extractor or lifecycle validator | Snapshot, UUID, stable code, info/warning/error severity and bounded message.                                                                                                                                                                                                                     | Optional file and evidence; evidence requires a file and must match it. Source-free repository diagnostics are allowed. No arbitrary cross-entity pointer or sensitive source payload in messages.                                      |
+| Entity / owner                                | Required data and uniqueness                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Nullable data / deletion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository / source lifecycle                 | UUID; locator; generation ≥ 0; timestamps. One registered lineage owns many snapshots/jobs.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Desired job and active snapshot are nullable; each must belong to this repository. Moving the locator preserves identity. Repository deletion is explicit maintenance, never a query side effect.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| AnalysisConfiguration / indexing lifecycle    | Lowercase SHA-256 PK; format/compiler/resolver versions; verified canonical configuration object in cache. It can be shared by snapshots.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | No mutable configuration payload. Referenced configurations and cache manifests are protected; unreferenced ones are maintenance candidates.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| RepositorySnapshot / indexing lifecycle       | Repository, source fingerprint, analyzer version/build digest, configuration hash, state, coverage, creation time. UNIQUE over repository + fingerprint + analyzer version/build + configuration hash; UNIQUE(repository_id, id) for scoped pointers.                                                                                                                                                                                                                                                                                                                                                              | Git acquisition provenance is not stored here: multiple scan jobs with different commits may reuse one semantic result. Publication time is absent in staging. Writer job/lease absent before ownership and after failed cleanup. Published payload freezes. Active/in-use snapshots cannot be purged.                                                                                                                                                                                                                                                                                                                                                                             |
+| ScanJob / indexing lifecycle                  | Repository; the exact accepted caller revision selector; configuration hash; analyzer version/build pinned at request acceptance; nonempty bounded idempotency key; request hash; generation, state, attempt and timestamps. The request hash commits to repository identity, selector, UTF-8-byte-sorted selected paths and canonical configuration hash; it is distinct from semantic source fingerprint and snapshot identity. After resolution, retain Git object format and immutable commit/tree OIDs. UNIQUE(repository_id, idempotency_key), UNIQUE(repository_id, generation), UNIQUE(repository_id, id). | Selector, configuration and analyzer identity are immutable from request acceptance. Resolved Git identity is nullable until revision acquisition succeeds; result snapshot, terminal error code and activation outcome are nullable until available. Snapshot reference and effective analysis identity must match the repository/request. A failed job can retry only after a commit is pinned and only with the same request hash, commit and analyzer build. A failure before revision resolution has no immutable acquisition context and requires a new request/idempotency key. Retain jobs while needed for idempotency; explicit expiry is required before deleting keys. |
+| ScanInputFile / source acquisition            | Scan job + exact case-preserved selected path PK; verified Git blob OID, regular file mode and raw source SHA-256. One row per admitted path, published only after the all-or-error selection succeeds.                                                                                                                                                                                                                                                                                                                                                                                                            | No partial selected-file provenance is stored for a failed acquisition. On successful result publication, transaction/application validation confirms each path and content hash matches the semantic snapshot manifest. Delete only with the owning request-retention policy.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| SnapshotCapability / indexing lifecycle       | Snapshot + capability key PK; capability version, coverage, nonnegative eligible/analyzed/excluded counts. analyzed + excluded ≤ eligible; completeness validated against the declared scope.                                                                                                                                                                                                                                                                                                                                                                                                                      | No nullable structural fields. Frozen with snapshot; deleted only during guarded whole-snapshot purge.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| SourceFile / source ingestion                 | Snapshot, file UUID, exact case-preserved source path, SHA-256 raw content hash, byte/UTF-16 lengths, UTF-8 encoding, source/test/declaration/config role and coverage. UNIQUE(snapshot_id, path COLLATE C); UNIQUE(snapshot_id, id, content_hash) supports evidence consistency.                                                                                                                                                                                                                                                                                                                                  | No Git OID or mode: these belong to ScanInputFile. Rows exist only for source accepted by strict UTF-8 validation; UTF-16 length is required. An INVALID_ENCODING analysis failure is recorded as a terminal ScanJob error and creates no semantic snapshot, SourceFile or SourceEvidence row. Content metadata is otherwise required. Whole-snapshot purge only.                                                                                                                                                                                                                                                                                                                  |
+| SourceEvidence / extraction                   | Snapshot, UUID, file ID/content hash composite FK, half-open UTF-16 offsets, one-based coordinates, extractor name/version and static_source kind. Row bounds: 0 ≤ start ≤ end. File bounds and coordinate agreement checked against cache at publication.                                                                                                                                                                                                                                                                                                                                                         | No guessed source, nullable provenance or unverified content hash. Retained with the snapshot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| CodeSymbol / symbol-indexer                   | Snapshot, UUID, file ID, canonical key, display name/kind and declaration evidence. UNIQUE(snapshot_id, canonical_key). Range/path projections derive from the declaration evidence/file.                                                                                                                                                                                                                                                                                                                                                                                                                          | No unresolved placeholder symbols. Initial declarations have one authoritative evidence span; projection evidenceIds contains that span. Merged declarations requiring unsupported identity semantics remain diagnostic cases.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| CodeRelation / trace-engine                   | Snapshot, UUID, source symbol, occurrence key, relation kind, resolution and call-site evidence. UNIQUE(snapshot_id, canonical_key), not source/target uniqueness. Evidence join contains the site and supporting records.                                                                                                                                                                                                                                                                                                                                                                                         | Target exists iff resolution=exact. Primary diagnostic required otherwise; exact rows have no primary diagnostic. Composite FKs scope all references.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| RelationEvidence / trace-engine               | Snapshot + relation ID + evidence ID composite PK/FKs. One occurrence can have several supporting spans, one span can support several facts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | No nullable endpoint or JSON evidence-ID list. Publication requires ≥ 1 row and the site attachment.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| TestCase / test-indexer                       | Snapshot, UUID, file ID, occurrence key, display name, suite path, declaration evidence and none/static/dynamic parameterization. UNIQUE(snapshot_id, canonical_key).                                                                                                                                                                                                                                                                                                                                                                                                                                              | case_key is null for an ordinary test or unresolved/template parameterization. Only safely extracted literal rows receive case keys; dynamic rows are never executed or invented.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| TestStep / test-indexer                       | Snapshot, UUID, test ID, occurrence key, source evidence, kind, phase, nonnegative syntax ordinal. UNIQUE(snapshot_id, test_id, id) and UNIQUE(snapshot_id, canonical_key).                                                                                                                                                                                                                                                                                                                                                                                                                                        | Parent step optional; FK(snapshot_id, test_id, parent_step_id) keeps containment inside one test. Publication checks containment cycles. Contextual hooks may share original evidence across tests without implying repeated execution.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| TestCodeLink / trace-engine                   | Snapshot, UUID, test/step ownership, occurrence key, kind, resolution and site evidence. FK(snapshot_id, test_id, step_id) references the step owner.                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Target iff exact; primary diagnostic otherwise. No guessed production target. Several sites to the same symbol remain distinct.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| TestLinkEvidence / trace-engine               | Snapshot + link ID + evidence ID PK/FKs, with site attachment required at publication.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Explicit typed join; no polymorphic reference that escapes a foreign key.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Diagnostic / extractor or lifecycle validator | Snapshot, UUID, stable code, info/warning/error severity and bounded message.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Optional file and evidence; evidence requires a file and must match it. Source-free repository diagnostics are allowed. No arbitrary cross-entity pointer or sensitive source payload in messages.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 Additional execution runs, runtime events, AI answers, embeddings and generic
 artifact registries are deliberately absent. Core structural data is relational.
@@ -349,16 +368,20 @@ tree modes and Git LFS pointer interpretation are unsupported; pointer-file
 bytes, if explicitly selected as `.ts`, remain ordinary source bytes and are not
 hydrated.
 
-Git commit and blob IDs are acquisition provenance, not inputs to the existing
-manifest fingerprint. The adapter passes the same repository UUID, selected
-POSIX paths, original bytes and raw SHA-256 hashes that a caller-provided
-manifest would supply. Therefore, two commits with identical selected paths and
-bytes have the same analyzer snapshot identity even if their commits differ.
-Changing a selected path, byte, analyzer build or compiler configuration still
-changes the applicable manifest-based identity. Database publication must store
-commit/blob provenance separately and reconcile it with this identity rule
-before DB-02. Paths preserve case and Unicode exactly; path matching uses raw
-UTF-8 component bytes without locale normalization.
+Git commit, tree, blob IDs and file modes are acquisition provenance, not inputs
+to the existing manifest fingerprint. The adapter passes the same repository
+UUID, selected POSIX paths, original bytes and raw SHA-256 hashes that a
+caller-provided manifest would supply. Therefore, two commits with identical
+selected paths and bytes have the same analyzer snapshot identity even if their
+commits, trees, blob object formats or file modes differ. Changing a selected
+path, byte, analyzer build or compiler configuration still changes the
+applicable manifest-based identity. The proposed database model stores resolved
+commit/tree identity and one `ScanInputFile` per admitted path under the
+`ScanJob`; `RepositorySnapshot` and `SourceFile` retain semantic identity only.
+Successful publication validates that the request's path/hash manifest matches
+the shared analysis result. This lets distinct acquisitions reuse one snapshot
+without conflating their provenance. Paths preserve case and Unicode exactly;
+path matching uses raw UTF-8 component bytes without locale normalization.
 
 AnalysisConfiguration's verified canonical cache document contains explicit
 compiler/extractor versions, supported capability versions, effective compiler
@@ -378,8 +401,9 @@ fixed profile; its build fingerprint covers the analyzer, code model, compiler
 and allowlisted library contents. A repository UUID and these components form a
 deterministic proof snapshot UUID. Snapshot-local file/entity UUIDv8 values
 derive from SHA-256 descriptors and duplicate identities fail validation. This
-proof identity makes no commit/tree or published-database claim; reconcile its
-manifest format with the Git-provenance proposal before DB-02.
+proof identity makes no commit/tree or published-database claim. The proposed
+`ScanJob`/`ScanInputFile` provenance is a database acquisition record; it does
+not alter the manifest fingerprint or deterministic semantic snapshot identity.
 
 Snapshot-local canonical keys use a versioned kind plus SHA-256 of an anchor
 descriptor. Symbols anchor to supported canonical declarations; test keys
@@ -440,18 +464,18 @@ elision.
 
 ## 5. Integrity enforcement matrix
 
-| Invariant / requirement               | SQL responsibility in DB-02                                                                     | Transaction/application responsibility and evidence                                                                           |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| 1. Identity / CT-DB-001               | Analysis-tuple uniqueness; nonnull format/version/hash columns                                  | Canonical manifests and configuration hashes; changed-input and equivalent-input vectors                                      |
-| 2. Isolation / CT-DB-002              | Composite scoped FKs/keys for every owned reference; repository-scoped active/result pointers   | Response scope validation; negative writes and scoped query tests on real PostgreSQL                                          |
-| 3. Published immutability / CT-DB-003 | DML guards on snapshot children and referenced configuration; separate operational state        | Parent-row locking prevents validation/write races; negative INSERT/UPDATE/DELETE tests after publication                     |
-| 4. Atomic publication / CT-DB-004     | Published-state read predicates and transactional pointer update                                | Validate minimum evidence joins, coverage counts, source availability, ownership and cycles; concurrent reader/rollback tests |
-| 5. No fabrication / CT-DB-005         | CHECK exact iff target nonnull; unresolved primary diagnostic required; target and evidence FKs | Supported semantic resolver only; ambiguous/unsupported fixtures and false-positive evaluation                                |
-| 6. Occurrences / CT-DB-006            | Canonical occurrence uniqueness, never endpoint-pair uniqueness                                 | Two independent spans retained; identical-key/different-payload rejection                                                     |
-| 7. Evidence / CT-DB-007               | File/hash/snapshot composite FK, row bounds, nonnull extractor fields                           | Verify hash, UTF-8, full file bounds and coordinates; Unicode and corrupted-source cases                                      |
-| 8. Static/runtime / CT-DB-008         | Initial evidence kind is static_source; no runtime/pass fields                                  | Typed static projections; hooks/assertions/mocks described without execution claims                                           |
-| 9. Idempotency / CT-DB-009            | Repository/key uniqueness; one shared analysis tuple                                            | Canonical request comparison and explicit IDEMPOTENCY_CONFLICT; concurrent requests                                           |
-| 10. Stale activation / CT-DB-010      | Monotonic generation, scoped pointer FK and writer epoch                                        | Locked compare-and-swap; stale completion and fenced-writer tests                                                             |
+| Invariant / requirement               | SQL responsibility in DB-02                                                                     | Transaction/application responsibility and evidence                                                                                       |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Identity / CT-DB-001               | Analysis-tuple uniqueness; nonnull format/version/hash columns; request-scoped provenance keys  | Canonical manifests/configuration hashes; verify successful ScanJob inputs against the reused snapshot manifest; equivalent-input vectors |
+| 2. Isolation / CT-DB-002              | Composite scoped FKs/keys for every owned reference; repository-scoped active/result pointers   | Response scope validation; negative writes and scoped query tests on real PostgreSQL                                                      |
+| 3. Published immutability / CT-DB-003 | DML guards on snapshot children and referenced configuration; separate operational state        | Parent-row locking prevents validation/write races; negative INSERT/UPDATE/DELETE tests after publication                                 |
+| 4. Atomic publication / CT-DB-004     | Published-state read predicates and transactional pointer update                                | Validate minimum evidence joins, coverage counts, source availability, ownership and cycles; concurrent reader/rollback tests             |
+| 5. No fabrication / CT-DB-005         | CHECK exact iff target nonnull; unresolved primary diagnostic required; target and evidence FKs | Supported semantic resolver only; ambiguous/unsupported fixtures and false-positive evaluation                                            |
+| 6. Occurrences / CT-DB-006            | Canonical occurrence uniqueness, never endpoint-pair uniqueness                                 | Two independent spans retained; identical-key/different-payload rejection                                                                 |
+| 7. Evidence / CT-DB-007               | File/hash/snapshot composite FK, row bounds, nonnull extractor fields                           | Verify hash, UTF-8, full file bounds and coordinates; Unicode and corrupted-source cases                                                  |
+| 8. Static/runtime / CT-DB-008         | Initial evidence kind is static_source; no runtime/pass fields                                  | Typed static projections; hooks/assertions/mocks described without execution claims                                                       |
+| 9. Idempotency / CT-DB-009            | Repository/key uniqueness; one shared analysis tuple                                            | Canonical request comparison and explicit IDEMPOTENCY_CONFLICT; concurrent requests                                                       |
+| 10. Stale activation / CT-DB-010      | Monotonic generation, scoped pointer FK and writer epoch                                        | Locked compare-and-swap; stale completion and fenced-writer tests                                                                         |
 
 CHECK cannot enforce cross-table conditions, minimum join membership or
 publication completeness. PostgreSQL's CHECK limitation and nullable-FK rules
@@ -475,12 +499,24 @@ can restart, preserving generation/payload and incrementing attempt. Cancelled
 jobs remain cancelled; a new intent requires a new key. Neither an old retry nor
 a reused result can silently reclaim a superseded generation.
 
-1. In a short request transaction, lock Repository, look up the repository/key,
-   and compare request_hash. Identical requests reuse the existing
-   job/generation; conflicts fail. A new key increments desired_generation and
-   creates the desired job atomically. Job payload includes the resolved commit
-   and canonical requested analysis inputs. A failed newer request does not
-   silently restore older intent.
+1. Canonicalize the submitted intent from repository identity, the exact
+   validated caller revision selector, UTF-8-byte-sorted literal paths and the
+   canonical configuration hash. In a short request transaction, lock
+   Repository, look up the repository/key and compare `request_hash` before
+   resolving a ref. An identical retry returns the existing job even if `HEAD`,
+   a named ref or the installed analyzer build moved; changed caller payload
+   reuse conflicts. The job retains the exact selector, configuration hash and
+   effective analyzer version/build selected at acceptance. For a new key,
+   increment `desired_generation` and create the desired job atomically. Its
+   acquisition resolves the selector once and persists the immutable
+   object-format/commit/tree identity immediately after resolution, before
+   reading selected paths. It records all admitted per-file provenance before
+   semantic publication. An acquisition failure records no partial file list. A
+   failed job may be retried only if a commit was pinned; the retry verifies the
+   same request hash and reuses that commit and analyzer build without resolving
+   the selector again. If resolution itself failed, there is no immutable
+   revision to retry, so a new request and idempotency key are required. A
+   failed newer request does not silently restore older intent.
 2. Find/create the unique analysis tuple. A published match can be reused
    without reindexing. A staging match has one writer_job_id, lease and
    monotonically increasing writer_epoch; other jobs wait for/reuse its result
@@ -521,13 +557,17 @@ PostgreSQL's [locking](https://www.postgresql.org/docs/18/explicit-locking.html)
 and [isolation](https://www.postgresql.org/docs/18/transaction-iso.html)
 references.
 
-Writer interruption leaves staging invisible. Retry reuses the logical job,
-increments its attempt, claims a new epoch and restarts only its staging result.
-If another request already published the shared analysis, reuse it. Expired
-leases do not authorize blindly rewriting published content. Failure/error codes
-and attempt history are operational data; they must not mutate an immutable
-payload. Fencing and publication guards are DB-04 acceptance scenarios, not
-implemented concurrency guarantees in Foundation.
+Writer interruption leaves staging invisible. A retryable failed job reuses the
+logical request, increments its attempt, claims a new epoch and restarts only
+its staging result, using the already pinned commit and analyzer identity. A
+failure before commit resolution cannot be retried under that job; a new request
+key is required rather than resolving a moving selector under old intent. If
+another request already published the shared analysis, reuse it. If the pinned
+analyzer build is unavailable for retry, fail explicitly; never substitute the
+current build. Expired leases do not authorize blindly rewriting published
+content. Failure/error codes and attempt history are operational data; they must
+not mutate an immutable payload. Fencing and publication guards are DB-04
+acceptance scenarios, not implemented concurrency guarantees in Foundation.
 
 ### Retention and recovery
 
@@ -680,8 +720,11 @@ not measured performance SLAs.
 Query errors are INVALID_REQUEST, INVALID_CURSOR, SNAPSHOT_NOT_FOUND,
 SNAPSHOT_NOT_PUBLISHED, ENTITY_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH,
 RESOURCE_LIMIT and QUERY_TIMEOUT. Ingestion/publication additionally needs typed
-IDEMPOTENCY_CONFLICT, WRITER_FENCED, SOURCE_NOT_READY and INTEGRITY_VIOLATION.
-Do not log source excerpts, credentials or connection strings in errors.
+IDEMPOTENCY_CONFLICT, WRITER_FENCED, SOURCE_NOT_READY, INTEGRITY_VIOLATION,
+REVISION_NOT_PINNED for retrying a request that failed before selector
+resolution, and ANALYZER_BUILD_UNAVAILABLE when the job's pinned build cannot be
+used. These are proposed codes, not runtime API behavior. Do not log source
+excerpts, credentials or connection strings in errors.
 
 ## 8. Reproducible scalability methodology
 
