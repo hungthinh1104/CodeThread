@@ -811,7 +811,8 @@ They are not simulated measurements or claims of implemented persistence.
 | Snapshot A link points at snapshot B symbol             | Composite target FK rejects it, even if the UUID exists elsewhere                | Negative INSERT and projection isolation test                |
 | Same production endpoints called at offsets 10 and 70   | Two occurrence keys and support rows survive; no endpoint-pair deduplication     | Persist/requery both spans and reverse occurrences           |
 | Identical repository/key/payload submitted concurrently | One job/generation, other caller reuses it                                       | Independent connections and explicit commit ordering         |
-| Same key reused for another commit                      | Request hash mismatch produces IDEMPOTENCY_CONFLICT; generation does not advance | Negative conflict transaction and unchanged intended pointer |
+| Same key, same selector after `HEAD` moves              | Original job reused without re-resolving ref; pinned commit remains unchanged    | Replay after ref moves; verify job, commit and generation    |
+| Same key, changed selector/paths/configuration          | `IDEMPOTENCY_CONFLICT`; generation and intended pointer unchanged                | Negative canonical-payload conflict transaction              |
 | Generation 1 finishes after generation 2 was requested  | Gen 1 may publish inactive; it cannot activate, even if gen 2 later fails        | Out-of-order completion with pointer assertion               |
 | Writer epoch 4 pauses, epoch 5 takes over               | Epoch 4 batches/publication are fenced; only reset staging is writable           | Multi-connection lease/takeover test                         |
 | Process dies during a batch or publication              | Transaction rolls back; previous active snapshot remains; staging is invisible   | Kill/rollback and concurrent reader test                     |
