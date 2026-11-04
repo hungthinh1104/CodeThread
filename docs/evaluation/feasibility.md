@@ -101,8 +101,8 @@ uncertainty, evidence, and safe rendering. `pnpm security:check` could not reach
 the npm advisory endpoint from this local environment
 (`ERR_PNPM_AUDIT_BAD_RESPONSE`, socket permission error); this is a network
 service failure, not a reported vulnerability result. The baseline hosted run's
-security audit step passed. The PR revision still requires its own exact-SHA
-hosted checks.
+security audit step passed. A PR's own hosted checks must be recorded against
+its exact SHA; baseline CI is not a substitute.
 
 ### Experiment A: input completeness versus type information
 
