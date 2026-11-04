@@ -115,6 +115,7 @@ function syntheticDemo(tasks: StudyTaskDataset): StudyResultDataset {
         evidenceReferences,
         additionalClaims: [],
         confidence: 4,
+        usabilityRating: 4,
         completionStatus: 'completed',
         toolFailureCode: null,
         missingReasonCode: null,

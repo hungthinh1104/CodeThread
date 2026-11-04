@@ -100,6 +100,7 @@ const studyResultRecordSchema = z
     evidenceReferences: z.array(evidenceReferenceSchema).max(300),
     additionalClaims: z.array(z.string().min(1).max(2048)).max(50),
     confidence: z.number().finite().int().min(1).max(5).nullable(),
+    usabilityRating: z.number().finite().int().min(1).max(5).nullable(),
     completionStatus: completionStatusSchema,
     toolFailureCode: toolFailureCodeSchema.nullable(),
     missingReasonCode: missingReasonCodeSchema.nullable(),
@@ -175,7 +176,8 @@ const studyResultRecordSchema = z
         record.objectiveClaims.length > 0 ||
         record.evidenceReferences.length > 0 ||
         record.additionalClaims.length > 0 ||
-        record.confidence !== null
+        record.confidence !== null ||
+        record.usabilityRating !== null
       ) {
         context.addIssue({
           code: 'custom',
@@ -189,7 +191,8 @@ const studyResultRecordSchema = z
         record.objectiveClaims.length > 0 ||
         record.evidenceReferences.length > 0 ||
         record.additionalClaims.length > 0 ||
-        record.confidence !== null
+        record.confidence !== null ||
+        record.usabilityRating !== null
       ) {
         context.addIssue({
           code: 'custom',
@@ -244,6 +247,13 @@ export type StudyScoreGroup = Readonly<{
   censoredTimeouts: number;
   confidenceCount: number;
   meanConfidence: number | null;
+  usabilityRatingCounts: Readonly<{
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  }>;
   awaitingHumanScoring: number;
 }>;
 
@@ -411,6 +421,7 @@ type MutableGroup = {
   censoredTimeouts: number;
   confidenceTotal: number;
   confidenceCount: number;
+  usabilityRatingCounts: Record<1 | 2 | 3 | 4 | 5, number>;
   awaitingHumanScoring: number;
 };
 
@@ -437,6 +448,7 @@ function newGroup(taskId: string, condition: StudyCondition): MutableGroup {
     censoredTimeouts: 0,
     confidenceTotal: 0,
     confidenceCount: 0,
+    usabilityRatingCounts: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
     awaitingHumanScoring: 0,
   };
 }
@@ -457,6 +469,23 @@ function addRecordScore(
   if (record.confidence !== null) {
     group.confidenceTotal += record.confidence;
     group.confidenceCount++;
+  }
+  switch (record.usabilityRating) {
+    case 1:
+      group.usabilityRatingCounts[1]++;
+      break;
+    case 2:
+      group.usabilityRatingCounts[2]++;
+      break;
+    case 3:
+      group.usabilityRatingCounts[3]++;
+      break;
+    case 4:
+      group.usabilityRatingCounts[4]++;
+      break;
+    case 5:
+      group.usabilityRatingCounts[5]++;
+      break;
   }
   if (record.completionStatus === 'unsupported_task') return;
 
@@ -561,6 +590,7 @@ export function scoreStudyResults(
         group.confidenceCount > 0
           ? group.confidenceTotal / group.confidenceCount
           : null,
+      usabilityRatingCounts: group.usabilityRatingCounts,
       awaitingHumanScoring: group.awaitingHumanScoring,
     })),
     humanScoringStatus: 'AWAITING_HUMAN_SCORING',

@@ -8,7 +8,11 @@ current answer keys and source labels remain `AWAITING_INDEPENDENT_REVIEW`. This
 document does not authorize recruitment or a pilot. Obtain the thesis adviser or
 institution's decision on whether a test-to-code task is required, independent
 answer-key review, and any applicable ethics approval before collecting
-participant data.
+participant data. Before recruitment, use the institution-approved consent
+process and explain the study purpose, tasks, conditions, data collected,
+voluntary participation, ability to skip or withdraw, retention/deletion plan,
+and contact for questions. No consent process or participant material has been
+approved or used for this proposal.
 
 The source-pinned candidates and current feasibility decisions are listed in
 [`tasks.json`](tasks.json). The research and implementation limitations are in
@@ -35,6 +39,14 @@ exploratory. The candidates are too few and too coverage-selected to support a
 confirmatory effectiveness claim. Begin with a small exploratory case study only
 after the prerequisites below; do not choose a sample size or run significance
 tests from this protocol alone.
+
+After each task, ask the same exploratory usability item in every condition:
+“How easy or difficult was it to find and verify the requested relationships and
+source evidence?” Use a 1–5 response from very difficult to very easy, or `null`
+when not collected or declined. This single item is not a validated usability
+scale and is not part of the correctness score. Report its 1–5 count
+distribution by task and condition; do not make inferential or population claims
+from it.
 
 F1 and F2 are candidate tasks for all three conditions with limitations. F1's
 RQ2 scoring is restricted to the four direct calls in the route setup because
@@ -107,7 +119,10 @@ rubric review is authorized and recorded.
 The result schema requires an explicit `confidence` value from 1 to 5 or `null`;
 omission is invalid, and `null` means not collected or declined. Confidence is
 reported descriptively. Do not treat an ordinal mean as calibrated confidence or
-run significance tests in an exploratory pilot.
+run significance tests in an exploratory pilot. It likewise requires a
+`usabilityRating` from 1 to 5 or `null`, and the scorer emits only its aggregate
+count distribution. The usability response is separate from answer text and is
+not used to award objective points.
 
 | Outcome                | Recording and scoring rule                                                                                                |
 | ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
@@ -130,13 +145,13 @@ pseudonymous token in the form `P-` followed by 16 uppercase hexadecimal
 characters, task/condition/order, duration and its observed/censored/missing
 status, submitted answer, structured objective claims, evidence references,
 additional claims, confidence, completion status, and `toolFailureCode`,
-`missingReasonCode`, and `unsupportedReasonCode` fields that are null or
-required according to the outcome. Every record has
-`humanScoringStatus: "AWAITING_HUMAN_SCORING"`. Extra properties are rejected;
-the schema has no name or email fields. Free text can still contain personal
-details, so keep raw results private and review approved data handling before
-collection. Do not put participant data in the task bank, fixtures, issue, pull
-request, or source control.
+`usabilityRating`, `toolFailureCode`, `missingReasonCode`, and
+`unsupportedReasonCode` fields that are null or required according to the
+outcome. Every record has `humanScoringStatus: "AWAITING_HUMAN_SCORING"`. Extra
+properties are rejected; the schema has no name or email fields. Free text can
+still contain personal details, so keep raw results private and review approved
+data handling before collection. Do not put participant data in the task bank,
+fixtures, issue, pull request, or source control.
 
 Store approved local result files only in the ignored `local-study-data/`
 directory. Set access, encryption, retention and deletion rules before
@@ -162,8 +177,8 @@ participant observation.
 Predefine how to handle participant decline, missing logs, interruption,
 unsupported tasks, tool errors, timeouts, prior repository familiarity and
 protocol deviations. Report denominators separately for correctness, time,
-unsupported conclusions and confidence. Do not impute missing answers or convert
-a tool failure into a participant failure.
+unsupported conclusions, confidence, and usability ratings. Do not impute
+missing answers or convert a tool failure into a participant failure.
 
 Threats include learning/carryover, task difficulty, prior repository
 familiarity, TypeScript skill variation, training and facilitator effects,

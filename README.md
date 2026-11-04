@@ -158,6 +158,9 @@ pnpm --silent investigate -- --repo ./my-repository \
   --revision HEAD --file src/main.ts --file src/target.ts
 ```
 
+Add `--view` to that command to open the same selected commit and files in the
+visual investigation session.
+
 The adapter supports full commit IDs, `HEAD`, and fully qualified local branch
 or tag refs. It resolves the revision once, reads only those committed `.ts`
 blobs, and ignores dirty working-tree changes. Directories, globs and automatic
@@ -240,10 +243,11 @@ pnpm --silent study:score -- ./local-study-data/results.json
 
 Result files belong under the ignored `local-study-data/` directory. The scorer
 validates the strict pseudonymous format and emits aggregates by task and
-condition, omitting participant tokens and answer text. It never scores
-free-text comprehension or unsupported claims; those remain
-`AWAITING_HUMAN_SCORING`. The toolkit does not recruit participants, collect
-answers, or authorize a study. See
+condition, including exploratory usability-rating counts, while omitting
+participant tokens and answer text. Usability ratings do not affect objective
+correctness. The scorer never scores free-text comprehension or unsupported
+claims; those remain `AWAITING_HUMAN_SCORING`. The toolkit does not recruit
+participants, collect answers, or authorize a study. See
 [`docs/evaluation/protocol.md`](docs/evaluation/protocol.md) for the task
 rubric, privacy limits, prerequisites, and reproducible pinned-source workflow.
 

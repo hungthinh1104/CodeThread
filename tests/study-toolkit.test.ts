@@ -75,6 +75,7 @@ function syntheticF2Result(): Record<string, unknown> {
         evidenceReferences,
         additionalClaims: [],
         confidence: null,
+        usabilityRating: 4,
         completionStatus: 'completed',
         toolFailureCode: null,
         missingReasonCode: null,
@@ -345,11 +346,27 @@ describe('CT-EVAL-001A offline study task validation', () => {
         objectiveEarned: 12,
         objectiveAvailable: 12,
         objectiveAccuracy: 1,
+        usabilityRatingCounts: { 4: 1 },
         awaitingHumanScoring: 1,
       },
     ]);
     expect(JSON.stringify(report)).not.toContain('P-0123456789ABCDEF');
     expect(JSON.stringify(report)).not.toContain('Synthetic test answer');
+
+    const lowUsabilityRating = syntheticF2Result();
+    const records = lowUsabilityRating['results'] as Array<
+      Record<string, unknown>
+    >;
+    records[0]!['usabilityRating'] = 1;
+    const lowRatingReport = scoreStudyResults(
+      lowUsabilityRating,
+      readTaskDataset(),
+    );
+    expect(lowRatingReport.groups[0]).toMatchObject({
+      objectiveEarned: report.groups[0]!.objectiveEarned,
+      objectiveAvailable: report.groups[0]!.objectiveAvailable,
+      usabilityRatingCounts: { 1: 1 },
+    });
   });
 
   it('counts a wrong exact target as both an incorrect exact claim and a missed answer', () => {
@@ -424,6 +441,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     record['evidenceReferences'] = [];
     record['additionalClaims'] = [];
     record['confidence'] = null;
+    record['usabilityRating'] = null;
     record['completionStatus'] = 'missing';
     record['missingReasonCode'] = 'NOT_COLLECTED';
 
@@ -446,6 +464,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     record['evidenceReferences'] = [];
     record['additionalClaims'] = [];
     record['confidence'] = null;
+    record['usabilityRating'] = null;
     record['completionStatus'] = 'unsupported_task';
     record['unsupportedReasonCode'] = 'CAPABILITY_NOT_ANALYZED';
 
@@ -458,7 +477,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     });
   });
 
-  it('rejects absent confidence fields, invalid durations and unsupported evidence references', () => {
+  it('rejects missing confidence or usability and invalid durations or evidence', () => {
     const withoutConfidence = syntheticF2Result();
     const missingRecord = (
       withoutConfidence['results'] as Array<Record<string, unknown>>
@@ -467,6 +486,25 @@ describe('CT-EVAL-001A offline study task validation', () => {
     expect(() =>
       scoreStudyResults(withoutConfidence, readTaskDataset()),
     ).toThrow(StudyResultError);
+
+    const withoutUsabilityRating = syntheticF2Result();
+    delete (
+      withoutUsabilityRating['results'] as Array<Record<string, unknown>>
+    )[0]!['usabilityRating'];
+    expect(() =>
+      scoreStudyResults(withoutUsabilityRating, readTaskDataset()),
+    ).toThrow(StudyResultError);
+
+    for (const usabilityRating of [0, 6, 2.5]) {
+      const invalidUsability = syntheticF2Result();
+      const invalidRecord = (
+        invalidUsability['results'] as Array<Record<string, unknown>>
+      )[0]!;
+      invalidRecord['usabilityRating'] = usabilityRating;
+      expect(() =>
+        scoreStudyResults(invalidUsability, readTaskDataset()),
+      ).toThrow(StudyResultError);
+    }
 
     for (const durationMs of [Number.NaN, -1, 24 * 60 * 60 * 1000 + 1]) {
       const invalidDuration = syntheticF2Result();

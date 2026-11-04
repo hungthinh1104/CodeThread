@@ -55,9 +55,10 @@ preregistration.
   registration, execution, or runtime outcome beyond the available static
   evidence. Report unsupported conclusions separately from correctness and
   semantic coverage.
-- **Exploratory outcomes:** confidence after each answer, descriptive
-  calibration against rubric score, usability observations, and tool/protocol
-  failures. Do not attach confirmatory claims to these outcomes in a pilot.
+- **Exploratory outcomes:** confidence after each answer, the fixed usability
+  rating specified in [`protocol.md`](protocol.md), descriptive calibration
+  against rubric score, and tool/protocol failures. Do not attach confirmatory
+  claims to these outcomes in a pilot.
 
 The current F2 `REFERENCES` task is the best candidate for a limited RQ2
 comparison because both interfaces can expose the three direct reference facts
@@ -91,7 +92,11 @@ it out of RQ2.
 5. Ask the same fixed confidence question after each answer. In a pilot,
    summarize confidence and correctness descriptively; do not use significance
    testing or claim calibrated confidence.
-6. Keep semantic coverage failures distinct from UI/presentation failures. If a
+6. Ask the single post-task ease-of-finding rating specified in
+   [`protocol.md`](protocol.md) after each task. Report its response-count
+   distribution by task and condition; it is exploratory and does not enter the
+   correctness score.
+7. Keep semantic coverage failures distinct from UI/presentation failures. If a
    required fact is unavailable because the analyzer did not cover it, classify
    it as a semantic coverage failure. If an available fact cannot be found
    because of a client defect, classify it as a presentation/tool failure. Do
