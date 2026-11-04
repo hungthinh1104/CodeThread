@@ -223,6 +223,10 @@ pnpm --silent study:validate
 pnpm --silent study:demo
 ```
 
+Run `pnpm build` first from a fresh checkout; these standalone commands use the
+compiled public `code-model` package. The repository setup flow runs
+`pnpm check`, which builds before validating the task bank.
+
 `study:validate` checks task structure, unique definitions, pinned fixture
 bytes/hashes, Git blob IDs where supplied, UTF-16 source anchors, relation
 kinds, assignments, parity, and review status. `study:demo` prints
