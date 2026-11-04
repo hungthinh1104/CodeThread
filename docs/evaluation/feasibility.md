@@ -7,6 +7,14 @@ after independent answer-key review and an academic scope decision. The current
 evidence does not support a confirmatory effectiveness study, a general accuracy
 claim, or a claim that visual presentation improves comprehension.
 
+The feasibility artifacts now include an offline task validator, objective
+component scorer, and labeled synthetic scoring demo. They verify pinned task
+data and scoring mechanics; they do not validate answer-key independence or
+establish study outcomes. The task dataset records local fixture paths,
+condition eligibility, explicit parity classes, and its existing
+`AWAITING_INDEPENDENT_REVIEW` status. See [`protocol.md`](protocol.md) for the
+result format and human-study gates.
+
 This assessment is based on source inspection, the existing pinned fixtures, the
 documented capability-assessment regressions, and the recorded CLI/browser
 observations on the current implementation. The baseline is

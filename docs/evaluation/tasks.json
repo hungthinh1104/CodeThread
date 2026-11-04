@@ -14,6 +14,8 @@
       "family": "direct_and_cross_file_calls",
       "researchQuestions": ["RQ1", "RQ2-limited"],
       "feasibility": "ELIGIBLE_WITH_LIMITATIONS",
+      "informationParity": "PARITY_WITH_LIMITATIONS",
+      "conditionEligibility": ["ide", "textual", "visual"],
       "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
       "difficulty": {
         "estimate": "low_to_medium",
@@ -27,28 +29,33 @@
         "selectedFiles": [
           {
             "path": "routes/index.ts",
+            "fixturePath": "fixtures/external/todo/sources/index.ts.txt",
             "sha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
             "bytes": 1710
           },
           {
             "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
             "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
             "bytes": 395
           },
           {
             "path": "routes/auth.router.ts",
+            "fixturePath": "fixtures/external/todo/closure/routes/auth.router.ts",
             "sha256": "10394dda38710b099f969261aea34cee35031960f1e0e9cda1b3164eabb45ff3",
             "bytes": 228,
             "gitBlob": "397ac5a2c05307dc6bab2d28c511da303226cf6c"
           },
           {
             "path": "routes/user.router.ts",
+            "fixturePath": "fixtures/external/todo/closure/routes/user.router.ts",
             "sha256": "b5c300467588f00f7a23dd970b71ff0fff42b1420a7bf031c7771111b711c28b",
             "bytes": 289,
             "gitBlob": "72bc9eae0f9a077e7836a4f983bdabec34a99343"
           },
           {
             "path": "config/passport.ts",
+            "fixturePath": "fixtures/external/todo/closure/config/passport.ts",
             "sha256": "be8d28b84a3ac2632b905c5bec3b284c70c210d1a2d96015b1b7f469674d0c6c",
             "bytes": 1839,
             "gitBlob": "746ec3004287c7d333e2beb44813706bc5dcd6df"
@@ -160,7 +167,6 @@
         "ide": "All five selected source files and locations are available.",
         "textual": "Direct calls from routes are inspectable in one-hop CALLS mode; the four answer rows fit the observed display bound.",
         "visual": "Direct calls from routes are inspectable; depth two may expose additional facts outside the prompt.",
-        "informationParity": "ELIGIBLE_WITH_LIMITATIONS",
         "rq2Restriction": "Score only the four direct calls owned by routes. Do not ask for an exhaustive neighborhood or count deeper visual-only facts as equivalent.",
         "interactionDifference": "Symbol selection and navigation differ; record these as treatment costs rather than semantic facts."
       },
@@ -182,6 +188,8 @@
       "family": "static_method_references_and_controller_relationships",
       "researchQuestions": ["RQ1", "RQ2-limited"],
       "feasibility": "ELIGIBLE_WITH_LIMITATIONS",
+      "informationParity": "PARITY_WITH_LIMITATIONS",
+      "conditionEligibility": ["ide", "textual", "visual"],
       "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
       "difficulty": {
         "estimate": "low_to_medium",
@@ -195,11 +203,13 @@
         "selectedFiles": [
           {
             "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
             "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
             "bytes": 395
           },
           {
             "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
             "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
             "bytes": 2333,
             "gitBlob": "41be3af14444631c108724f261e77f3c0360c208"
@@ -293,7 +303,6 @@
         "ide": "Both selected files and exact method declarations are inspectable.",
         "textual": "A one-hop REFERENCES-only investigation exposes the three supported occurrences and evidence.",
         "visual": "The pinned browser test filters to REFERENCES and observes the same three exact rows; selecting a target is supported.",
-        "informationParity": "ELIGIBLE_WITH_LIMITATIONS",
         "rq2Restriction": "Use the same snapshot and REFERENCES-only filter. Ask only about these three direct occurrences; do not infer an exhaustive application graph.",
         "interactionDifference": "Graph selection/follow and textual commands differ; record navigation operations and time."
       },
@@ -315,6 +324,8 @@
       "family": "uncertainty_and_evidence_reliability",
       "researchQuestions": ["RQ3-exploratory"],
       "feasibility": "EXPLORATORY_ONLY",
+      "informationParity": "EXPLORATORY_ONLY",
+      "conditionEligibility": ["ide", "textual", "visual"],
       "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
       "difficulty": {
         "estimate": "medium",
@@ -328,6 +339,7 @@
         "selectedFiles": [
           {
             "path": "src/env.ts",
+            "fixturePath": "fixtures/external/tinyexec/sources/env.ts.txt",
             "sha256": "3e592708f39d6542112a8c4726854d0af38b311366d2ce913f4148cce7589bb5",
             "bytes": 1722
           }
@@ -402,7 +414,6 @@
         "ide": "The selected file is fully available; absent Node declarations are not supplied.",
         "textual": "Exact and unresolved call observations and relevant source evidence can be inspected.",
         "visual": "Same snapshot facts are available; task-level parity should be checked before any session.",
-        "informationParity": "EXPLORATORY_ONLY",
         "rq2Restriction": "Do not use for a confirmatory visual-versus-text comparison until both interfaces expose the same diagnostic context.",
         "interactionDifference": "Evidence and diagnostic navigation may differ by presentation."
       },
@@ -424,6 +435,8 @@
       "family": "runtime_framework_dispatch",
       "researchQuestions": [],
       "feasibility": "REJECTED",
+      "informationParity": "PARITY_FAILED",
+      "conditionEligibility": [],
       "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
       "difficulty": { "estimate": "not_applicable", "status": "not_scored" },
       "source": {
@@ -433,11 +446,13 @@
         "selectedFiles": [
           {
             "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
             "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
             "bytes": 395
           },
           {
             "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
             "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
             "bytes": 2333
           }
@@ -476,6 +491,8 @@
       "family": "runtime_database_behavior",
       "researchQuestions": [],
       "feasibility": "REJECTED",
+      "informationParity": "PARITY_FAILED",
+      "conditionEligibility": [],
       "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
       "difficulty": { "estimate": "not_applicable", "status": "not_scored" },
       "source": {
@@ -485,11 +502,13 @@
         "selectedFiles": [
           {
             "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
             "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
             "bytes": 2333
           },
           {
             "path": "models/todo.ts",
+            "fixturePath": "fixtures/external/todo/closure/models/todo.ts",
             "sha256": "1e93beb954c55d2e2ca093264c8fcbe2a9d26d9591b3a0c8c846b4b60ad024ad",
             "bytes": 1447,
             "gitBlob": "be04b61cd0ae1c766b27276536b7318f23115aea"

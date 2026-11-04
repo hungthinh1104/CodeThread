@@ -12,6 +12,12 @@ small and unbalanced for confirmatory RQ1/RQ2 claims.
 No sample size, treatment effect, significance test, participant result, or
 claim of improved comprehension is established here.
 
+An offline task validator, objective-component scorer, and synthetic scoring
+demo are implemented for this task bank. They are engineering tools only: no
+session collection, human scoring workflow, participant data, or empirical
+result is implemented. The result format and operational score rules are in
+[`protocol.md`](protocol.md).
+
 ## Design comparison
 
 | Design                             | Strengths                                                                                                                                               | Current risks                                                                                                                                                                                                                           | Current decision                                                                                                                                      |
@@ -67,15 +73,17 @@ it out of RQ2.
    revision/files/hashes, allowed tools, initial symbol, filters, response form,
    time cap, and rubric. Each rubric item is an atomic, source-pinned assertion
    with a relation kind and anchor.
-2. Score each atomic item `1` only when the response identifies the correct
-   source fact and required source anchor. A relationship-kind error or wrong
-   anchor earns `0` for that item. Score task correctness as earned points
-   divided by applicable points, from 0 to 1; partial answers receive
-   proportional credit. Do not award a point for an unsupported runtime claim.
+2. The offline scorer awards separate objective points for relation kind and
+   source-site identity, resolution status and exact target identity, and each
+   cited predeclared source anchor. Task correctness is earned divided by the
+   fixed available points; missing components earn zero and partial answers get
+   proportional credit. A wrong exact target is an incorrect exact claim and a
+   missed expected assertion. Free text receives no automated score.
 3. Predefine “unsupported conclusion” as an assertion of an exact target, owner,
    registration, dispatch, execution, or runtime result not established by the
-   task's permitted evidence. Record count and category per response; report the
-   share of tasks with at least one such assertion.
+   task's permitted evidence. The current tool preserves but does not classify
+   or count these claims. Independent human review must code them; they remain
+   `AWAITING_HUMAN_SCORING`.
 4. Measure time from task presentation to submitted final answer using the same
    visible timer/logging rule in every condition. Predeclare a time cap. A
    timeout has no final completion time; report it as censored at the cap, not

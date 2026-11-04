@@ -213,6 +213,36 @@ persists no data, loads no external resources and stops with the CLI. It is a
 local investigation proof, not a general frontend or API service. See
 CT-VIEW-001 and ADR-0005 for the security boundary and exact limits.
 
+## Offline study toolkit
+
+Validate the source-pinned comprehension task bank and run a deterministic
+scoring demonstration:
+
+```sh
+pnpm --silent study:validate
+pnpm --silent study:demo
+```
+
+`study:validate` checks task structure, unique definitions, pinned fixture
+bytes/hashes, Git blob IDs where supplied, UTF-16 source anchors, relation
+kinds, assignments, parity, and review status. `study:demo` prints
+`SYNTHETIC DRY RUN — NOT EMPIRICAL DATA`; it creates no result file and does not
+represent a participant. After any separately authorized data collection, score
+a local result document with:
+
+```sh
+pnpm --silent study:score -- ./local-study-data/results.json
+```
+
+Result files belong under the ignored `local-study-data/` directory. The scorer
+validates the strict pseudonymous format and emits aggregates by task and
+condition, omitting participant tokens and answer text. It never scores
+free-text comprehension or unsupported claims; those remain
+`AWAITING_HUMAN_SCORING`. The toolkit does not recruit participants, collect
+answers, or authorize a study. See
+[`docs/evaluation/protocol.md`](docs/evaluation/protocol.md) for the task
+rubric, privacy limits, prerequisites, and reproducible pinned-source workflow.
+
 For repeated source positioning, own one immutable
 `createSourcePositionIndex(source)` per file and reuse its `positionAt` and
 `validateRange` methods. The convenience `positionAt(source, offset)` and
