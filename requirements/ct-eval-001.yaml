@@ -43,6 +43,13 @@ acceptance:
     then:
       'Participant scoring is refused; only the separately labeled synthetic
       engineering demonstration may use that answer key.'
+  - id: AC-08
+    given:
+      'A task prompt conflicts with its pinned source scope or presentation
+      parity'
+    then:
+      'The task is excluded from the affected research comparison until its
+      wording, answer key, and accessible evidence are independently reviewed.'
 depends_on:
   - CT-TRACE-001
 verification:

@@ -12,7 +12,7 @@
     {
       "id": "CTE-F1-001",
       "family": "direct_and_cross_file_calls",
-      "researchQuestions": ["RQ1", "RQ2-limited"],
+      "researchQuestions": ["RQ1"],
       "feasibility": "ELIGIBLE_WITH_LIMITATIONS",
       "informationParity": "PARITY_WITH_LIMITATIONS",
       "conditionEligibility": ["ide", "textual", "visual"],
@@ -167,7 +167,7 @@
         "ide": "All five selected source files and locations are available.",
         "textual": "Direct calls from routes are inspectable in one-hop CALLS mode; the four answer rows fit the observed display bound.",
         "visual": "Direct calls from routes are inspectable; depth two may expose additional facts outside the prompt.",
-        "rq2Restriction": "Score only the four direct calls owned by routes. Do not ask for an exhaustive neighborhood or count deeper visual-only facts as equivalent.",
+        "rq2Restriction": "Not eligible for RQ2 scoring until an independent reviewer resolves whether callback-owned direct calls count. Do not change the expected assertions before that review.",
         "interactionDifference": "Symbol selection and navigation differ; record these as treatment costs rather than semantic facts."
       },
       "potentialConfounders": [

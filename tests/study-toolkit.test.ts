@@ -142,6 +142,16 @@ describe('CT-EVAL study validation and scoring', () => {
     expect(result).toEqual({ valid: true, taskCount: 5, errors: [] });
   });
 
+  it('withholds RQ2 eligibility from F1 while callback scope is unresolved', () => {
+    const taskDataset = readTaskDataset();
+    const taskRecords = taskDataset['tasks'] as Array<Record<string, unknown>>;
+    const f1 = taskRecords.find((task) => task['id'] === 'CTE-F1-001');
+    const f2 = taskRecords.find((task) => task['id'] === 'CTE-F2-001');
+
+    expect(f1?.['researchQuestions']).not.toContain('RQ2-limited');
+    expect(f2?.['researchQuestions']).toContain('RQ2-limited');
+  });
+
   it('rejects a source hash that does not match the pinned fixture bytes', async () => {
     const dataset = readTaskDataset();
     const tasks = dataset['tasks'] as Array<Record<string, unknown>>;

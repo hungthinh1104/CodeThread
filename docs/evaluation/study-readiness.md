@@ -62,11 +62,12 @@ preregistration.
 
 The current F2 `REFERENCES` task is the best candidate for a limited RQ2
 comparison because both interfaces can expose the three direct reference facts
-under the same relation-kind filter. F1 must be scored only on the four direct
-calls owned by `routes`, since the viewer reaches depth two while textual
-`inspect` is depth one. F3 is an uncertainty-recognition probe; confirm before
-use that both clients expose the same diagnostic context. If they do not, keep
-it out of RQ2.
+under the same relation-kind filter. F1 is excluded from RQ2 until independent
+review resolves whether the callback-owned `authenticate(...)` call belongs in
+its four-item answer key; the viewer's extra depth-two information is a separate
+parity limitation. Do not score F1 for RQ2 while that scope conflict remains. F3
+is an uncertainty-recognition probe; confirm before use that both clients expose
+the same diagnostic context. If they do not, keep it out of RQ2.
 
 ## Operational definitions and scoring
 

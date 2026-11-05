@@ -32,10 +32,12 @@ All paths, source hashes, byte counts, revisions, and coordinates are defined in
 repository sources; where supplied, Git blob IDs also matched. Coordinates are
 one-based UTF-16, end-exclusive.
 
-`study:validate` accepts five records: F1 and F2 are eligible with limitations,
-F3 is exploratory only, and both rejected tasks remain rejected. The three
-answer-key tasks contain nine assertions total. No task wording, answer key,
-source fixture, or gold label was changed for this re-audit.
+`study:validate` accepts five records. F1 remains a limited source-grounded
+candidate for RQ1 but is excluded from RQ2 pending review of its callback scope;
+F2 remains a limited RQ2 candidate, F3 is exploratory only, and both rejected
+tasks remain rejected. The three answer-key tasks contain nine assertions total.
+No task wording, answer key, source fixture, or gold label was changed for this
+re-audit.
 
 | Task / assertion   | Source anchor and expected relation                                                                                                                                                         | Verification and finding                                                                                                                                                                      | Confidence / review                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -192,17 +194,23 @@ graph edge. The prompt says “direct identifier calls nested in the application
 setup block” and does not exclude callback bodies. The source conflicts with the
 four-answer key under a broad reading of the prompt. Because the wording does
 not define whether callback-owned calls count, task-scope classification remains
-`INSUFFICIENT_EVIDENCE`; F1 is **not currently eligible for RQ2 scoring**,
-despite the task bank's provisional `ELIGIBLE_WITH_LIMITATIONS` value. Do not
-change the gold labels to match analyzer output.
+`INSUFFICIENT_EVIDENCE`; F1 is **not currently eligible for RQ2 scoring**. Its
+machine-readable `researchQuestions` metadata now lists only RQ1 until an
+independent reviewer resolves the prompt scope. Its overall feasibility remains
+provisional. Do not change the gold labels to match analyzer output.
 
 Proposed source-grounded correction for independent review: change the prompt to
 ask for “the direct identifier calls owned by the `routes` function body,
 excluding calls inside callback or other nested function bodies.” That preserves
 the existing four intended answers. The reviewer may instead decide the task
 intends all nested calls and require a source-backed fifth assertion; that
-choice changes the answer key and must be independently reviewed. The task bank
-has not been edited pending that decision.
+choice changes the answer key and must be independently reviewed. The four
+expected assertions remain unchanged. Only the RQ2 eligibility metadata was
+withdrawn pending that decision; this does not authorize participant scoring.
+The regression
+`withholds RQ2 eligibility from F1 while callback scope is unresolved` failed
+before the metadata change because F1 still listed `RQ2-limited`, then passed
+after it. F2 remains the limited RQ2 candidate.
 
 ## Measurement-integrity audit
 
@@ -333,12 +341,25 @@ CT-EVAL-001B revision:
 
 ### Evidence manifest for this remediation
 
-| Claim                            | Evidence binding                                                                                                                                                                                                                | Review status                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| Source identities and anchors    | Upstream commits `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` and `4a2aca1cf11943445c7bae6c767086a8c61291ef`; fixture Git blob IDs and raw SHA-256 values in this document; `pnpm study:validate`; direct source line inspection. | Same-agent re-audit; not independently reviewed.       |
-| F1/F2 viewer information         | `tests/viewer-browser.ts`, `pnpm test:browser`; task-selected manifests are derived from `tasks.json`; PR #21 head and hosted run are recorded in the PR.                                                                       | Headless browser regression; not a human observation.  |
-| Scoring semantics and provenance | `tests/study-toolkit.test.ts`; `pnpm check`, `pnpm study:validate`, `pnpm study:demo`; PR #21 exact-head CI.                                                                                                                    | Engineering evidence only; does not authorize scoring. |
-| Independent answer-key approval  | No reviewer identity, decision, or review artifact is present.                                                                                                                                                                  | Awaiting independent human review.                     |
+| Claim                            | Evidence binding                                                                                                                                                                                                                                                                                                     | Review status                                          |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Source identities and anchors    | Upstream commits `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` and `4a2aca1cf11943445c7bae6c767086a8c61291ef`; fixture Git blob IDs and raw SHA-256 values in this document; `pnpm study:validate`; direct source line inspection.                                                                                      | Same-agent re-audit; not independently reviewed.       |
+| Task/scoring artifact            | Canonical task-bank SHA-256 `e8e7099d2755035f7bf8d37be5a185ab80e14b2ef363ef497b67458947afbf20`; study `CT-EVAL-001A-v2`; result schema 3; policy `objective-source-anchors-v3`, SHA-256 `0151734ba00f4b794e176582815f56d995433213e090ab853f7d5191fbf516ef`.                                                          | Engineering artifact only; not a participant dataset.  |
+| F1/F2 viewer information         | `tests/viewer-browser.ts`, `pnpm test:browser`; task-selected manifests are derived from `tasks.json`; browser interactions use task-pinned source bytes.                                                                                                                                                            | Headless browser regression; not a human observation.  |
+| Scoring semantics and provenance | `tests/study-toolkit.test.ts`; `pnpm check`, `pnpm study:validate`, `pnpm study:demo`, `pnpm study:provenance`.                                                                                                                                                                                                      | Engineering evidence only; does not authorize scoring. |
+| Hosted verification              | PR #21 pre-correction head `cc32580c7d1e6201b819b76c0287627b54ce3fde`, Actions run [42118600564](https://github.com/hungthinh1104/CodeThread/actions/runs/42118600564): Windows and Ubuntu passed frozen install, check, browser, semantic evaluation and security audit. This predates the RQ2 metadata regression. | Prior-revision evidence; final-head CI is separate.    |
+| Independent answer-key approval  | No reviewer identity, decision, or review artifact is present.                                                                                                                                                                                                                                                       | Awaiting independent human review.                     |
+
+The current local verification clone used a clean local commit
+`c97d8feb2d247f5cba52f19a38077cc0449e1189` with the PR tree plus the F1 metadata
+correction. The commit was created only for local verification; its tree and the
+final PR commit are reported separately. `pnpm check` passed all 20 test files
+and 286 tests. `pnpm study:validate`, the synthetic-only `pnpm study:demo`,
+`pnpm eval:semantic`, `pnpm eval:external`, and `pnpm test:browser` passed. The
+local dependency audit could not reach npm (`ERR_PNPM_AUDIT_BAD_RESPONSE`), and
+the clean-clone frozen install could not open pnpm's shared Windows operation
+lock. Hosted audit and frozen-install results are reported only for their exact
+PR revisions; the RQ2 metadata correction still requires its own hosted run.
 
 On 2026-11-06, a fresh local `pnpm check` rerun passed formatting, lint,
 requirements, architecture validation, build, task validation, and typecheck,

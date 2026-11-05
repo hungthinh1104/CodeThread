@@ -48,12 +48,15 @@ scale and is not part of the correctness score. Report its 1–5 count
 distribution by task and condition; do not make inferential or population claims
 from it.
 
-F1 and F2 are candidate tasks for all three conditions with limitations. F1's
-RQ2 scoring is restricted to the four direct calls in the route setup because
-the visual client can expose a deeper neighborhood. F2 uses a `REFERENCES`-only
-filter and the same three method-reference occurrences. F3 is exploratory and
-must not be used for confirmatory RQ2 unless diagnostic access is shown to be
-equivalent. Rejected tasks have no answer key and cannot be assigned.
+F1 and F2 remain provisional task candidates for all three conditions with
+limitations. F1 is excluded from RQ2 because its prompt does not resolve whether
+the callback-owned `authenticate(...)` call belongs in the four-item answer key.
+Do not score F1 for RQ2 until an independent reviewer resolves the scope and the
+task wording/key are aligned. F2 is a limited RQ2 candidate using a
+`REFERENCES`-only filter and the same three method-reference occurrences. F3 is
+exploratory and must not be used for confirmatory RQ2 unless diagnostic access
+is shown to be equivalent. Rejected tasks have no answer key and cannot be
+assigned.
 
 ## Participants, assignment and training
 
