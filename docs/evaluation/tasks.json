@@ -1,0 +1,545 @@
+{
+  "schemaVersion": 1,
+  "assessment": {
+    "requirement": "CT-EVAL-001A",
+    "baselineSha": "341bc35d27b9aad6c76d4572bf7754cf638bc6c6",
+    "sourceLabelStatus": "AWAITING_INDEPENDENT_REVIEW",
+    "provisionalTaskAnswerAuthor": "Codex, 2026-11-04; no independent human review.",
+    "coordinates": "one-based UTF-16 line and column; end-exclusive",
+    "answerKeyPolicy": "Expected answers are authored from pinned source, not from analyzer predictions."
+  },
+  "tasks": [
+    {
+      "id": "CTE-F1-001",
+      "family": "direct_and_cross_file_calls",
+      "researchQuestions": ["RQ1", "RQ2-limited"],
+      "feasibility": "ELIGIBLE_WITH_LIMITATIONS",
+      "informationParity": "PARITY_WITH_LIMITATIONS",
+      "conditionEligibility": ["ide", "textual", "visual"],
+      "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
+      "difficulty": {
+        "estimate": "low_to_medium",
+        "status": "provisional",
+        "basis": "Four direct call occurrences and their declarations are in a small selected source closure."
+      },
+      "source": {
+        "repository": "https://github.com/vunb/ts-node-todo",
+        "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+        "license": "MIT",
+        "selectedFiles": [
+          {
+            "path": "routes/index.ts",
+            "fixturePath": "fixtures/external/todo/sources/index.ts.txt",
+            "sha256": "e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531",
+            "bytes": 1710
+          },
+          {
+            "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
+            "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+            "bytes": 395
+          },
+          {
+            "path": "routes/auth.router.ts",
+            "fixturePath": "fixtures/external/todo/closure/routes/auth.router.ts",
+            "sha256": "10394dda38710b099f969261aea34cee35031960f1e0e9cda1b3164eabb45ff3",
+            "bytes": 228,
+            "gitBlob": "397ac5a2c05307dc6bab2d28c511da303226cf6c"
+          },
+          {
+            "path": "routes/user.router.ts",
+            "fixturePath": "fixtures/external/todo/closure/routes/user.router.ts",
+            "sha256": "b5c300467588f00f7a23dd970b71ff0fff42b1420a7bf031c7771111b711c28b",
+            "bytes": 289,
+            "gitBlob": "72bc9eae0f9a077e7836a4f983bdabec34a99343"
+          },
+          {
+            "path": "config/passport.ts",
+            "fixturePath": "fixtures/external/todo/closure/config/passport.ts",
+            "sha256": "be8d28b84a3ac2632b905c5bec3b284c70c210d1a2d96015b1b7f469674d0c6c",
+            "bytes": 1839,
+            "gitBlob": "746ec3004287c7d333e2beb44813706bc5dcd6df"
+          }
+        ],
+        "excludedInputs": [
+          "Bare Express/Passport dependencies",
+          "remaining repository files",
+          "runtime configuration and data"
+        ]
+      },
+      "participantPrompt": "In the selected routes source, identify the direct identifier calls nested in the application setup block. For each, give the call-site location and the source declaration it names. State what these static links do and do not establish.",
+      "expectedAnswer": {
+        "summary": "Four nested direct identifier calls have source-backed declarations in the selected closure. The surrounding app.use property calls are not thereby proven to execute or register successfully.",
+        "assertions": [
+          {
+            "id": "F1-A1",
+            "call": "initialize()",
+            "kind": "CALLS",
+            "site": {
+              "path": "routes/index.ts",
+              "start": [14, 11],
+              "end": [14, 23]
+            },
+            "target": {
+              "path": "config/passport.ts",
+              "name": "initialize",
+              "start": [64, 1],
+              "end": [67, 2]
+            }
+          },
+          {
+            "id": "F1-A2",
+            "call": "authRouter()",
+            "kind": "CALLS",
+            "site": {
+              "path": "routes/index.ts",
+              "start": [40, 20],
+              "end": [40, 32]
+            },
+            "target": {
+              "path": "routes/auth.router.ts",
+              "name": "authRouter",
+              "start": [4, 1],
+              "end": [9, 2]
+            }
+          },
+          {
+            "id": "F1-A3",
+            "call": "userRouter()",
+            "kind": "CALLS",
+            "site": {
+              "path": "routes/index.ts",
+              "start": [41, 20],
+              "end": [41, 32]
+            },
+            "target": {
+              "path": "routes/user.router.ts",
+              "name": "userRouter",
+              "start": [4, 1],
+              "end": [12, 2]
+            }
+          },
+          {
+            "id": "F1-A4",
+            "call": "todoRouter()",
+            "kind": "CALLS",
+            "site": {
+              "path": "routes/index.ts",
+              "start": [42, 20],
+              "end": [42, 32]
+            },
+            "target": {
+              "path": "routes/todo.router.ts",
+              "name": "todoRouter",
+              "start": [4, 1],
+              "end": [17, 2]
+            }
+          }
+        ],
+        "limits": [
+          "These are static CALLS facts, not observed execution.",
+          "They do not prove Express registration, request dispatch, or route behavior.",
+          "The selected closure is not the application's complete type or runtime dependency closure."
+        ]
+      },
+      "requiredCapabilities": [
+        "named_function_declarations.v1",
+        "direct_calls.v1",
+        "relative_named_imports.v1",
+        "source_evidence.v1",
+        "verified_manifest_inputs.v1"
+      ],
+      "currentCodeThreadObservation": {
+        "originalTwoFileManifest": "todoRouter() exact; initialize(), authRouter(), and userRouter() unresolved due excluded source files.",
+        "expandedFiveFileManifest": "The four calls in routes/index.ts resolve to declarations in the pinned closure.",
+        "recordedExpandedRun": {
+          "manifestFiles": 5,
+          "declarations": 8,
+          "callSites": 58,
+          "exactCalls": 5,
+          "unresolvedCalls": 0,
+          "ambiguousCalls": 0,
+          "unsupportedCalls": 53
+        },
+        "scope": "Counts describe this recorded fixture invocation, not general accuracy."
+      },
+      "accessibility": {
+        "ide": "All five selected source files and locations are available.",
+        "textual": "Direct calls from routes are inspectable in one-hop CALLS mode; the four answer rows fit the observed display bound.",
+        "visual": "Direct calls from routes are inspectable; depth two may expose additional facts outside the prompt.",
+        "rq2Restriction": "Score only the four direct calls owned by routes. Do not ask for an exhaustive neighborhood or count deeper visual-only facts as equivalent.",
+        "interactionDifference": "Symbol selection and navigation differ; record these as treatment costs rather than semantic facts."
+      },
+      "potentialConfounders": [
+        "Missing bare packages",
+        "Selected rather than complete application closure",
+        "Deeper visual neighborhood",
+        "Prior familiarity with Express route setup"
+      ],
+      "reviewChecklist": [
+        "Recheck every path, SHA-256 and source anchor against upstream revision.",
+        "Verify lexical ownership and relation kind without relying on analyzer IDs.",
+        "Confirm that no expected answer implies execution or successful registration.",
+        "Record any disagreement; do not modify gold labels merely to match predictions."
+      ]
+    },
+    {
+      "id": "CTE-F2-001",
+      "family": "static_method_references_and_controller_relationships",
+      "researchQuestions": ["RQ1", "RQ2-limited"],
+      "feasibility": "ELIGIBLE_WITH_LIMITATIONS",
+      "informationParity": "PARITY_WITH_LIMITATIONS",
+      "conditionEligibility": ["ide", "textual", "visual"],
+      "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
+      "difficulty": {
+        "estimate": "low_to_medium",
+        "status": "provisional",
+        "basis": "Three source occurrences map to three method declarations in a two-file input."
+      },
+      "source": {
+        "repository": "https://github.com/vunb/ts-node-todo",
+        "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+        "license": "MIT",
+        "selectedFiles": [
+          {
+            "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
+            "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+            "bytes": 395
+          },
+          {
+            "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
+            "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
+            "bytes": 2333,
+            "gitBlob": "41be3af14444631c108724f261e77f3c0360c208"
+          }
+        ],
+        "excludedInputs": [
+          "Express and other bare dependencies",
+          "remaining application files",
+          "runtime framework state"
+        ]
+      },
+      "participantPrompt": "In todoRouter, map each of the three noncomputed controller method expressions passed as arguments to router calls to its declaration in the selected controller source. Give both source locations and explain the relationship kind and what it cannot prove.",
+      "expectedAnswer": {
+        "summary": "Three distinct source-backed REFERENCES connect the argument expressions to method declarations. They are not CALLS and do not establish successful framework registration or execution.",
+        "assertions": [
+          {
+            "id": "F2-A1",
+            "expression": "toDoCtrl.getAll",
+            "kind": "REFERENCES",
+            "site": {
+              "path": "routes/todo.router.ts",
+              "start": [8, 19],
+              "end": [8, 34]
+            },
+            "target": {
+              "path": "controllers/todo.controller.ts",
+              "name": "getAll",
+              "owner": "ToDoController",
+              "start": [10, 3],
+              "end": [26, 4]
+            }
+          },
+          {
+            "id": "F2-A2",
+            "expression": "toDoCtrl.getOne",
+            "kind": "REFERENCES",
+            "site": {
+              "path": "routes/todo.router.ts",
+              "start": [11, 22],
+              "end": [11, 37]
+            },
+            "target": {
+              "path": "controllers/todo.controller.ts",
+              "name": "getOne",
+              "owner": "ToDoController",
+              "start": [28, 3],
+              "end": [40, 4]
+            }
+          },
+          {
+            "id": "F2-A3",
+            "expression": "toDoCtrl.create",
+            "kind": "REFERENCES",
+            "site": {
+              "path": "routes/todo.router.ts",
+              "start": [14, 20],
+              "end": [14, 35]
+            },
+            "target": {
+              "path": "controllers/todo.controller.ts",
+              "name": "create",
+              "owner": "ToDoController",
+              "start": [42, 3],
+              "end": [60, 4]
+            }
+          }
+        ],
+        "limits": [
+          "Reference evidence does not prove runtime receiver identity.",
+          "It does not prove the framework accepts or registers an argument.",
+          "It does not prove a method is invoked or executed."
+        ]
+      },
+      "requiredCapabilities": [
+        "method_declarations.v1",
+        "method_references.argument_property_access.v1",
+        "source_evidence.v1",
+        "verified_manifest_inputs.v1",
+        "relation_kind_filter.v1"
+      ],
+      "currentCodeThreadObservation": {
+        "exactReferences": 3,
+        "exactCallsInSelectedTwoFileManifest": 0,
+        "unresolvedCalls": 0,
+        "ambiguousCalls": 0,
+        "unsupportedCalls": 41,
+        "evidence": "Recorded demo/browser observation retrieves site and complete declaration evidence from the retained source snapshot.",
+        "sourceGrounding": "The paths, byte counts, raw hashes and upstream Git blob ID are pinned in fixtures/external/README.md."
+      },
+      "accessibility": {
+        "ide": "Both selected files and exact method declarations are inspectable.",
+        "textual": "A one-hop REFERENCES-only investigation exposes the three supported occurrences and evidence.",
+        "visual": "The pinned browser test filters to REFERENCES and observes the same three exact rows; selecting a target is supported.",
+        "rq2Restriction": "Use the same snapshot and REFERENCES-only filter. Ask only about these three direct occurrences; do not infer an exhaustive application graph.",
+        "interactionDifference": "Graph selection/follow and textual commands differ; record navigation operations and time."
+      },
+      "potentialConfounders": [
+        "Framework familiarity",
+        "Possible expectations that route arguments execute",
+        "Visual and text navigation effort",
+        "Missing package types"
+      ],
+      "reviewChecklist": [
+        "Recheck both source hashes and all six occurrence/declaration anchors.",
+        "Verify that these are REFERENCES rather than invocation edges.",
+        "Confirm targets are methods, not inferred runtime receiver instances.",
+        "Reject any answer that states registration or execution occurred."
+      ]
+    },
+    {
+      "id": "CTE-F3-001",
+      "family": "uncertainty_and_evidence_reliability",
+      "researchQuestions": ["RQ3-exploratory"],
+      "feasibility": "EXPLORATORY_ONLY",
+      "informationParity": "EXPLORATORY_ONLY",
+      "conditionEligibility": ["ide", "textual", "visual"],
+      "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
+      "difficulty": {
+        "estimate": "medium",
+        "status": "provisional",
+        "basis": "Requires interpreting one exact and one unresolved nested call alongside compiler diagnostics."
+      },
+      "source": {
+        "repository": "https://github.com/tinylibs/tinyexec",
+        "revision": "4a2aca1cf11943445c7bae6c767086a8c61291ef",
+        "license": "MIT",
+        "selectedFiles": [
+          {
+            "path": "src/env.ts",
+            "fixturePath": "fixtures/external/tinyexec/sources/env.ts.txt",
+            "sha256": "3e592708f39d6542112a8c4726854d0af38b311366d2ce913f4148cce7589bb5",
+            "bytes": 1722
+          }
+        ],
+        "excludedInputs": [
+          "Node type declarations",
+          "other tinyexec source files",
+          "bare node:path and node:url dependencies"
+        ]
+      },
+      "participantPrompt": "For the two nested call sites in computeEnv at line 73, identify which site has an exact source-backed call link and which remains unresolved in this input. Use the displayed diagnostics/evidence to explain the distinction and state what cannot safely be concluded.",
+      "expectedAnswer": {
+        "summary": "getPathFromEnv(envWithDefault) at line 73 has an exact link to the declaration at lines 18–36. addNodeBinToPath(...) at line 73 remains unresolved in this input; the same-named source declaration exists at lines 38–57, but the unavailable Node types produce declaration diagnostics and the tool has no exact relation for the site.",
+        "assertions": [
+          {
+            "id": "F3-A1",
+            "call": "getPathFromEnv(envWithDefault)",
+            "kind": "CALLS",
+            "status": "exact",
+            "site": {
+              "path": "src/env.ts",
+              "start": [73, 45],
+              "end": [73, 75]
+            },
+            "target": {
+              "path": "src/env.ts",
+              "name": "getPathFromEnv",
+              "start": [18, 1],
+              "end": [36, 2]
+            }
+          },
+          {
+            "id": "F3-A2",
+            "call": "addNodeBinToPath(cwd, getPathFromEnv(envWithDefault))",
+            "kind": "CALLS",
+            "status": "unresolved",
+            "site": {
+              "path": "src/env.ts",
+              "start": [73, 23],
+              "end": [73, 76]
+            },
+            "candidateSourceDeclaration": {
+              "path": "src/env.ts",
+              "name": "addNodeBinToPath",
+              "start": [38, 1],
+              "end": [57, 2]
+            },
+            "diagnosticContext": "The declaration uses URL in its parameter and process in its body; ambient Node types are absent from this selected input."
+          }
+        ],
+        "limits": [
+          "Do not relabel the unresolved occurrence exact because a same-name declaration is visible.",
+          "The diagnostics do not establish runtime behavior.",
+          "This one-file example cannot estimate general diagnostic precision or recall."
+        ]
+      },
+      "requiredCapabilities": [
+        "direct_calls.v1",
+        "source_evidence.v1",
+        "compiler_diagnostic_coverage.v1",
+        "explicit_unresolved_state.v1"
+      ],
+      "currentCodeThreadObservation": {
+        "annotatedCalls": 13,
+        "eligibleCalls": 2,
+        "exact": 1,
+        "unresolved": 1,
+        "ambiguous": 0,
+        "unsupported": 11
+      },
+      "accessibility": {
+        "ide": "The selected file is fully available; absent Node declarations are not supplied.",
+        "textual": "Exact and unresolved call observations and relevant source evidence can be inspected.",
+        "visual": "Same snapshot facts are available; task-level parity should be checked before any session.",
+        "rq2Restriction": "Do not use for a confirmatory visual-versus-text comparison until both interfaces expose the same diagnostic context.",
+        "interactionDifference": "Evidence and diagnostic navigation may differ by presentation."
+      },
+      "potentialConfounders": [
+        "Missing ambient Node types",
+        "Conservative declaration-wide diagnostic guard",
+        "Only two eligible annotations",
+        "Potential confusion between visible declaration and accepted exact relation"
+      ],
+      "reviewChecklist": [
+        "Verify exact call positions and declaration anchors against pinned bytes.",
+        "Verify diagnostic codes and positions in the recorded analyzer result before using the task.",
+        "Do not claim the diagnostic is unrelated to binding identity without a controlled analysis.",
+        "Keep unresolved distinct from ambiguous and unsupported."
+      ]
+    },
+    {
+      "id": "CTE-REJ-001",
+      "family": "runtime_framework_dispatch",
+      "researchQuestions": [],
+      "feasibility": "REJECTED",
+      "informationParity": "PARITY_FAILED",
+      "conditionEligibility": [],
+      "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
+      "difficulty": { "estimate": "not_applicable", "status": "not_scored" },
+      "source": {
+        "repository": "https://github.com/vunb/ts-node-todo",
+        "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+        "license": "MIT",
+        "selectedFiles": [
+          {
+            "path": "routes/todo.router.ts",
+            "fixturePath": "fixtures/external/todo/sources/todo.router.ts.txt",
+            "sha256": "a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442",
+            "bytes": 395
+          },
+          {
+            "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
+            "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
+            "bytes": 2333
+          }
+        ]
+      },
+      "participantPrompt": "Which controller method executes when an HTTP request reaches /todo/:id, and does the router successfully register it?",
+      "expectedAnswer": null,
+      "rejectionReason": "The available REFERENCES show source expressions and declarations only. They do not prove successful framework registration, request matching, dispatch, or runtime execution. The task's requested answer exceeds the evidence.",
+      "sourceAnchors": [
+        {
+          "path": "routes/todo.router.ts",
+          "line": 11,
+          "text": "router.get('/:id', toDoCtrl.getOne);"
+        },
+        {
+          "path": "controllers/todo.controller.ts",
+          "start": [28, 3],
+          "end": [40, 4],
+          "name": "getOne"
+        }
+      ],
+      "requiredCapabilities": [
+        "runtime_framework_dispatch",
+        "runtime_execution"
+      ],
+      "potentialConfounders": [
+        "Treating a function reference as a call",
+        "Assuming a framework accepted the registration"
+      ],
+      "reviewChecklist": [
+        "Confirm task remains rejected unless separately collected runtime/framework evidence is authorized and available."
+      ]
+    },
+    {
+      "id": "CTE-REJ-002",
+      "family": "runtime_database_behavior",
+      "researchQuestions": [],
+      "feasibility": "REJECTED",
+      "informationParity": "PARITY_FAILED",
+      "conditionEligibility": [],
+      "independentReviewStatus": "AWAITING_INDEPENDENT_REVIEW",
+      "difficulty": { "estimate": "not_applicable", "status": "not_scored" },
+      "source": {
+        "repository": "https://github.com/vunb/ts-node-todo",
+        "revision": "c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c",
+        "license": "MIT",
+        "selectedFiles": [
+          {
+            "path": "controllers/todo.controller.ts",
+            "fixturePath": "fixtures/external/todo/closure/controllers/todo.controller.ts",
+            "sha256": "3d1a82e2db7af3c8af876ff445fce286517c3636ee571f4094ea22e9b48195c2",
+            "bytes": 2333
+          },
+          {
+            "path": "models/todo.ts",
+            "fixturePath": "fixtures/external/todo/closure/models/todo.ts",
+            "sha256": "1e93beb954c55d2e2ca093264c8fcbe2a9d26d9591b3a0c8c846b4b60ad024ad",
+            "bytes": 1447,
+            "gitBlob": "be04b61cd0ae1c766b27276536b7318f23115aea"
+          }
+        ]
+      },
+      "participantPrompt": "Which database rows does todoManager.findAll return for the current user?",
+      "expectedAnswer": null,
+      "rejectionReason": "Property-call relationships and database behavior are not established by this static subset. Dependencies, runtime configuration, database contents, and execution are unavailable; any exact result would be fabricated.",
+      "sourceAnchors": [
+        {
+          "path": "controllers/todo.controller.ts",
+          "line": 19,
+          "text": "const result = await todoManager.findAll(vUser.id);"
+        },
+        {
+          "path": "models/todo.ts",
+          "note": "Source is pinned but database behavior and rows are not observed."
+        }
+      ],
+      "requiredCapabilities": [
+        "property_call_resolution",
+        "runtime_database_state"
+      ],
+      "potentialConfounders": [
+        "Static syntax mistaken for resolved behavior",
+        "Database rows depend on runtime state"
+      ],
+      "reviewChecklist": [
+        "Keep rejected unless an authorized, separately designed runtime/database task is proposed."
+      ]
+    }
+  ]
+}

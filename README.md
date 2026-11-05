@@ -158,6 +158,9 @@ pnpm --silent investigate -- --repo ./my-repository \
   --revision HEAD --file src/main.ts --file src/target.ts
 ```
 
+Add `--view` to that command to open the same selected commit and files in the
+visual investigation session.
+
 The adapter supports full commit IDs, `HEAD`, and fully qualified local branch
 or tag refs. It resolves the revision once, reads only those committed `.ts`
 blobs, and ignores dirty working-tree changes. Directories, globs and automatic
@@ -212,6 +215,41 @@ binds only to IPv4 loopback, uses a per-session token and same-origin checks,
 persists no data, loads no external resources and stops with the CLI. It is a
 local investigation proof, not a general frontend or API service. See
 CT-VIEW-001 and ADR-0005 for the security boundary and exact limits.
+
+## Offline study toolkit
+
+Validate the source-pinned comprehension task bank and run a deterministic
+scoring demonstration:
+
+```sh
+pnpm --silent study:validate
+pnpm --silent study:demo
+```
+
+Run `pnpm build` first from a fresh checkout; these standalone commands use the
+compiled public `code-model` package. The repository setup flow runs
+`pnpm check`, which builds before validating the task bank.
+
+`study:validate` checks task structure, unique definitions, pinned fixture
+bytes/hashes, Git blob IDs where supplied, UTF-16 source anchors, relation
+kinds, assignments, parity, and review status. `study:demo` prints
+`SYNTHETIC DRY RUN — NOT EMPIRICAL DATA`; it creates no result file and does not
+represent a participant. After any separately authorized data collection, score
+a local result document with:
+
+```sh
+pnpm --silent study:score -- ./local-study-data/results.json
+```
+
+Result files belong under the ignored `local-study-data/` directory. The scorer
+validates the strict pseudonymous format and emits aggregates by task and
+condition, including exploratory usability-rating counts, while omitting
+participant tokens and answer text. Usability ratings do not affect objective
+correctness. The scorer never scores free-text comprehension or unsupported
+claims; those remain `AWAITING_HUMAN_SCORING`. The toolkit does not recruit
+participants, collect answers, or authorize a study. See
+[`docs/evaluation/protocol.md`](docs/evaluation/protocol.md) for the task
+rubric, privacy limits, prerequisites, and reproducible pinned-source workflow.
 
 For repeated source positioning, own one immutable
 `createSourcePositionIndex(source)` per file and reuse its `positionAt` and
