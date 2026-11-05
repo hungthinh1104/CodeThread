@@ -55,8 +55,8 @@ source fixture, or gold label was changed for this re-audit.
 
 | Pinned repository / revision                                     | File                             | Bytes | Raw SHA-256                                                        | Git blob where recorded                    |
 | ---------------------------------------------------------------- | -------------------------------- | ----: | ------------------------------------------------------------------ | ------------------------------------------ |
-| `vunb/ts-node-todo` / `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` | `routes/index.ts`                | 1,710 | `e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531` | —                                          |
-| same                                                             | `routes/todo.router.ts`          |   395 | `a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442` | —                                          |
+| `vunb/ts-node-todo` / `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` | `routes/index.ts`                | 1,710 | `e361911be0b6b29857eb8eac273de29fb4b3980f324f7326b582a141d5732531` | `a6f73b75ff5c9fe7c5f1eff1570fd1aa31bc7987` |
+| same                                                             | `routes/todo.router.ts`          |   395 | `a698ded96d38c6afb4f7eb6d385ae8add0ec3340eb7aa29a979540147a074442` | `fe42f94012589db3b99115129c4069356816c333` |
 | same                                                             | `routes/auth.router.ts`          |   228 | `10394dda38710b099f969261aea34cee35031960f1e0e9cda1b3164eabb45ff3` | `397ac5a2c05307dc6bab2d28c511da303226cf6c` |
 | same                                                             | `routes/user.router.ts`          |   289 | `b5c300467588f00f7a23dd970b71ff0fff42b1420a7bf031c7771111b711c28b` | `72bc9eae0f9a077e7836a4f983bdabec34a99343` |
 | same                                                             | `config/passport.ts`             | 1,839 | `be8d28b84a3ac2632b905c5bec3b284c70c210d1a2d96015b1b7f469674d0c6c` | `746ec3004287c7d333e2beb44813706bc5dcd6df` |
@@ -64,10 +64,8 @@ source fixture, or gold label was changed for this re-audit.
 | same                                                             | `models/todo.ts`                 | 1,447 | `1e93beb954c55d2e2ca093264c8fcbe2a9d26d9591b3a0c8c846b4b60ad024ad` | `be04b61cd0ae1c766b27276536b7318f23115aea` |
 | `tinylibs/tinyexec` / `4a2aca1cf11943445c7bae6c767086a8c61291ef` | `src/env.ts`                     | 1,722 | `3e592708f39d6542112a8c4726854d0af38b311366d2ce913f4148cce7589bb5` | `a269c8a01c84484ff673a2500a9e90a7deabc734` |
 
-The re-audit also recomputed the fixture Git object IDs for the two todo files
-whose IDs are not stored in the task records: `routes/index.ts` is
-`a6f73b75ff5c9fe7c5f1eff1570fd1aa31bc7987`, and `routes/todo.router.ts` is
-`fe42f94012589db3b99115129c4069356816c333`.
+The two initial todo source Git object IDs above are recorded here because they
+were absent from the original task records.
 
 ## Input completeness and semantic uncertainty
 
@@ -115,36 +113,74 @@ profile to make the candidate exact.
 
 ## IDE / Textual / Visual information parity
 
-| Task       | Conventional source inspection                                              | Textual CLI                                                                                                                                               | Visual viewer                                                                                                                                                                                                                                                                                 | Assessment                                                                                                                                                                                                                                        |
-| ---------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CTE-F1-001 | Pinned five files; all four manual site and declaration anchors checked.    | Root routes/index.ts@9:1; outgoing CALLS; depth 1; four direct answer rows fit the 20-row display cap.                                                    | Same five pinned files; root routes; CALLS only; all four direct sites and declaration ranges/hashes verified; one extra depth-2 exact call initialize -> getStrategy; status reports depth_limit with node limit 50; unknowns panel says none for this selected query; no external requests. | PARITY_WITH_LIMITATIONS: the four direct calls are visible, but the extra deeper fact and truncation require wording that excludes nested callbacks and target bodies.                                                                            |
-| CTE-F2-001 | Exact task pair exposes all three expressions and declarations.             | Root routes/todo.router.ts@4:1; outgoing REFERENCES; one hop; retrieve each site and follow to its declaration. Three exact references, zero exact calls. | Exact two pinned files; root todoRouter; REFERENCES only; all three site/declaration excerpts, UTF-16 ranges, and file hashes checked; three references, zero calls, no truncation, no external requests. The uncertainty panel says no unrepresented observations for this filtered query.   | PARITY_WITH_LIMITATIONS: the answer-relevant subset now reproduces on identical files, while depth, navigation, and filter-scoped uncertainty presentation still differ. Suitable as a limited RQ2 candidate after independent answer-key review. |
-| CTE-F3-001 | Pinned `src/env.ts` inspected at both line-73 occurrences and declarations. | Select `computeEnv`; inspect outgoing `CALLS`; view exact and unresolved evidence/diagnostics.                                                            | Browser test uses the same one-file input and verifies exact follow, unresolved no-follow, evidence, and uncertainty.                                                                                                                                                                         | `PARITY_WITH_LIMITATIONS`; good exploratory uncertainty case, but it is classified `RQ3-exploratory`, not an RQ2 task.                                                                                                                            |
+| Task       | Conventional source inspection                                                                                          | Textual CLI                                                                                                                                               | Visual viewer                                                                                                                                                                                                                                                                               | Assessment                                                                                                                                                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CTE-F1-001 | Pinned five files; source anchors checked against the text, including the callback-owned `authenticate(...)` candidate. | Root routes/index.ts@9:1; outgoing CALLS; depth 1; four answer rows fit the 20-row display cap; callback-owned call is not an exact edge.                 | Same five pinned files; root routes; CALLS only; four answer calls plus one extra depth-2 exact call `initialize -> getStrategy`; reports `depth_limit`; no external requests.                                                                                                              | `PARITY_WITH_LIMITATIONS`; **not currently RQ2-eligible** because the prompt omits the callback-scope exclusion; a reviewer must decide whether to narrow the prompt or add an assertion.                                                         |
+| CTE-F2-001 | Exact task pair exposes all three expressions and declarations.                                                         | Root routes/todo.router.ts@4:1; outgoing REFERENCES; one hop; retrieve each site and follow to its declaration. Three exact references, zero exact calls. | Exact two pinned files; root todoRouter; REFERENCES only; all three site/declaration excerpts, UTF-16 ranges, and file hashes checked; three references, zero calls, no truncation, no external requests. The uncertainty panel says no unrepresented observations for this filtered query. | PARITY_WITH_LIMITATIONS: the answer-relevant subset now reproduces on identical files, while depth, navigation, and filter-scoped uncertainty presentation still differ. Suitable as a limited RQ2 candidate after independent answer-key review. |
+| CTE-F3-001 | Pinned `src/env.ts` inspected at both line-73 occurrences and declarations.                                             | Select `computeEnv`; inspect outgoing `CALLS`; view exact and unresolved evidence/diagnostics.                                                            | Browser test uses the same one-file input and verifies exact follow, unresolved no-follow, evidence, and uncertainty.                                                                                                                                                                       | `PARITY_WITH_LIMITATIONS`; good exploratory uncertainty case, but it is classified `RQ3-exploratory`, not an RQ2 task.                                                                                                                            |
 
 The text client inspects one hop and displays at most 20 relationship and 10
 unknown rows; the viewer can expose depth two and up to 50 nodes. Shared trace
-code does not make these conditions informationally equivalent. Local headless
-browser probes used the byte-pinned fixtures and existing analyzer and viewer,
-made no external requests, and did not execute upstream code. For F1, the
-interaction selected `routes/index.ts@9:1` with `CALLS` only, inspected the four
-`routes`-owned occurrences, retrieved each exact site, followed each target, and
-verified its declaration range and source hash. It also exposed
-`initialize -> getStrategy` at depth two and reported `depth_limit`. For F2, the
-interaction selected `todoRouter`, filtered to `REFERENCES`, checked each site
-and target range/hash, followed each target, and returned; the query had no
-truncation and showed exactly three references and zero calls. These are
-headless interaction results, not screenshots or human observations.
+code does not make these conditions informationally equivalent. The committed
+headless browser check now loads F1 and F2 from the exact `selectedFiles` lists
+in `tasks.json`, verifies each raw SHA-256, and analyzes those bytes without
+adding files from the broader external corpus. It blocks cross-origin requests
+and does not execute upstream code. For F1, the interaction selects the `routes`
+function in `routes/index.ts` with `CALLS` only, exposes the four answer-key
+calls plus the deeper `initialize -> getStrategy` call, and reports
+`depth_limit`. It follows a source-backed target and retrieves the exact site
+excerpt. For F2, it selects `todoRouter`, filters to `REFERENCES`, and shows
+exactly three references and zero calls on the two-file task input; it retrieves
+the occurrence excerpt and follows the declaration. These are headless
+interaction results, not screenshots or human observations.
 
 Textual interaction sequences on the same frozen task inputs:
 
 - F1: `symbols routes/index.ts`; `inspect routes/index.ts@9:1 calls outgoing`;
   retrieve each site with `evidence site <path>@<start>-<end>` and follow its
-  declaration. Four direct `routes`-owned calls are within the 20-row limit.
+  declaration. The selected input is exactly the five F1 files in `tasks.json`;
+  four root-owned direct calls are within the 20-row limit. The CLI query
+  applies depth one and reports its depth limit.
 - F2: `symbols routes/todo.router.ts`;
   `inspect routes/todo.router.ts@4:1 references outgoing`; retrieve the three
   site excerpts, follow each controller method declaration, then return to
-  `todoRouter`. The answer subset is three references, zero calls, within the
-  one-hop query and display limit.
+  `todoRouter`. The selected input is exactly the two F2 files in `tasks.json`;
+  the answer subset is three references, zero calls. CLI inspection reports a
+  depth limit when it omits further traversal.
+
+For both workflows, the manifest is version 1 and is constructed from the task's
+`source.selectedFiles`: preserve each declared source path, read its
+`fixturePath` bytes unchanged, set `contentBase64` from those bytes, and use the
+declared SHA-256. `pnpm study:validate` verifies these selected fixtures before
+the session. Start the session with
+`pnpm investigate -- --manifest <task-manifest.json>`, then enter the listed
+commands. The independent source baseline opens the same paths from the pinned
+fixture set and inspects the line anchors in the ledger. No editor build or
+extension set was pinned, so this records source inspection rather than a
+reproducible IDE-product condition; a pilot must pin that tool separately.
+
+### F1 answer-scope conflict
+
+The current F1 task metadata remains provisional. Source inspection finds a
+fifth direct identifier call, `authenticate(...)`, at `routes/index.ts:21`,
+inside the arrow callback passed to `app.use`; its source declaration is
+`config/passport.ts:69:1–74:2`. The four answer-key calls are exact calls owned
+directly by `routes`, while this callback-owned call is not emitted as an exact
+graph edge. The prompt says “direct identifier calls nested in the application
+setup block” and does not exclude callback bodies. The source conflicts with the
+four-answer key under a broad reading of the prompt. Because the wording does
+not define whether callback-owned calls count, task-scope classification remains
+`INSUFFICIENT_EVIDENCE`; F1 is **not currently eligible for RQ2 scoring**,
+despite the task bank's provisional `ELIGIBLE_WITH_LIMITATIONS` value. Do not
+change the gold labels to match analyzer output.
+
+Proposed source-grounded correction for independent review: change the prompt to
+ask for “the direct identifier calls owned by the `routes` function body,
+excluding calls inside callback or other nested function bodies.” That preserves
+the existing four intended answers. The reviewer may instead decide the task
+intends all nested calls and require a source-backed fifth assertion; that
+choice changes the answer key and must be independently reviewed. The task bank
+has not been edited pending that decision.
 
 ## Measurement-integrity audit
 
@@ -272,6 +308,15 @@ CT-EVAL-001B revision:
 | Fresh-clone `pnpm install --frozen-lockfile` + `pnpm check` | Passed in a clean clone; 139 packages reused, clone stayed clean, lockfile unchanged.                                                                                                                                                  |
 | Hosted Actions run `41964366707`                            | Passed on `ubuntu-latest` and `windows-latest` for exact SHA `95a2fd5033ef6266bae366e3e9139120e17af119`, including frozen install, check, browser, semantic evaluation, and dependency audit.                                          |
 | `git diff --check`                                          | Passed for tracked changes; final review draft is untracked, so Prettier and a separate trailing-whitespace scan were also run.                                                                                                        |
+
+### Evidence manifest for this remediation
+
+| Claim                            | Evidence binding                                                                                                                                                                                                                | Review status                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Source identities and anchors    | Upstream commits `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` and `4a2aca1cf11943445c7bae6c767086a8c61291ef`; fixture Git blob IDs and raw SHA-256 values in this document; `pnpm study:validate`; direct source line inspection. | Same-agent re-audit; not independently reviewed.       |
+| F1/F2 viewer information         | `tests/viewer-browser.ts`, `pnpm test:browser`; task-selected manifests are derived from `tasks.json`; PR #21 head and hosted run are recorded in the PR.                                                                       | Headless browser regression; not a human observation.  |
+| Scoring semantics and provenance | `tests/study-toolkit.test.ts`; `pnpm check`, `pnpm study:validate`, `pnpm study:demo`; PR #21 exact-head CI.                                                                                                                    | Engineering evidence only; does not authorize scoring. |
+| Independent answer-key approval  | No reviewer identity, decision, or review artifact is present.                                                                                                                                                                  | Awaiting independent human review.                     |
 
 On 2026-11-06, a fresh local `pnpm check` rerun passed formatting, lint,
 requirements, architecture validation, build, task validation, and typecheck,
