@@ -56,6 +56,54 @@ describe('CT-INDEX-001A semantic extraction', () => {
       result.facts.diagnostics.some((item) => item.code === 'TS_2688'),
     ).toBe(true);
   }, 15000);
+  it('scopes compiler-error uncertainty to the candidate declaration', async () => {
+    const missingSignatureType = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        sourceFile(
+          'source.ts',
+          'function target(arg?: MissingType): void {}\nexport function caller() { target(); }\n',
+        ),
+      ],
+    });
+    expect(missingSignatureType.facts.observations[0]?.status).toBe(
+      'unresolved',
+    );
+    expect(
+      missingSignatureType.facts.diagnostics.map((item) => item.code),
+    ).toEqual(expect.arrayContaining(['TS_2304', 'INVALID_BINDING']));
+
+    const targetBodyError = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        sourceFile(
+          'source.ts',
+          'function target() { const value: string = 1; }\nexport function caller() { target(); }\n',
+        ),
+      ],
+    });
+    expect(targetBodyError.facts.observations[0]?.status).toBe('unresolved');
+    expect(targetBodyError.facts.diagnostics.map((item) => item.code)).toEqual(
+      expect.arrayContaining(['TS_2322', 'INVALID_BINDING']),
+    );
+
+    const unrelatedError = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        sourceFile(
+          'source.ts',
+          'function target() {}\nexport function caller() { target(); }\nconst unrelated: string = 1;\n',
+        ),
+      ],
+    });
+    expect(unrelatedError.facts.observations[0]?.status).toBe('exact');
+    expect(unrelatedError.facts.diagnostics.map((item) => item.code)).toEqual([
+      'TS_2322',
+    ]);
+  }, 15000);
   it('discloses narrow function/call capability separately from broad graph coverage', async () => {
     const result = await analyzeManifest({
       repositoryId,

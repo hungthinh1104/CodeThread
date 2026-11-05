@@ -101,6 +101,28 @@ diagnostics affect target identity, or that unrelated body errors can safely be
 ignored. Do not add fabricated ambient declarations or relax the compiler
 profile to make the candidate exact.
 
+#### Controlled diagnostic-scope probes
+
+The following one-file `probe.ts` cases used `analyzeManifest` with the pinned
+`COMPILER_PROFILE`; each source byte sequence was SHA-256 checked before
+analysis:
+
+| Source condition                                                      | Result     | Diagnostics                  |
+| --------------------------------------------------------------------- | ---------- | ---------------------------- |
+| `function target() {}` and `caller() { target(); }`                   | Exact      | None                         |
+| `target(arg?: MissingType)` with the same call                        | Unresolved | `TS_2304`, `INVALID_BINDING` |
+| `target() { const value: string = 1; }` with the same call            | Unresolved | `TS_2322`, `INVALID_BINDING` |
+| The same `TS_2322` in a separate top-level declaration after `caller` | Exact      | `TS_2322`                    |
+
+The target-body assignment error does not change the identifier binding, but it
+falls inside the candidate declaration and conservatively blocks the link. The
+same type error outside that declaration does not block it. This confirms that
+the current guard uses diagnostic overlap as a proxy; it does not distinguish
+all errors that affect binding identity from unrelated diagnostics within a
+function body. That limits completeness, but does not justify ignoring
+declaration-local errors in arbitrary code. The unresolved tinyexec result is
+therefore retained.
+
 ## Semantic relationship inventory
 
 | Pinned source evidence                                                                                                                        | Classification                                            | What can be established                                                                                                                                      | Remaining uncertainty / investigation impact                                                                                                                                                           |
