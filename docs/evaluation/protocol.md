@@ -109,12 +109,25 @@ For each expected assertion, the deterministic scorer awards:
 The score is earned points divided by the task's fixed available points. Missing
 components earn zero; correctly answered components remain partial credit. A
 wrong exact target counts as an incorrect exact claim and a missed expected
-assertion. Evidence references are limited to the answer key's predeclared
-anchors so the offline scorer can verify them without searching or reading
-participant-specific source. It does not score free text, interpret unsupported
+assertion. Evidence references with a recognized role, known assertion ID, and
+valid structure are participant responses even when their path, coordinates, or
+role do not match the answer key. Preserve those values exactly and award zero
+for each incorrect or omitted expected anchor; never normalize or reject an
+otherwise valid dataset because an answer is wrong. Malformed references,
+unknown assertion IDs, duplicate references, and invalid result structure still
+reject the dataset. The scorer does not score free text, interpret unsupported
 claims, or decide whether a narrative explanation demonstrates comprehension.
 Those judgments remain `AWAITING_HUMAN_SCORING` until an independent human
 rubric review is authorized and recorded.
+
+Participant scoring is gated on every answer key used by the result being marked
+`INDEPENDENTLY_REVIEWED` with review provenance scoped to `answer_key` or
+`complete_task`. A source-anchor-only or parity-only review does not satisfy the
+answer-key gate. The current bank does not pass that gate. `study:score` must
+therefore refuse the current participant-result scoring request. The separate
+synthetic path is an engineering test only and reports
+`SYNTHETIC_ENGINEERING_TEST_ONLY`; it cannot be represented as an independently
+validated study result.
 
 The result schema requires an explicit `confidence` value from 1 to 5 or `null`;
 omission is invalid, and `null` means not collected or declined. Confidence is
@@ -139,12 +152,23 @@ predeclared reason and analysis denominator.
 
 ## Result file and privacy
 
-Use a JSON document with `schemaVersion: 1`, a study version such as
-`CT-EVAL-001A-v1`, and a `results` array. Each result requires a random
-pseudonymous token in the form `P-` followed by 16 uppercase hexadecimal
-characters, task/condition/order, duration and its observed/censored/missing
-status, submitted answer, structured objective claims, evidence references,
-additional claims, confidence, completion status, and `toolFailureCode`,
+Use a JSON document with `schemaVersion: 2`, a study version such as
+`CT-EVAL-001A-v1`, required `provenance`, and a `results` array. Provenance
+contains the SHA-256 digest of the canonical validated task bank, the scoring
+policy version, and the policy SHA-256 digest. Canonical JSON sorts object keys
+and ignores whitespace while preserving array order. The task digest covers the
+complete validated task definitions; the policy digest covers the versioned
+point rubric and answer/evidence matching rules. The collection procedure must
+freeze these values with the result dataset using
+`createStudyResultProvenance(validatedTaskBank)`. Before scoring, the tool
+recomputes both digests and rejects any mismatch with a typed error. Older
+schema-version-1 datasets or results without provenance are rejected; there is
+no automatic migration or historical rescore.
+
+Each result requires a random pseudonymous token in the form `P-` followed by 16
+uppercase hexadecimal characters, task/condition/order, duration and its
+observed/censored/missing status, submitted answer, structured objective claims,
+evidence references, additional claims, confidence, completion status, and
 `usabilityRating`, `toolFailureCode`, `missingReasonCode`, and
 `unsupportedReasonCode` fields that are null or required according to the
 outcome. Every record has `humanScoringStatus: "AWAITING_HUMAN_SCORING"`. Extra
@@ -155,11 +179,12 @@ fixtures, issue, pull request, or source control.
 
 Store approved local result files only in the ignored `local-study-data/`
 directory. Set access, encryption, retention and deletion rules before
-collection. The scorer accepts a bounded local file, validates task assignment
-and evidence references, and emits aggregates by task and condition only. It
-omits participant tokens and answer text. Small groups can still be
-re-identifiable; keep outputs private and follow institutional policy. No
-network service or telemetry is used.
+collection. The scorer reads the bounded file without modifying it, validates
+task assignment and result structure, and emits aggregates by task and condition
+only. Incorrect evidence remains in the original private file for authorized
+human review; aggregates omit participant tokens and answer text. Small groups
+can still be re-identifiable; keep outputs private and follow institutional
+policy. No network service or telemetry is used.
 
 Example command after authorized collection:
 

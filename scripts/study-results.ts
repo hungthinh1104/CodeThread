@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   studyTaskDatasetSchema,
@@ -6,15 +7,69 @@ import {
   type StudyTaskDataset,
 } from './study-tasks.ts';
 
+// Update this descriptor whenever scoring code changes its answer-affecting
+// comparisons or point rules. Its digest is frozen into each result dataset.
+export const STUDY_SCORING_POLICY = Object.freeze({
+  version: 'objective-source-anchors-v2',
+  points: Object.freeze({
+    occurrence: 1,
+    conclusion: 1,
+    evidenceAnchor: 1,
+  }),
+  occurrenceIdentity: Object.freeze([
+    'kind',
+    'site.path',
+    'site.start',
+    'site.end',
+  ]),
+  conclusionIdentity: Object.freeze([
+    'status',
+    'target.path',
+    'target.start',
+    'target.end',
+    'target.name',
+    'target.owner',
+  ]),
+  evidenceIdentity: Object.freeze([
+    'assertionId',
+    'role',
+    'path',
+    'start',
+    'end',
+  ]),
+  incorrectOrMissingEvidencePoints: 0,
+  absentClaimPoints: 0,
+  nonExactClaimRequiresNullTarget: true,
+  wrongExactTargetCountsAs: Object.freeze([
+    'false_positive_exact_claim',
+    'missed_expected_assertion',
+  ]),
+} as const);
+
 const coordinateSchema = z.tuple([
   z.number().int().positive(),
   z.number().int().positive(),
 ]);
-const sourceSpanSchema = z.strictObject({
-  path: z.string().min(1).max(1024),
-  start: coordinateSchema,
-  end: coordinateSchema,
-});
+const sourceSpanSchema = z
+  .strictObject({
+    path: z.string().min(1).max(1024),
+    start: coordinateSchema,
+    end: coordinateSchema,
+  })
+  .superRefine((span, context) => {
+    const [startLine, startColumn] = span.start;
+    const [endLine, endColumn] = span.end;
+    if (
+      endLine < startLine ||
+      (endLine === startLine && endColumn <= startColumn)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['end'],
+        message: 'A source span must end after it starts',
+      });
+    }
+  });
 const declarationSpanSchema = sourceSpanSchema.extend({
   name: z.string().min(1).max(256),
   owner: z.string().min(1).max(256).optional(),
@@ -73,12 +128,17 @@ const objectiveClaimSchema = z
     }
   });
 
-const evidenceReferenceSchema = z.strictObject({
+const evidenceReferenceSchema = sourceSpanSchema.extend({
   assertionId: z.string().regex(/^F[1-3]-A[1-9][0-9]*$/),
   role: z.enum(['site', 'target', 'candidate']),
-  path: z.string().min(1).max(1024),
-  start: coordinateSchema,
-  end: coordinateSchema,
+});
+
+const resultProvenanceSchema = z.strictObject({
+  taskBankSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  scoringPolicyVersion: z
+    .string()
+    .regex(/^objective-source-anchors-v[1-9][0-9]*$/),
+  scoringPolicySha256: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
 const studyResultRecordSchema = z
@@ -222,13 +282,15 @@ const studyResultRecordSchema = z
   });
 
 export const studyResultDatasetSchema = z.strictObject({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   studyVersion: z.string().regex(/^CT-EVAL-001A-v[1-9][0-9]*$/),
+  provenance: resultProvenanceSchema,
   results: z.array(studyResultRecordSchema).max(1000),
 });
 
 export type StudyResultRecord = z.infer<typeof studyResultRecordSchema>;
 export type StudyResultDataset = z.infer<typeof studyResultDatasetSchema>;
+export type StudyResultProvenance = z.infer<typeof resultProvenanceSchema>;
 
 export type StudyScoreGroup = Readonly<{
   taskId: string;
@@ -258,8 +320,12 @@ export type StudyScoreGroup = Readonly<{
 }>;
 
 export type StudyScoreReport = Readonly<{
-  schemaVersion: 1;
-  scoringPolicy: 'objective-source-anchors-v1';
+  schemaVersion: 2;
+  scoringPolicy: typeof STUDY_SCORING_POLICY.version;
+  provenance: StudyResultProvenance;
+  datasetKind: 'PARTICIPANT_DATA' | 'SYNTHETIC_ENGINEERING_TEST_ONLY';
+  answerKeyReviewStatus:
+    'AWAITING_INDEPENDENT_REVIEW' | 'INDEPENDENTLY_REVIEWED';
   resultCount: number;
   groups: readonly StudyScoreGroup[];
   humanScoringStatus: 'AWAITING_HUMAN_SCORING';
@@ -281,6 +347,68 @@ export class StudyResultError extends Error {
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw new StudyResultError('PROVENANCE_VALUE_NOT_JSON');
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(',')}]`;
+  }
+  if (typeof value === 'object') {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throw new StudyResultError('PROVENANCE_VALUE_NOT_JSON');
+    }
+    const entries = Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => compare(left, right));
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(',')}}`;
+  }
+  throw new StudyResultError('PROVENANCE_VALUE_NOT_JSON');
+}
+
+function canonicalSha256(value: unknown): string {
+  return createHash('sha256')
+    .update(canonicalJson(value), 'utf8')
+    .digest('hex');
+}
+
+export function studyScoringPolicyDigest(
+  policy: object = STUDY_SCORING_POLICY,
+): string {
+  return canonicalSha256(policy);
+}
+
+function provenanceForTasks(tasks: StudyTaskDataset): StudyResultProvenance {
+  return {
+    taskBankSha256: canonicalSha256(tasks),
+    scoringPolicyVersion: STUDY_SCORING_POLICY.version,
+    scoringPolicySha256: studyScoringPolicyDigest(),
+  };
+}
+
+export function createStudyResultProvenance(
+  tasksInput: unknown,
+): StudyResultProvenance {
+  const taskResult = studyTaskDatasetSchema.safeParse(tasksInput);
+  if (!taskResult.success) {
+    throw new StudyResultError(
+      'INVALID_TASK_DATASET',
+      taskResult.error.issues.map((entry) => entry.path.join('.')),
+    );
+  }
+  return provenanceForTasks(taskResult.data);
 }
 
 function evidenceKey(
@@ -311,27 +439,31 @@ function targetKey(
     : null;
 }
 
-function expectedEvidence(task: StudyTask): Map<string, string> {
-  const result = new Map<string, string>();
-  for (const assertion of task.expectedAnswer?.assertions ?? []) {
-    result.set(`${assertion.id}|site`, spanKey(assertion.site));
-    if (assertion.target) {
-      result.set(`${assertion.id}|target`, spanKey(assertion.target));
-    }
-    if (assertion.candidateSourceDeclaration) {
-      result.set(
-        `${assertion.id}|candidate`,
-        spanKey(assertion.candidateSourceDeclaration),
-      );
-    }
-  }
-  return result;
-}
-
 function validateStudyResults(
   input: unknown,
   tasksInput: unknown,
-): { results: StudyResultDataset; tasks: StudyTaskDataset } {
+): {
+  results: StudyResultDataset;
+  tasks: StudyTaskDataset;
+  provenance: StudyResultProvenance;
+} {
+  if (
+    typeof input === 'object' &&
+    input !== null &&
+    Object.hasOwn(input, 'schemaVersion') &&
+    (input as Record<string, unknown>)['schemaVersion'] === 1
+  ) {
+    throw new StudyResultError('RESULT_SCHEMA_VERSION_UNSUPPORTED', [
+      'schemaVersion',
+    ]);
+  }
+  if (
+    typeof input !== 'object' ||
+    input === null ||
+    !Object.hasOwn(input, 'provenance')
+  ) {
+    throw new StudyResultError('RESULT_PROVENANCE_MISSING', ['provenance']);
+  }
   const taskResult = studyTaskDatasetSchema.safeParse(tasksInput);
   if (!taskResult.success) {
     throw new StudyResultError(
@@ -345,6 +477,25 @@ function validateStudyResults(
       'INVALID_STUDY_RESULTS',
       result.error.issues.map((entry) => entry.path.join('.')),
     );
+  }
+  const expectedProvenance = provenanceForTasks(taskResult.data);
+  if (
+    result.data.provenance.taskBankSha256 !== expectedProvenance.taskBankSha256
+  ) {
+    throw new StudyResultError('TASK_BANK_PROVENANCE_MISMATCH', [
+      'provenance.taskBankSha256',
+    ]);
+  }
+  if (
+    result.data.provenance.scoringPolicyVersion !==
+      expectedProvenance.scoringPolicyVersion ||
+    result.data.provenance.scoringPolicySha256 !==
+      expectedProvenance.scoringPolicySha256
+  ) {
+    throw new StudyResultError('SCORING_POLICY_MISMATCH', [
+      'provenance.scoringPolicyVersion',
+      'provenance.scoringPolicySha256',
+    ]);
   }
   const taskById = new Map(
     taskResult.data.tasks.map((task) => [task.id, task]),
@@ -392,19 +543,19 @@ function validateStudyResults(
         ]);
       }
     }
-    const allowedEvidence = expectedEvidence(task);
     for (const reference of record.evidenceReferences) {
-      const expected = allowedEvidence.get(
-        `${reference.assertionId}|${reference.role}`,
-      );
-      if (!expected || expected !== spanKey(reference)) {
-        throw new StudyResultError('EVIDENCE_REFERENCE_NOT_IN_TASK', [
+      if (!assertionIds.has(reference.assertionId)) {
+        throw new StudyResultError('UNKNOWN_ASSERTION', [
           `results.${index}.evidenceReferences`,
         ]);
       }
     }
   }
-  return { results: result.data, tasks: taskResult.data };
+  return {
+    results: result.data,
+    tasks: taskResult.data,
+    provenance: expectedProvenance,
+  };
 }
 
 type MutableGroup = {
@@ -506,9 +657,15 @@ function addRecordScore(
       (expectedStatus === 'exact'
         ? targetKey(claim.target) === targetKey(assertion.target)
         : claim.target === null);
-    group.objectiveAvailable += 2;
-    if (occurrenceCorrect) group.objectiveEarned++;
-    if (conclusionCorrect) group.objectiveEarned++;
+    group.objectiveAvailable +=
+      STUDY_SCORING_POLICY.points.occurrence +
+      STUDY_SCORING_POLICY.points.conclusion;
+    if (occurrenceCorrect) {
+      group.objectiveEarned += STUDY_SCORING_POLICY.points.occurrence;
+    }
+    if (conclusionCorrect) {
+      group.objectiveEarned += STUDY_SCORING_POLICY.points.conclusion;
+    }
     if (!occurrenceCorrect || !conclusionCorrect)
       group.missedExpectedAssertions++;
     if (
@@ -525,13 +682,15 @@ function addRecordScore(
         ? [['candidate', assertion.candidateSourceDeclaration] as const]
         : []),
     ] as const) {
-      group.objectiveAvailable++;
+      group.objectiveAvailable += STUDY_SCORING_POLICY.points.evidenceAnchor;
       const reference: z.infer<typeof evidenceReferenceSchema> = {
         assertionId: assertion.id,
         role,
         ...span,
       };
-      if (references.has(evidenceKey(reference))) group.objectiveEarned++;
+      if (references.has(evidenceKey(reference))) {
+        group.objectiveEarned += STUDY_SCORING_POLICY.points.evidenceAnchor;
+      }
     }
   }
 }
@@ -544,7 +703,74 @@ export function scoreStudyResults(
   input: unknown,
   tasksInput: unknown,
 ): StudyScoreReport {
-  const { results, tasks } = validateStudyResults(input, tasksInput);
+  const validated = validateStudyResults(input, tasksInput);
+  if (validated.results.results.length === 0) {
+    throw new StudyResultError('NO_RESULTS_TO_SCORE');
+  }
+  const reviewStatus = answerKeyReviewStatus(validated);
+  if (reviewStatus !== 'INDEPENDENTLY_REVIEWED') {
+    const tasksById = new Map(
+      validated.tasks.tasks.map((task) => [task.id, task]),
+    );
+    const unreviewedTaskIds = [
+      ...new Set(validated.results.results.map((record) => record.taskId)),
+    ]
+      .filter((taskId) => !hasIndependentAnswerKeyReview(tasksById.get(taskId)))
+      .sort(compare);
+    throw new StudyResultError(
+      'ANSWER_KEYS_NOT_INDEPENDENTLY_REVIEWED',
+      unreviewedTaskIds,
+    );
+  }
+  return scoreValidatedResults(validated, 'PARTICIPANT_DATA', reviewStatus);
+}
+
+export function scoreSyntheticStudyResults(
+  input: unknown,
+  tasksInput: unknown,
+): StudyScoreReport {
+  const validated = validateStudyResults(input, tasksInput);
+  return scoreValidatedResults(
+    validated,
+    'SYNTHETIC_ENGINEERING_TEST_ONLY',
+    answerKeyReviewStatus(validated),
+  );
+}
+
+type AnswerKeyReviewStatus =
+  'AWAITING_INDEPENDENT_REVIEW' | 'INDEPENDENTLY_REVIEWED';
+
+function hasIndependentAnswerKeyReview(task: StudyTask | undefined): boolean {
+  return (
+    task?.independentReviewStatus === 'INDEPENDENTLY_REVIEWED' &&
+    (task.independentReview?.scope === 'answer_key' ||
+      task.independentReview?.scope === 'complete_task')
+  );
+}
+
+function answerKeyReviewStatus(
+  validated: ReturnType<typeof validateStudyResults>,
+): AnswerKeyReviewStatus {
+  const taskById = new Map(
+    validated.tasks.tasks.map((task) => [task.id, task]),
+  );
+  const usedTaskIds = new Set(
+    validated.results.results.map((record) => record.taskId),
+  );
+  if (usedTaskIds.size === 0) return 'AWAITING_INDEPENDENT_REVIEW';
+  return [...usedTaskIds].every((taskId) =>
+    hasIndependentAnswerKeyReview(taskById.get(taskId)),
+  )
+    ? 'INDEPENDENTLY_REVIEWED'
+    : 'AWAITING_INDEPENDENT_REVIEW';
+}
+
+function scoreValidatedResults(
+  validated: ReturnType<typeof validateStudyResults>,
+  datasetKind: StudyScoreReport['datasetKind'],
+  reviewStatus: AnswerKeyReviewStatus,
+): StudyScoreReport {
+  const { results, tasks, provenance } = validated;
   const taskById = new Map(tasks.tasks.map((task) => [task.id, task]));
   const groups = new Map<string, MutableGroup>();
   for (const record of results.results) {
@@ -563,8 +789,11 @@ export function scoreStudyResults(
       conditionOrder(left.condition) - conditionOrder(right.condition),
   );
   return {
-    schemaVersion: 1,
-    scoringPolicy: 'objective-source-anchors-v1',
+    schemaVersion: 2,
+    scoringPolicy: STUDY_SCORING_POLICY.version,
+    provenance,
+    datasetKind,
+    answerKeyReviewStatus: reviewStatus,
     resultCount: results.results.length,
     groups: sorted.map((group) => ({
       taskId: group.taskId,

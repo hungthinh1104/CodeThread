@@ -8,7 +8,9 @@ import {
   type StudyTaskDataset,
 } from './study-tasks.ts';
 import {
+  createStudyResultProvenance,
   scoreStudyResults,
+  scoreSyntheticStudyResults,
   StudyResultError,
   type StudyResultDataset,
 } from './study-results.ts';
@@ -100,8 +102,9 @@ function syntheticDemo(tasks: StudyTaskDataset): StudyResultDataset {
     ],
   );
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     studyVersion: 'CT-EVAL-001A-v1',
+    provenance: createStudyResultProvenance(tasks),
     results: [
       {
         participantToken: 'P-0000000000000000',
@@ -159,7 +162,7 @@ export async function runStudyCommand(
   if (command === 'demo') {
     return {
       notice: 'SYNTHETIC DRY RUN — NOT EMPIRICAL DATA',
-      report: scoreStudyResults(syntheticDemo(tasks), tasks),
+      report: scoreSyntheticStudyResults(syntheticDemo(tasks), tasks),
     };
   }
   const input = await loadResultFile(rest[0]!);

@@ -6,7 +6,11 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStudyTaskDataset } from '../scripts/study-tasks.ts';
 import {
+  createStudyResultProvenance,
   scoreStudyResults,
+  scoreSyntheticStudyResults,
+  studyScoringPolicyDigest,
+  STUDY_SCORING_POLICY,
   StudyResultError,
 } from '../scripts/study-results.ts';
 import { runStudyCommand } from '../scripts/study.ts';
@@ -16,6 +20,18 @@ const repositoryRoot = process.cwd();
 
 function readTaskDataset(): Record<string, unknown> {
   return JSON.parse(readFileSync(taskPath, 'utf8')) as Record<string, unknown>;
+}
+
+function reverseObjectKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(reverseObjectKeys);
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .reverse()
+        .map(([key, entry]) => [key, reverseObjectKeys(entry)]),
+    );
+  }
+  return value;
 }
 
 function syntheticF2Result(): Record<string, unknown> {
@@ -60,8 +76,9 @@ function syntheticF2Result(): Record<string, unknown> {
     ];
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     studyVersion: 'CT-EVAL-001A-v1',
+    provenance: createStudyResultProvenance(dataset),
     results: [
       {
         participantToken: 'P-0123456789ABCDEF',
@@ -334,7 +351,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
   });
 
   it('scores exact source-pinned claims without scoring free text', () => {
-    const report = scoreStudyResults(
+    const report = scoreSyntheticStudyResults(
       syntheticF2Result(),
       JSON.parse(readFileSync(taskPath, 'utf8')),
     );
@@ -358,7 +375,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       Record<string, unknown>
     >;
     records[0]!['usabilityRating'] = 1;
-    const lowRatingReport = scoreStudyResults(
+    const lowRatingReport = scoreSyntheticStudyResults(
       lowUsabilityRating,
       readTaskDataset(),
     );
@@ -367,6 +384,192 @@ describe('CT-EVAL-001A offline study task validation', () => {
       objectiveAvailable: report.groups[0]!.objectiveAvailable,
       usabilityRatingCounts: { 1: 1 },
     });
+  });
+
+  it('binds reproducible scores to canonical task-bank and scoring-policy digests', () => {
+    const tasks = readTaskDataset();
+    const provenance = createStudyResultProvenance(tasks);
+    const result = syntheticF2Result();
+    const report = scoreSyntheticStudyResults(result, tasks);
+
+    expect(createStudyResultProvenance(reverseObjectKeys(tasks))).toEqual(
+      provenance,
+    );
+    expect(report).toMatchObject({
+      scoringPolicy: STUDY_SCORING_POLICY.version,
+      provenance,
+    });
+    expect(
+      scoreSyntheticStudyResults(
+        structuredClone(result),
+        reverseObjectKeys(tasks),
+      ),
+    ).toEqual(report);
+  });
+
+  it('rejects a result dataset whose answer-key bank has changed', () => {
+    const tasks = readTaskDataset();
+    const taskRecords = tasks['tasks'] as Array<Record<string, unknown>>;
+    const task = taskRecords.find((entry) => entry['id'] === 'CTE-F2-001')!;
+    const answer = task['expectedAnswer'] as Record<string, unknown>;
+    answer['summary'] = `${String(answer['summary'])} changed`;
+
+    expect(() =>
+      scoreSyntheticStudyResults(syntheticF2Result(), tasks),
+    ).toThrow(
+      expect.objectContaining({ code: 'TASK_BANK_PROVENANCE_MISMATCH' }),
+    );
+  });
+
+  it('rejects provenance produced under a modified scoring rubric', () => {
+    const input = syntheticF2Result();
+    const provenance = input['provenance'] as Record<string, unknown>;
+    const changedPolicy = {
+      ...STUDY_SCORING_POLICY,
+      points: {
+        ...STUDY_SCORING_POLICY.points,
+        evidenceAnchor: STUDY_SCORING_POLICY.points.evidenceAnchor + 1,
+      },
+    };
+    provenance['scoringPolicySha256'] = studyScoringPolicyDigest(changedPolicy);
+
+    expect(() => scoreSyntheticStudyResults(input, readTaskDataset())).toThrow(
+      expect.objectContaining({ code: 'SCORING_POLICY_MISMATCH' }),
+    );
+  });
+
+  it('rejects results collected under an older scoring-policy version', () => {
+    const input = syntheticF2Result();
+    const provenance = input['provenance'] as Record<string, unknown>;
+    provenance['scoringPolicyVersion'] = 'objective-source-anchors-v1';
+
+    expect(() => scoreSyntheticStudyResults(input, readTaskDataset())).toThrow(
+      expect.objectContaining({ code: 'SCORING_POLICY_MISMATCH' }),
+    );
+  });
+
+  it('rejects old schemas and missing result provenance explicitly', () => {
+    const missing = syntheticF2Result();
+    delete missing['provenance'];
+    expect(() =>
+      scoreSyntheticStudyResults(missing, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'RESULT_PROVENANCE_MISSING' }));
+
+    const old = syntheticF2Result();
+    old['schemaVersion'] = 1;
+    delete old['provenance'];
+    expect(() => scoreSyntheticStudyResults(old, readTaskDataset())).toThrow(
+      expect.objectContaining({ code: 'RESULT_SCHEMA_VERSION_UNSUPPORTED' }),
+    );
+  });
+
+  it('prevents participant scoring until answer keys are independently reviewed', () => {
+    const tasks = readTaskDataset();
+
+    expect(() => scoreStudyResults(syntheticF2Result(), tasks)).toThrow(
+      expect.objectContaining({
+        code: 'ANSWER_KEYS_NOT_INDEPENDENTLY_REVIEWED',
+      }),
+    );
+    expect(
+      scoreSyntheticStudyResults(syntheticF2Result(), tasks),
+    ).toMatchObject({
+      datasetKind: 'SYNTHETIC_ENGINEERING_TEST_ONLY',
+      answerKeyReviewStatus: 'AWAITING_INDEPENDENT_REVIEW',
+    });
+  });
+
+  it('scores incorrect evidence paths, coordinates, and roles as zero without rejecting or normalizing them', () => {
+    const cases: ReadonlyArray<{
+      name: string;
+      change: (reference: Record<string, unknown>) => void;
+      retained: (reference: Record<string, unknown>) => boolean;
+    }> = [
+      {
+        name: 'path',
+        change: (reference) => {
+          reference['path'] = 'src/not-the-cited-file.ts';
+        },
+        retained: (reference) =>
+          reference['path'] === 'src/not-the-cited-file.ts',
+      },
+      {
+        name: 'coordinates',
+        change: (reference) => {
+          reference['end'] = [999, 1];
+        },
+        retained: (reference) =>
+          JSON.stringify(reference['end']) === JSON.stringify([999, 1]),
+      },
+      {
+        name: 'role',
+        change: (reference) => {
+          reference['role'] = 'candidate';
+        },
+        retained: (reference) => reference['role'] === 'candidate',
+      },
+    ];
+
+    for (const testCase of cases) {
+      const input = syntheticF2Result();
+      const record = (input['results'] as Array<Record<string, unknown>>)[0]!;
+      const references = record['evidenceReferences'] as Array<
+        Record<string, unknown>
+      >;
+      testCase.change(references[0]!);
+      const original = JSON.stringify(input);
+
+      const report = scoreSyntheticStudyResults(input, readTaskDataset());
+
+      expect(report.groups[0], testCase.name).toMatchObject({
+        objectiveEarned: 11,
+        objectiveAvailable: 12,
+        submissions: 1,
+      });
+      expect(testCase.retained(references[0]!), testCase.name).toBe(true);
+      expect(JSON.stringify(input), testCase.name).toBe(original);
+    }
+  });
+
+  it('accepts incomplete evidence and awards zero only for omitted anchors', () => {
+    const input = syntheticF2Result();
+    const record = (input['results'] as Array<Record<string, unknown>>)[0]!;
+    const references = record['evidenceReferences'] as Array<
+      Record<string, unknown>
+    >;
+    references.pop();
+
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
+
+    expect(report.groups[0]).toMatchObject({
+      objectiveEarned: 11,
+      objectiveAvailable: 12,
+      submissions: 1,
+    });
+  });
+
+  it('keeps a bad participant citation from discarding correct evidence or another participant', () => {
+    const input = syntheticF2Result();
+    const records = input['results'] as Array<Record<string, unknown>>;
+    const second = structuredClone(records[0]!);
+    second['participantToken'] = 'P-1111111111111111';
+    second['taskOrder'] = 2;
+    const secondReferences = second['evidenceReferences'] as Array<
+      Record<string, unknown>
+    >;
+    secondReferences[0]!['path'] = 'src/incorrect.ts';
+    records.push(second);
+    const original = JSON.stringify(input);
+
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
+
+    expect(report).toMatchObject({ resultCount: 2 });
+    expect(report.groups[0]).toMatchObject({
+      objectiveEarned: 23,
+      objectiveAvailable: 24,
+      submissions: 2,
+    });
+    expect(JSON.stringify(input)).toBe(original);
   });
 
   it('counts a wrong exact target as both an incorrect exact claim and a missed answer', () => {
@@ -378,7 +581,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const firstTarget = claims[0]!['target'] as Record<string, unknown>;
     claims[0]!['target'] = { ...firstTarget, name: 'differentMethod' };
 
-    const report = scoreStudyResults(
+    const report = scoreSyntheticStudyResults(
       input,
       JSON.parse(readFileSync(taskPath, 'utf8')),
     );
@@ -405,7 +608,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       (reference) => reference['assertionId'] === 'F2-A1',
     );
 
-    const report = scoreStudyResults(input, readTaskDataset());
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
 
     expect(report.groups[0]).toMatchObject({
       objectiveEarned: 4,
@@ -421,7 +624,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     results[0]!['completionStatus'] = 'timeout';
     results[0]!['durationStatus'] = 'censored';
 
-    const report = scoreStudyResults(input, readTaskDataset());
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
 
     expect(report.groups[0]).toMatchObject({
       censoredTimeouts: 1,
@@ -445,7 +648,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     record['completionStatus'] = 'missing';
     record['missingReasonCode'] = 'NOT_COLLECTED';
 
-    const report = scoreStudyResults(input, readTaskDataset());
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
 
     expect(report.groups[0]).toMatchObject({
       completionCounts: { missing: 1 },
@@ -468,7 +671,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     record['completionStatus'] = 'unsupported_task';
     record['unsupportedReasonCode'] = 'CAPABILITY_NOT_ANALYZED';
 
-    const report = scoreStudyResults(input, readTaskDataset());
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
 
     expect(report.groups[0]).toMatchObject({
       completionCounts: { unsupported_task: 1 },
@@ -484,7 +687,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     )[0]!;
     delete missingRecord['confidence'];
     expect(() =>
-      scoreStudyResults(withoutConfidence, readTaskDataset()),
+      scoreSyntheticStudyResults(withoutConfidence, readTaskDataset()),
     ).toThrow(StudyResultError);
 
     const withoutUsabilityRating = syntheticF2Result();
@@ -492,7 +695,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       withoutUsabilityRating['results'] as Array<Record<string, unknown>>
     )[0]!['usabilityRating'];
     expect(() =>
-      scoreStudyResults(withoutUsabilityRating, readTaskDataset()),
+      scoreSyntheticStudyResults(withoutUsabilityRating, readTaskDataset()),
     ).toThrow(StudyResultError);
 
     for (const usabilityRating of [0, 6, 2.5]) {
@@ -502,7 +705,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       )[0]!;
       invalidRecord['usabilityRating'] = usabilityRating;
       expect(() =>
-        scoreStudyResults(invalidUsability, readTaskDataset()),
+        scoreSyntheticStudyResults(invalidUsability, readTaskDataset()),
       ).toThrow(StudyResultError);
     }
 
@@ -513,7 +716,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       )[0]!;
       record['durationMs'] = durationMs;
       expect(() =>
-        scoreStudyResults(invalidDuration, readTaskDataset()),
+        scoreSyntheticStudyResults(invalidDuration, readTaskDataset()),
       ).toThrow(StudyResultError);
     }
 
@@ -524,10 +727,34 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const references = invalidRecord['evidenceReferences'] as Array<
       Record<string, unknown>
     >;
-    references[0]!['start'] = [999, 1];
-    expect(() => scoreStudyResults(invalidEvidence, readTaskDataset())).toThrow(
-      expect.objectContaining({ code: 'EVIDENCE_REFERENCE_NOT_IN_TASK' }),
-    );
+    references[0]!['start'] = [0, 1];
+    expect(() =>
+      scoreSyntheticStudyResults(invalidEvidence, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_STUDY_RESULTS' }));
+
+    const invalidSpan = syntheticF2Result();
+    const invalidSpanRecord = (
+      invalidSpan['results'] as Array<Record<string, unknown>>
+    )[0]!;
+    const invalidSpanReferences = invalidSpanRecord[
+      'evidenceReferences'
+    ] as Array<Record<string, unknown>>;
+    invalidSpanReferences[0]!['end'] = invalidSpanReferences[0]!['start'];
+    expect(() =>
+      scoreSyntheticStudyResults(invalidSpan, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_STUDY_RESULTS' }));
+
+    const unknownAssertion = syntheticF2Result();
+    const unknownRecord = (
+      unknownAssertion['results'] as Array<Record<string, unknown>>
+    )[0]!;
+    const unknownReferences = unknownRecord['evidenceReferences'] as Array<
+      Record<string, unknown>
+    >;
+    unknownReferences[0]!['assertionId'] = 'F2-A99';
+    expect(() =>
+      scoreSyntheticStudyResults(unknownAssertion, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'UNKNOWN_ASSERTION' }));
   });
 
   it('rejects participant identifiers outside the pseudonymous token format', () => {
@@ -535,7 +762,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const record = (input['results'] as Array<Record<string, unknown>>)[0]!;
     record['email'] = 'participant@example.test';
 
-    expect(() => scoreStudyResults(input, readTaskDataset())).toThrow(
+    expect(() => scoreSyntheticStudyResults(input, readTaskDataset())).toThrow(
       StudyResultError,
     );
   });
@@ -544,8 +771,10 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const tasks = readTaskDataset();
     const taskRecords = tasks['tasks'] as Array<Record<string, unknown>>;
     taskRecords[1]!['conditionEligibility'] = ['ide'];
+    const input = syntheticF2Result();
+    input['provenance'] = createStudyResultProvenance(tasks);
 
-    expect(() => scoreStudyResults(syntheticF2Result(), tasks)).toThrow(
+    expect(() => scoreSyntheticStudyResults(input, tasks)).toThrow(
       expect.objectContaining({ code: 'CONDITION_NOT_ELIGIBLE' }),
     );
   });
@@ -560,12 +789,12 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const reordered = structuredClone(input);
     (reordered['results'] as unknown[]).reverse();
 
-    expect(scoreStudyResults(input, readTaskDataset())).toEqual(
-      scoreStudyResults(reordered, readTaskDataset()),
+    expect(scoreSyntheticStudyResults(input, readTaskDataset())).toEqual(
+      scoreSyntheticStudyResults(reordered, readTaskDataset()),
     );
   });
 
-  it('scores a local result file without writing participant-level output', async () => {
+  it('leaves a result file intact and blocks participant scoring before answer-key review', async () => {
     const folder = await mkdtemp(join(tmpdir(), 'codethread-study-'));
     const resultPath = join(folder, 'synthetic-results.json');
     try {
@@ -577,12 +806,10 @@ describe('CT-EVAL-001A offline study task validation', () => {
         ['scripts/study.ts', 'score', resultPath],
         { cwd: repositoryRoot, encoding: 'utf8' },
       );
-      const output = processResult.stdout;
-
-      expect(processResult.status).toBe(0);
-      expect(output).toContain('CTE-F2-001');
-      expect(output).not.toContain('P-0123456789ABCDEF');
-      expect(output).not.toContain('Synthetic test answer');
+      expect(processResult.status).toBe(1);
+      expect(processResult.stderr).toContain(
+        'ANSWER_KEYS_NOT_INDEPENDENTLY_REVIEWED',
+      );
       expect(readFileSync(resultPath, 'utf8')).toBe(before);
     } finally {
       await rm(folder, { recursive: true, force: true });
