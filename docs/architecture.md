@@ -17,14 +17,14 @@ No comprehension benefit is claimed by implementation tests.
 
 Current packages:
 
-| Owner               | Behavior                                                                                                                            | Dependencies                                                     |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| code-model          | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives                     | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
-| contracts           | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                                     | code-model and Zod                                               |
-| symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction and retained source                                                     | code-model, pinned TypeScript and explicitly allowed Node APIs   |
-| trace-engine        | Source-verified, bounded in-memory graph exploration                                                                                | code-model, contracts and Node crypto; no compiler or filesystem |
-| Application scripts | Explicit local Git object acquisition, CLI orchestration and bounded loopback viewer presentation; no extraction or graph traversal | symbol-indexer, trace-engine, code-model/contracts and Node      |
-| Foundation scripts  | Requirements and package-boundary verification                                                                                      | Node, TypeScript API, YAML and Ajv                               |
+| Owner               | Behavior                                                                                                            | Dependencies                                                     |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| code-model          | Source ranges, analysis identity components, evidence and resolution validation, semantic projection primitives     | Zod only; no filesystem, database, UI, Jest or NestJS dependency |
+| contracts           | Runtime-validated read requests/projections, scoped cursors, bounds, trace reference validation                     | code-model and Zod                                               |
+| symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction and retained source                                     | code-model, pinned TypeScript and explicitly allowed Node APIs   |
+| trace-engine        | Source-verified, bounded in-memory graph exploration                                                                | code-model, contracts and Node crypto; no compiler or filesystem |
+| Application scripts | Bounded committed-tree inventory, Git object acquisition, CLI and loopback viewer; no extraction or graph traversal | symbol-indexer, trace-engine, code-model/contracts and Node      |
+| Foundation scripts  | Requirements and package-boundary verification                                                                      | Node, TypeScript API, YAML and Ajv                               |
 
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
@@ -32,11 +32,11 @@ consumers toward the framework-independent model; the model never imports its
 extractors. Future code dependency direction is transport → application
 orchestration → semantic modules. Symbol/test indexers produce code-model facts;
 trace-engine consumes facts, not framework AST internals. Database owns
-adapters, not semantic rules. `scripts/git-source.ts` owns Git object
-acquisition; `scripts/investigate.ts` owns arguments, source selection display
-and session orchestration. API uses contracts rather than exposing Drizzle rows.
-UI uses contracts/API rather than the database. No Next.js backend duplicates
-Fastify/application rules.
+adapters, not semantic rules. `scripts/git-source.ts` owns tree-only discovery
+and Git object acquisition; `scripts/investigate.ts` owns arguments, source
+selection display and session orchestration. API uses contracts rather than
+exposing Drizzle rows. UI uses contracts/API rather than the database. No
+Next.js backend duplicates Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -1038,9 +1038,10 @@ example, not repository crawling or proof of general accuracy. The documented
 route-to-controller `REFERENCES` describe source-level method references only;
 they do not assert handler registration, runtime receiver identity or method
 execution. Visual presentation and a general filesystem/Git manifest builder
-remain unimplemented; the narrow CT-SOURCE-001 adapter accepts explicitly
-selected files from a pinned local Git commit but does not crawl or build a
-general manifest from filesystem state.
+remain unimplemented. CT-SOURCE-001 accepts explicitly selected files from a
+pinned local Git commit. CT-COMP-001 adds a bounded, metadata-only inventory of
+committed `.ts` paths for interactive selection; neither feature crawls the
+working tree or builds an automatic dependency closure.
 
 ### CT-SOURCE-001 local Git acquisition
 
@@ -1076,10 +1077,10 @@ The adapter verifies commit/tree/blob object types, sizes and object IDs. Binary
 tree records are parsed using their NUL and fixed-width object-ID framing, and
 only directories needed by selected paths are traversed. It checks object sizes
 before reading bodies. The Git stage has a ten-second deadline, 1 MiB
-commit/tree object bounds, 4 MiB cumulative metadata, 128 unique trees, 10,000
-tree entries, 64 path components and 8 KiB retained stderr. Existing analyzer
-bounds remain 20 files, 256 KiB per file and 2 MiB total source. Any rejected
-selection fails atomically; the CLI reports
+commit/tree object bounds, 4 MiB cumulative metadata, 128 unique trees, 4,096
+tree-path visits, 10,000 parsed tree entries, 64 path components and 8 KiB
+retained stderr. Existing analyzer bounds remain 20 files, 256 KiB per file and
+2 MiB total source. Any rejected selection fails atomically; the CLI reports
 selected/admitted/rejected/not-admitted counts. Typed failures do not expose
 absolute repository paths, raw Git stderr or source content. Cancellation kills
 the active Git child and exits with status 130.
@@ -1088,6 +1089,55 @@ This adapter does not persist a source cache or make Git provenance part of
 semantic identity. Source bytes remain in the analyzer's verified in-memory
 reader for the session. Persistent database/cache design, Git crawling,
 dependency closure, bare/worktree support and remote Git are deferred.
+
+### CT-COMP-001 pinned source inventory
+
+`pnpm investigate -- --repo <root> --repository-id <uuid> --revision <revision> --browse`
+resolves the revision once, then lists `.ts` candidates by traversing verified
+commit/tree objects only. Inventory browsing does not read blobs. It applies
+separate bounds of 1,000 listed paths, 128 unique trees, 4,096 tree-path visits,
+10,000 parsed tree entries, 1 MiB per metadata object and 4 MiB cumulative
+metadata. Paths use deterministic UTF-8 byte ordering and 50-row CLI pages;
+literal substring search and directory-prefix filtering operate on the bounded
+inventory. Path, tree, visit and entry limits, as well as unsupported paths,
+mark the inventory incomplete. Metadata-object, cumulative-metadata and deadline
+violations return typed errors. The display states when results may omit paths.
+A directory-backed module selection fails when the inventory is incomplete;
+individual files may be selected only from the paths present in that pinned
+inventory.
+
+The same source-selection session continues into analysis. `analyze` passes the
+inventory's resolved full commit ID to CT-SOURCE-001, so later ref movement
+cannot change selected bytes. Exact regular `.ts` blobs are read only after
+selection. Selection remains all-or-error under the existing 20-file,
+256-KiB-per-file and 2-MiB-total limits. No directory, glob, import closure,
+working-tree source, symlink target or submodule is admitted automatically.
+Repeated subtree objects are cached but separately mounted tree paths consume a
+visit budget, preventing a small shared-object DAG from expanding into unbounded
+path enumeration. Inventory is navigation metadata, not proof that a module's
+imports or dependencies are complete.
+
+Acceptance is limited to disposable Git fixtures and measured generated trees.
+No claim is made about repository-wide recall, large-monorepo usability or
+comprehension improvement. Automatic local import/export closure remains a
+separate semantic work package.
+
+`pnpm bench:source-discovery` creates deterministic local Git repositories and
+repeats discovery three times per size. One Windows x64 run on 2026-11-06 used
+Node 24.22.2, Git 2.56.0.windows.2 and 12 reported processors. Timing covers
+revision resolution and metadata discovery, including Git child startup; it
+excludes fixture generation/commit and used the same local repositories for each
+repetition.
+
+| Generated `.ts` files | Returned paths | Unique trees / visits / entries | Median discovery | Observed range | Result                            |
+| --------------------: | -------------: | ------------------------------: | ---------------: | -------------: | --------------------------------- |
+|                    24 |             24 |                      3 / 3 / 27 |          0.980 s |  0.955–1.069 s | complete                          |
+|                   240 |            240 |                     8 / 8 / 248 |          2.291 s |  2.227–2.566 s | complete                          |
+|                 1,200 |          1,000 |                 28 / 28 / 1,072 |          5.931 s |  5.835–6.187 s | truncated at the 1,000-path limit |
+
+Repeated runs produced identical paths, counts and truncation status. These are
+single-machine synthetic measurements with a warm local filesystem cache; they
+are not performance budgets or evidence about real monorepos.
 
 ## 13. Evidence-driven capability assessment
 

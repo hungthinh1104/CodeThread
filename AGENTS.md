@@ -33,8 +33,10 @@ task status; GitHub Issues/Projects own execution tracking.
   dependencies, follow escaping symlinks, expose secrets or substitute
   working-tree source for immutable evidence.
 - The local Git source adapter reads only explicitly selected regular blobs from
-  a resolved commit. It assumes the developer trusts the local Git executable
-  and repository metadata; it is not a sandbox for malicious Git metadata.
+  a resolved commit. CT-COMP-001 browse mode lists bounded committed `.ts`
+  metadata without reading blobs; it does not create an import closure. Both
+  modes assume the developer trusts the local Git executable and repository
+  metadata; neither is a sandbox for malicious Git metadata.
 - Keep canonical product, requirements and architecture documents authoritative.
   Record significant decisions in `docs/decisions/`; do not add duplicate status
   reports. Never copy BA_Helper workflows or modify BA_Helper as part of this

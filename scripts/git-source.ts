@@ -70,11 +70,56 @@ export interface AcquiredGitSources {
   selection: readonly GitSelectionStatus[];
 }
 
+export interface GitSourceDiscoveryRequest {
+  repositoryPath: string;
+  repositoryId: string;
+  revision: string;
+  signal?: AbortSignal;
+}
+
+export type GitDiscoveryTruncationReason =
+  | 'file_limit'
+  | 'tree_limit'
+  | 'tree_visit_limit'
+  | 'entry_limit'
+  | 'unsupported_paths';
+
+export interface GitDiscoveredFile {
+  path: string;
+  mode: '100644' | '100755' | '120000' | '160000';
+}
+
+export interface GitFileInventory {
+  commitId: string;
+  objectFormat: 'sha1' | 'sha256';
+  files: readonly GitDiscoveredFile[];
+  counts: Readonly<{
+    files: number;
+    uniqueTrees: number;
+    treeVisits: number;
+    treeEntries: number;
+  }>;
+  truncated: boolean;
+  truncationReasons: readonly GitDiscoveryTruncationReason[];
+  appliedLimits: Readonly<{
+    files: number;
+    trees: number;
+    treeVisits: number;
+    treeEntries: number;
+    pathComponents: number;
+    objectBytes: number;
+    metadataBytes: number;
+    deadlineMs: number;
+  }>;
+}
+
 const GIT_DEADLINE_MS = 10_000;
 const MAX_OBJECT_BYTES = 1024 * 1024;
 const MAX_METADATA_BYTES = 4 * 1024 * 1024;
 const MAX_VISITED_TREES = 128;
+const MAX_TREE_VISITS = 4_096;
 const MAX_TREE_ENTRIES = 10_000;
+const MAX_DISCOVERY_FILES = 1_000;
 const MAX_PATH_COMPONENTS = 64;
 const MAX_STDERR_BYTES = 8 * 1024;
 const ORDER_BYTES = (left: Buffer, right: Buffer): number =>
@@ -423,10 +468,12 @@ function parseTree(
   bytes: Buffer,
   oidWidth: number,
   remainingEntryLimit: number,
-): TreeEntry[] {
+  allowTruncation = false,
+): { entries: TreeEntry[]; truncated: boolean } {
   const entries: TreeEntry[] = [],
     names = new Set<string>();
-  let cursor = 0;
+  let cursor = 0,
+    truncated = false;
   while (cursor < bytes.length) {
     const space = bytes.indexOf(0x20, cursor),
       nul = bytes.indexOf(0, space + 1);
@@ -451,20 +498,24 @@ function parseTree(
         'CORRUPT_OBJECT',
         'A Git tree entry is malformed.',
       );
+    if (entries.length >= remainingEntryLimit) {
+      if (!allowTruncation)
+        throw new GitSourceError(
+          'RESOURCE_LIMIT',
+          'Selected paths expose too many Git tree entries.',
+        );
+      truncated = true;
+      break;
+    }
     names.add(nameKey);
     entries.push({
       name: Buffer.from(name),
       mode,
       oid: rawOid.toString('hex'),
     });
-    if (entries.length > remainingEntryLimit)
-      throw new GitSourceError(
-        'RESOURCE_LIMIT',
-        'Selected paths expose too many Git tree entries.',
-      );
     cursor = nul + 1 + oidWidth;
   }
-  return entries;
+  return { entries, truncated };
 }
 
 async function assertRepositoryLayout(
@@ -535,8 +586,35 @@ function parseDecimal(value: string): number {
 export async function acquireGitSources(
   request: GitSourceRequest,
 ): Promise<AcquiredGitSources> {
-  const selection = validateSelection(request.selectedPaths),
-    started = Date.now(),
+  const result = await runGitSource(
+    request,
+    validateSelection(request.selectedPaths),
+    'acquire',
+  );
+  if (!('input' in result))
+    throw new Error('Git source acquisition returned an inventory.');
+  return result;
+}
+
+export async function discoverGitFiles(
+  request: GitSourceDiscoveryRequest,
+): Promise<GitFileInventory> {
+  const result = await runGitSource(
+    { ...request, selectedPaths: [] },
+    [],
+    'discover',
+  );
+  if (!('files' in result))
+    throw new Error('Git source discovery returned source bytes.');
+  return result;
+}
+
+async function runGitSource(
+  request: GitSourceRequest,
+  selection: readonly GitSelectionStatus[],
+  mode: 'acquire' | 'discover',
+): Promise<AcquiredGitSources | GitFileInventory> {
+  const started = Date.now(),
     deadlineAt = started + GIT_DEADLINE_MS;
   if (request.signal?.aborted)
     throw failure('CANCELLED', 'Git source acquisition cancelled.', selection);
@@ -902,6 +980,143 @@ export async function acquireGitSources(
         'The selected commit tree ID is malformed.',
         selection,
       );
+    if (mode === 'discover') {
+      const files: GitDiscoveredFile[] = [],
+        reasons = new Set<GitDiscoveryTruncationReason>(),
+        pendingTrees: { path: string; oid: string }[] = [
+          { path: '', oid: rootTree },
+        ],
+        visitedTrees = new Set<string>(),
+        treeCache = new Map<string, readonly TreeEntry[]>();
+      let entryCount = 0,
+        scheduledTreePaths = 1,
+        treeVisitCount = 0,
+        stopped = false;
+      while (pendingTrees.length > 0 && !stopped) {
+        if (Date.now() > deadlineAt)
+          throw failure(
+            'GIT_TIMEOUT',
+            'Git source discovery timed out.',
+            selection,
+          );
+        if (request.signal?.aborted)
+          throw failure(
+            'CANCELLED',
+            'Git source discovery cancelled.',
+            selection,
+          );
+        const current = pendingTrees.pop()!;
+        if (!visitedTrees.has(current.oid)) {
+          if (visitedTrees.size >= MAX_VISITED_TREES) {
+            reasons.add('tree_limit');
+            break;
+          }
+          visitedTrees.add(current.oid);
+        }
+        treeVisitCount++;
+        let entries = treeCache.get(current.oid),
+          parsedTruncated = false;
+        if (!entries) {
+          const tree = (
+            await readObjects([current.oid], 'tree', MAX_OBJECT_BYTES)
+          ).get(current.oid);
+          if (!tree)
+            throw failure(
+              'GIT_PROTOCOL',
+              'A Git tree object was not returned.',
+              selection,
+            );
+          const parsed = parseTree(
+            tree.bytes,
+            width / 2,
+            MAX_TREE_ENTRIES - entryCount,
+            true,
+          );
+          entries = parsed.entries;
+          parsedTruncated = parsed.truncated;
+          entryCount += entries.length;
+          treeCache.set(current.oid, entries);
+        }
+        const directories: { path: string; oid: string }[] = [];
+        for (const entry of [...entries].sort((left, right) =>
+          ORDER_BYTES(left.name, right.name),
+        )) {
+          let name: string;
+          try {
+            name = new TextDecoder('utf-8', { fatal: true }).decode(entry.name);
+          } catch {
+            reasons.add('unsupported_paths');
+            continue;
+          }
+          const path = current.path ? `${current.path}/${name}` : name;
+          if (
+            !isSnapshotPath(path) ||
+            path.split('/').length > MAX_PATH_COMPONENTS ||
+            /\p{Cc}/u.test(path)
+          ) {
+            reasons.add('unsupported_paths');
+            continue;
+          }
+          if (entry.mode === '40000' || entry.mode === '040000') {
+            if (!parsedTruncated) directories.push({ path, oid: entry.oid });
+            continue;
+          }
+          if (!path.endsWith('.ts')) continue;
+          if (files.length >= MAX_DISCOVERY_FILES) {
+            reasons.add('file_limit');
+            stopped = true;
+            break;
+          }
+          files.push({ path, mode: entry.mode });
+        }
+        const remainingVisits = MAX_TREE_VISITS - scheduledTreePaths,
+          scheduledDirectories = directories.slice(0, remainingVisits);
+        if (scheduledDirectories.length < directories.length)
+          reasons.add('tree_visit_limit');
+        scheduledTreePaths += scheduledDirectories.length;
+        for (const directory of scheduledDirectories.reverse())
+          pendingTrees.push(directory);
+        if (parsedTruncated) {
+          reasons.add('entry_limit');
+          stopped = true;
+        }
+      }
+      files.sort((left, right) =>
+        Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)),
+      );
+      const truncationOrder: GitDiscoveryTruncationReason[] = [
+        'file_limit',
+        'tree_limit',
+        'tree_visit_limit',
+        'entry_limit',
+        'unsupported_paths',
+      ];
+      return {
+        commitId: resolved,
+        objectFormat: format,
+        files,
+        counts: {
+          files: files.length,
+          uniqueTrees: visitedTrees.size,
+          treeVisits: treeVisitCount,
+          treeEntries: entryCount,
+        },
+        truncated: reasons.size > 0,
+        truncationReasons: truncationOrder.filter((reason) =>
+          reasons.has(reason),
+        ),
+        appliedLimits: {
+          files: MAX_DISCOVERY_FILES,
+          trees: MAX_VISITED_TREES,
+          treeVisits: MAX_TREE_VISITS,
+          treeEntries: MAX_TREE_ENTRIES,
+          pathComponents: MAX_PATH_COMPONENTS,
+          objectBytes: MAX_OBJECT_BYTES,
+          metadataBytes: MAX_METADATA_BYTES,
+          deadlineMs: GIT_DEADLINE_MS,
+        },
+      };
+    }
     const orderedPaths = [...request.selectedPaths].sort((left, right) =>
       Buffer.compare(Buffer.from(left), Buffer.from(right)),
     );
@@ -954,11 +1169,17 @@ export async function acquireGitSources(
       );
       const newTrees = await readObjects(treeIds, 'tree', MAX_OBJECT_BYTES);
       for (const [oid, object] of newTrees) {
-        const entries = parseTree(
+        const { entries, truncated } = parseTree(
           object.bytes,
           width / 2,
           MAX_TREE_ENTRIES - entryCount,
         );
+        if (truncated)
+          throw failure(
+            'RESOURCE_LIMIT',
+            'Selected paths expose too many Git tree entries.',
+            selection,
+          );
         entryCount += entries.length;
         treeCache.set(oid, entries);
       }

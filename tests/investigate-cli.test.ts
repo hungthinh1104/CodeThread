@@ -6,7 +6,11 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyzeManifest } from '@codethread/symbol-indexer';
-import { acquireGitSources, GitSourceError } from '../scripts/git-source.ts';
+import {
+  acquireGitSources,
+  discoverGitFiles,
+  GitSourceError,
+} from '../scripts/git-source.ts';
 
 const scriptPath = resolve(
   fileURLToPath(new URL('../scripts/investigate.ts', import.meta.url)),
@@ -177,6 +181,109 @@ async function createCommittedRepository(
   return { directory, revision };
 }
 
+describe('pinned Git source discovery', () => {
+  it('lists only committed TypeScript paths from the resolved tree in byte order', async () => {
+    const { directory, revision } = await createCommittedRepository([
+      { path: 'src/zeta.ts', source: 'export function zeta() {}\n' },
+      { path: 'src/a space.ts', source: 'export function alpha() {}\n' },
+      { path: 'README.md', source: 'working tree metadata only\n' },
+    ]);
+    await writeFile(resolve(directory, 'src/dirty.ts'), 'dirty\n', 'utf8');
+
+    const inventory = await discoverGitFiles({
+      repositoryPath: directory,
+      repositoryId: '00000000-0000-4000-8000-000000000012',
+      revision: 'HEAD',
+    });
+
+    expect(inventory).toMatchObject({
+      commitId: revision,
+      truncated: false,
+      files: [
+        { path: 'src/a space.ts', mode: '100644' },
+        { path: 'src/zeta.ts', mode: '100644' },
+      ],
+    });
+  });
+
+  it('does not read source blobs until an explicit selection is acquired', async () => {
+    const { directory, revision } = await createCommittedRepository([
+      { path: 'src/missing.ts', source: 'export function retained() {}\n' },
+    ]);
+    const blobId = (
+      await runGitFixture(directory, [
+        'rev-parse',
+        `${revision}:src/missing.ts`,
+      ])
+    ).trim();
+    await rm(
+      resolve(
+        directory,
+        '.git',
+        'objects',
+        blobId.slice(0, 2),
+        blobId.slice(2),
+      ),
+      { force: true },
+    );
+
+    const inventory = await discoverGitFiles({
+      repositoryPath: directory,
+      repositoryId: '00000000-0000-4000-8000-000000000012',
+      revision,
+    });
+    expect(inventory.files).toEqual([
+      { path: 'src/missing.ts', mode: '100644' },
+    ]);
+    await expect(
+      acquireGitSources({
+        repositoryPath: directory,
+        repositoryId: '00000000-0000-4000-8000-000000000012',
+        revision: inventory.commitId,
+        selectedPaths: ['src/missing.ts'],
+      }),
+    ).rejects.toMatchObject({ code: 'MISSING_OBJECT' });
+  });
+
+  it('bounds repeated traversal of shared tree objects and reports truncation', async () => {
+    const { directory } = await createCommittedRepository([
+      { path: 'placeholder.ts', source: 'export function placeholder() {}\n' },
+    ]);
+    let repeatedTree = await writeFixtureTree(directory, []);
+    for (let depth = 0; depth < 13; depth++)
+      repeatedTree = await writeFixtureTree(directory, [
+        { mode: '40000', type: 'tree', oid: repeatedTree, name: 'a' },
+        { mode: '40000', type: 'tree', oid: repeatedTree, name: 'b' },
+      ]);
+    const rootTree = await writeFixtureTree(directory, [
+      { mode: '40000', type: 'tree', oid: repeatedTree, name: 'src' },
+    ]);
+    const commit = (
+      await runGitFixture(directory, [
+        '-c',
+        'user.name=CodeThread Test',
+        '-c',
+        'user.email=codethread-test@example.invalid',
+        'commit-tree',
+        rootTree,
+        '-m',
+        'shared subtree fixture',
+      ])
+    ).trim();
+
+    const inventory = await discoverGitFiles({
+      repositoryPath: directory,
+      repositoryId: '00000000-0000-4000-8000-000000000012',
+      revision: commit,
+    });
+
+    expect(inventory.files).toEqual([]);
+    expect(inventory.truncated).toBe(true);
+    expect(inventory.truncationReasons).toContain('tree_visit_limit');
+    expect(inventory.appliedLimits.treeVisits).toBe(4096);
+  });
+});
+
 async function writeFixtureTree(
   directory: string,
   entries: readonly { mode: string; type: string; oid: string; name: string }[],
@@ -197,6 +304,161 @@ async function writeFixtureTree(
 }
 
 describe('textual investigation CLI', () => {
+  it('atomically selects and analyzes a complete directory-backed module', async () => {
+    const { directory, revision } = await createCommittedRepository([
+      { path: 'src/a.ts', source: 'export function a() {}\n' },
+      { path: 'src/nested/b.ts', source: 'export function b() {}\n' },
+      { path: 'src/λ.ts', source: 'export function lambda() {}\n' },
+      {
+        path: `src/${String.fromCodePoint(0x202e)}file.ts`,
+        source: 'export function escapedPath() {}\n',
+      },
+    ]);
+    const result = await runCli(
+      [
+        '--repo',
+        directory,
+        '--repository-id',
+        '00000000-0000-4000-8000-000000000012',
+        '--revision',
+        revision,
+        '--browse',
+      ],
+      'select-module src\nanalyze\nfiles\nquit\n',
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain('Selected 4 files from "src/" atomically.');
+    expect(result.stdout).toContain('Source selection: 4 selected, 4 admitted');
+    expect(result.stdout).toContain('Loaded 4 files');
+    expect(result.stdout).toContain('src/λ.ts');
+    expect(result.stdout).not.toContain(String.fromCodePoint(0x202e));
+  });
+
+  it('rejects an over-limit module atomically without analyzing a prefix', async () => {
+    const files = Array.from({ length: 21 }, (_, index) => ({
+      path: `src/file-${String(index).padStart(2, '0')}.ts`,
+      source: `export function item${index}() {}\n`,
+    }));
+    const { directory, revision } = await createCommittedRepository(files);
+    const result = await runCli(
+      [
+        '--repo',
+        directory,
+        '--repository-id',
+        '00000000-0000-4000-8000-000000000012',
+        '--revision',
+        revision,
+        '--browse',
+      ],
+      'select-module src\n',
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('ERROR[RESOURCE_LIMIT]');
+    expect(result.stderr).toContain('20-file limit');
+    expect(result.stdout).not.toContain('Source selection:');
+    expect(result.stdout).not.toContain('STATIC RELATIONSHIPS ONLY');
+  });
+
+  it('rejects module selection from an incomplete inventory without analyzing a subset', async () => {
+    const { directory, revision } = await createCommittedRepository([
+      { path: 'placeholder.ts', source: 'export function retained() {}\n' },
+    ]);
+    const blobId = (
+      await runGitFixture(directory, [
+        'rev-parse',
+        `${revision}:placeholder.ts`,
+      ])
+    ).trim();
+    let repeatedTree = await writeFixtureTree(directory, [
+      { mode: '100644', type: 'blob', oid: blobId, name: 'file.ts' },
+    ]);
+    for (let depth = 0; depth < 10; depth++)
+      repeatedTree = await writeFixtureTree(directory, [
+        { mode: '40000', type: 'tree', oid: repeatedTree, name: 'a' },
+        { mode: '40000', type: 'tree', oid: repeatedTree, name: 'b' },
+      ]);
+    const rootTree = await writeFixtureTree(directory, [
+      { mode: '40000', type: 'tree', oid: repeatedTree, name: 'src' },
+    ]);
+    const commit = (
+      await runGitFixture(directory, [
+        '-c',
+        'user.name=CodeThread Test',
+        '-c',
+        'user.email=codethread-test@example.invalid',
+        'commit-tree',
+        rootTree,
+        '-m',
+        'oversized module inventory fixture',
+      ])
+    ).trim();
+    const result = await runCli(
+      [
+        '--repo',
+        directory,
+        '--repository-id',
+        '00000000-0000-4000-8000-000000000012',
+        '--revision',
+        commit,
+        '--browse',
+      ],
+      'select-module src\n',
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('ERROR[SOURCE_INVENTORY_INCOMPLETE]');
+    expect(result.stdout).toContain('file_limit');
+    expect(result.stdout).not.toContain('STATIC RELATIONSHIPS ONLY');
+  });
+
+  it('browses committed files and continues into the existing investigation session', async () => {
+    const { directory, revision } = await createCommittedRepository([
+      {
+        path: 'src/a space.ts',
+        source:
+          'export function root() { target(); }\nexport function target() {}\n',
+      },
+    ]);
+    await writeFile(
+      resolve(directory, 'src/a space.ts'),
+      'working tree only\n',
+    );
+    const result = await runCli(
+      [
+        '--repo',
+        directory,
+        '--repository-id',
+        '00000000-0000-4000-8000-000000000012',
+        '--revision',
+        'HEAD',
+        '--browse',
+      ],
+      [
+        'search "a space"',
+        'select "src/a space.ts"',
+        'analyze',
+        'symbols',
+        'inspect "src/a space.ts@1:1" calls outgoing',
+        'evidence symbol "src/a space.ts@1:1"',
+        'quit',
+        '',
+      ].join('\n'),
+    );
+
+    expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toContain(`Pinned Git commit: ${revision} (sha1).`);
+    expect(result.stdout).toContain('Source selection: 1 selected, 1 admitted');
+    expect(result.stdout).toContain('src/a space.ts');
+    expect(result.stdout).toContain('[CALLS exact] outgoing');
+    expect(result.stdout).toContain('target');
+    expect(result.stdout).toContain('export function root() { target(); }');
+    expect(result.stdout).not.toContain('working tree only');
+  });
+
   it('supports a pinned source investigation with typed references, follow and verified evidence', async () => {
     const result = await runCli(
       ['--demo', 'todo'],

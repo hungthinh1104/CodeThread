@@ -29,10 +29,16 @@ import {
 } from './external-semantic-corpus.ts';
 import {
   acquireGitSources,
+  discoverGitFiles,
   GitSourceError,
   summarizeSelection,
 } from './git-source.ts';
-import type { AcquiredGitSources, GitSelectionStatus } from './git-source.ts';
+import type {
+  AcquiredGitSources,
+  GitDiscoveredFile,
+  GitFileInventory,
+  GitSelectionStatus,
+} from './git-source.ts';
 import { runViewer } from './viewer.ts';
 
 const MAX_MANIFEST_BYTES = 3 * 1024 * 1024;
@@ -42,6 +48,7 @@ const MAX_TOTAL_SOURCE_BYTES = ANALYSIS_LIMITS.maxTotalBytes;
 const MAX_SESSION_COMMANDS = 100;
 const MAX_COMMAND_LENGTH = 4096;
 const MAX_RESPONSE_BYTES = 64 * 1024;
+const DISCOVERY_PAGE_SIZE = 50;
 const MAX_SYMBOL_ROWS = 100;
 const MAX_RELATION_ROWS = 20;
 const MAX_UNKNOWN_ROWS = 10;
@@ -52,6 +59,80 @@ const BASE64_PATTERN =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const ORDER = (left: string, right: string): number =>
   left < right ? -1 : left > right ? 1 : 0;
+
+interface CliLineInput extends AsyncIterable<string> {
+  terminal: boolean;
+  setPrompt(prompt: string): void;
+  prompt(): void;
+  close(): void;
+}
+
+interface SessionCommandBudget {
+  used: number;
+}
+
+function createCliLineInput(): CliLineInput {
+  const input = process.stdin,
+    output = process.stdout,
+    terminal = Boolean(input.isTTY && output.isTTY),
+    readline = createInterface({ input, output, terminal }),
+    queued: string[] = [],
+    waiters: ((line: string | undefined) => void)[] = [];
+  let closed = false,
+    inputError: CliError | undefined;
+  readline.on('line', (line) => {
+    if (inputError) return;
+    if (line.length > MAX_COMMAND_LENGTH) {
+      inputError = new CliError(
+        'COMMAND_TOO_LONG',
+        `Command exceeds ${MAX_COMMAND_LENGTH} characters.`,
+      );
+      queued.length = 0;
+      readline.close();
+      return;
+    }
+    if (queued.length >= MAX_SESSION_COMMANDS) {
+      inputError = new CliError(
+        'SESSION_LIMIT',
+        `Session is limited to ${MAX_SESSION_COMMANDS} commands.`,
+      );
+      queued.length = 0;
+      readline.close();
+      return;
+    }
+    const next = waiters.shift();
+    if (next) next(line);
+    else queued.push(line);
+  });
+  readline.once('close', () => {
+    closed = true;
+    while (waiters.length > 0) waiters.shift()!(undefined);
+  });
+  const nextLine = (): Promise<string | undefined> => {
+    if (inputError) return Promise.reject(inputError);
+    if (queued.length > 0) return Promise.resolve(queued.shift()!);
+    if (closed) return Promise.resolve(undefined);
+    return new Promise<string | undefined>((resolveLine) =>
+      waiters.push(resolveLine),
+    ).then((line) => {
+      if (inputError) throw inputError;
+      return line;
+    });
+  };
+  return {
+    terminal,
+    setPrompt: (prompt) => readline.setPrompt(prompt),
+    prompt: () => readline.prompt(),
+    close: () => readline.close(),
+    async *[Symbol.asyncIterator]() {
+      for (;;) {
+        const line = await nextLine();
+        if (line === undefined) return;
+        yield line;
+      }
+    },
+  };
+}
 
 const supportedRelationKinds = [
   'calls',
@@ -988,26 +1069,26 @@ function printError(error: unknown): void {
   }
 }
 
-async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
+async function startSession(
+  snapshot: AnalysisSnapshot,
+  input = createCliLineInput(),
+  budget: SessionCommandBudget = { used: 0 },
+): Promise<void> {
   const investigation = createInvestigation(snapshot.facts, snapshot.source),
     targets = new Map<string, CodeSymbol>(),
-    input = process.stdin,
-    output = process.stdout,
-    terminal = Boolean(input.isTTY && output.isTTY),
-    readline = createInterface({ input, output, terminal });
+    terminal = input.terminal;
   let lastKinds: RelationKind[] = ['calls'],
-    lastDirection: Direction = 'both',
-    commands = 0;
+    lastDirection: Direction = 'both';
   writePage(overviewBlocks(snapshot));
   if (terminal) {
-    readline.setPrompt('ct> ');
-    readline.prompt();
+    input.setPrompt('ct> ');
+    input.prompt();
   }
   try {
-    for await (const line of readline) {
-      commands++;
+    for await (const line of input) {
+      budget.used++;
       try {
-        if (commands > MAX_SESSION_COMMANDS)
+        if (budget.used > MAX_SESSION_COMMANDS)
           throw new CliError(
             'SESSION_LIMIT',
             `Session is limited to ${MAX_SESSION_COMMANDS} commands.`,
@@ -1015,11 +1096,11 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
         const tokens = tokenize(line),
           [command, ...args] = tokens;
         if (!command) {
-          if (terminal) readline.prompt();
+          if (terminal) input.prompt();
           continue;
         }
         if (command === 'quit' || command === 'exit') {
-          readline.close();
+          input.close();
           break;
         }
         if (command === 'help') {
@@ -1103,15 +1184,297 @@ async function startSession(snapshot: AnalysisSnapshot): Promise<void> {
         printError(error);
         if (!terminal) {
           process.exitCode = 2;
-          readline.close();
+          input.close();
           break;
         }
       }
-      if (terminal) readline.prompt();
+      if (terminal) input.prompt();
     }
   } finally {
-    readline.close();
+    input.close();
   }
+}
+
+function directoryPrefix(value: string): string {
+  const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
+  if (!isSnapshotPath(normalized) || /\p{Cc}/u.test(normalized))
+    throw new CliError('INVALID_SELECTION', 'Module path is not supported.');
+  return `${normalized}/`;
+}
+
+function matchesPrefix(path: string, value: string): boolean {
+  const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
+  return path === normalized || path.startsWith(`${normalized}/`);
+}
+
+function parseOffset(value: string | undefined, maximum: number): number {
+  if (value === undefined) return 0;
+  if (!/^(0|[1-9][0-9]*)$/.test(value))
+    throw new CliError(
+      'INVALID_COMMAND',
+      'Offset must be a nonnegative integer.',
+    );
+  const offset = Number(value);
+  if (!Number.isSafeInteger(offset) || offset > maximum)
+    throw new CliError('INVALID_COMMAND', 'Offset is outside the result set.');
+  return offset;
+}
+
+function sourcePathPage(
+  inventory: GitFileInventory,
+  entries: readonly GitDiscoveredFile[],
+  offset: number,
+  label: string,
+): string[] {
+  const prefix = `Showing ${label} from ${offset}; page size ${DISCOVERY_PAGE_SIZE}.`,
+    header = inventory.truncated
+      ? `Inventory is incomplete (${inventory.truncationReasons.join(', ')}); search results may omit paths.`
+      : 'Inventory is complete for committed .ts entries; nonregular modes cannot be selected.',
+    blocks = [prefix, header],
+    rows = entries.slice(offset, offset + DISCOVERY_PAGE_SIZE);
+  let used = Buffer.byteLength(`${prefix}\n${header}\n`);
+  let shown = 0;
+  for (const file of rows) {
+    const row = `${commandArgument(file.path)} [${file.mode}]`;
+    const bytes = Buffer.byteLength(`${row}\n`);
+    if (used + bytes + 256 > MAX_RESPONSE_BYTES) break;
+    blocks.push(row);
+    used += bytes;
+    shown++;
+  }
+  const next = offset + shown;
+  blocks.push(
+    shown === 0 && entries.length > offset
+      ? 'The next path is too large to display within the response limit.'
+      : next < entries.length
+        ? `More results remain; use offset ${next}.`
+        : `${shown} path${shown === 1 ? '' : 's'} shown; no more matches in this inventory.`,
+  );
+  return blocks;
+}
+
+async function startSourceSelectionSession(
+  inventory: GitFileInventory,
+  signal: AbortSignal,
+  input: CliLineInput,
+  budget: SessionCommandBudget,
+): Promise<string[] | null> {
+  const terminal = input.terminal,
+    knownFiles = new Map(inventory.files.map((file) => [file.path, file])),
+    selected = new Map<string, GitDiscoveredFile>();
+  const onAbort = () => input.close();
+  signal.addEventListener('abort', onAbort, { once: true });
+  writePage([
+    `Pinned Git commit: ${inventory.commitId} (${inventory.objectFormat}).`,
+    `Inventory contains ${inventory.counts.files} committed .ts path candidates; ${inventory.counts.uniqueTrees} unique trees, ${inventory.counts.treeVisits} tree-path visits and ${inventory.counts.treeEntries} tree entries processed; source blobs are not read until analyze.`,
+    `Inventory status: ${inventory.truncated ? `truncated (${inventory.truncationReasons.join(', ')})` : 'complete'}.`,
+    `Limits: ${inventory.appliedLimits.files} listed paths, ${inventory.appliedLimits.trees} unique trees, ${inventory.appliedLimits.treeVisits} tree-path visits, ${inventory.appliedLimits.treeEntries} tree entries, ${inventory.appliedLimits.pathComponents} path components, ${inventory.appliedLimits.objectBytes} bytes per metadata object, ${inventory.appliedLimits.metadataBytes} metadata bytes and ${inventory.appliedLimits.deadlineMs} ms; analysis allows ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes per file and ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
+    'Commands: files [directory-prefix] [offset] | search <literal> [offset] | select <file-path> | select-module <directory> | remove <file-path> | selected [offset] | analyze | help | quit',
+  ]);
+  writePage(sourcePathPage(inventory, inventory.files, 0, 'committed paths'));
+  if (terminal) {
+    input.setPrompt('ct-source> ');
+    input.prompt();
+  }
+  let result: string[] | null = null;
+  try {
+    for await (const line of input) {
+      budget.used++;
+      try {
+        if (signal.aborted) return null;
+        if (budget.used > MAX_SESSION_COMMANDS)
+          throw new CliError(
+            'SESSION_LIMIT',
+            `Source selection is limited to ${MAX_SESSION_COMMANDS} commands.`,
+          );
+        const tokens = tokenize(line),
+          [command, ...args] = tokens;
+        if (!command) {
+          if (terminal) input.prompt();
+          continue;
+        }
+        if (command === 'quit' || command === 'exit') {
+          input.close();
+          break;
+        }
+        if (command === 'help') {
+          if (args.length > 0)
+            throw new CliError('INVALID_COMMAND', 'help takes no arguments.');
+          writePage([
+            'files [directory-prefix] [offset] lists committed .ts paths.',
+            'search <literal> [offset] searches path text without glob expansion.',
+            'select <file-path> adds one displayed regular .ts file.',
+            'select-module <directory> atomically adds regular .ts files beneath a complete directory inventory.',
+            'analyze reads only selected committed blobs and starts the existing investigation session.',
+            'The inventory is pinned to one commit; dirty working-tree files are ignored.',
+          ]);
+        } else if (command === 'files') {
+          if (args.length > 2)
+            throw new CliError(
+              'INVALID_COMMAND',
+              'Usage: files [directory-prefix] [offset].',
+            );
+          const matches = args[0]
+            ? inventory.files.filter((file) =>
+                matchesPrefix(file.path, args[0]!),
+              )
+            : inventory.files;
+          const offset = parseOffset(args[1], matches.length);
+          writePage(
+            sourcePathPage(inventory, matches, offset, 'matching paths'),
+          );
+        } else if (command === 'search') {
+          if (args.length < 1 || args.length > 2)
+            throw new CliError(
+              'INVALID_COMMAND',
+              'Usage: search <literal> [offset].',
+            );
+          if (args[0]!.length === 0 || /\p{Cc}/u.test(args[0]!))
+            throw new CliError(
+              'INVALID_COMMAND',
+              'Search text must be nonempty and contain no controls.',
+            );
+          const matches = inventory.files.filter((file) =>
+              file.path.includes(args[0]!),
+            ),
+            offset = parseOffset(args[1], matches.length);
+          writePage(
+            sourcePathPage(inventory, matches, offset, 'search matches'),
+          );
+        } else if (command === 'select') {
+          if (args.length !== 1)
+            throw new CliError('INVALID_COMMAND', 'Usage: select <file-path>.');
+          const file = knownFiles.get(args[0]!);
+          if (!file)
+            throw new GitSourceError(
+              'FILE_NOT_FOUND',
+              'Path is not present in the pinned TypeScript inventory.',
+            );
+          if (file.mode !== '100644' && file.mode !== '100755')
+            throw new GitSourceError(
+              'UNSUPPORTED_FILE_MODE',
+              'Selected source is not a regular Git blob.',
+            );
+          if (selected.has(file.path))
+            throw new CliError(
+              'INVALID_SELECTION',
+              'File is already selected.',
+            );
+          if (
+            [...selected.keys()].some(
+              (path) => path.toLowerCase() === file.path.toLowerCase(),
+            )
+          )
+            throw new CliError(
+              'INVALID_SELECTION',
+              'Case-equivalent source paths cannot be selected together.',
+            );
+          if (selected.size >= MAX_SOURCE_FILES)
+            throw new GitSourceError(
+              'RESOURCE_LIMIT',
+              `Selection exceeds the ${MAX_SOURCE_FILES}-file limit.`,
+            );
+          selected.set(file.path, file);
+          writePage([`Selected ${commandArgument(file.path)}.`]);
+        } else if (command === 'select-module') {
+          if (args.length !== 1)
+            throw new CliError(
+              'INVALID_COMMAND',
+              'Usage: select-module <directory>.',
+            );
+          if (inventory.truncated)
+            throw new CliError(
+              'SOURCE_INVENTORY_INCOMPLETE',
+              'A module set cannot be selected from an incomplete inventory.',
+            );
+          const prefix = directoryPrefix(args[0]!),
+            candidates = inventory.files.filter((file) =>
+              file.path.startsWith(prefix),
+            );
+          if (candidates.length === 0)
+            throw new GitSourceError(
+              'FILE_NOT_FOUND',
+              'Directory contains no supported TypeScript files.',
+            );
+          if (
+            candidates.some(
+              (file) => file.mode !== '100644' && file.mode !== '100755',
+            )
+          )
+            throw new GitSourceError(
+              'UNSUPPORTED_FILE_MODE',
+              'The selected module contains a non-regular TypeScript entry.',
+            );
+          const combined = [...selected.values(), ...candidates],
+            seen = new Set<string>();
+          if (combined.length > MAX_SOURCE_FILES)
+            throw new GitSourceError(
+              'RESOURCE_LIMIT',
+              `Selection exceeds the ${MAX_SOURCE_FILES}-file limit.`,
+            );
+          for (const file of combined) {
+            const folded = file.path.toLowerCase();
+            if (seen.has(folded))
+              throw new CliError(
+                'INVALID_SELECTION',
+                'A module selection overlaps an existing or case-equivalent path.',
+              );
+            seen.add(folded);
+          }
+          for (const file of candidates) selected.set(file.path, file);
+          writePage([
+            `Selected ${candidates.length} files from ${commandArgument(prefix)} atomically.`,
+          ]);
+        } else if (command === 'remove') {
+          if (args.length !== 1)
+            throw new CliError('INVALID_COMMAND', 'Usage: remove <file-path>.');
+          if (!selected.delete(args[0]!))
+            throw new CliError('FILE_NOT_FOUND', 'File is not selected.');
+          writePage([`Removed ${commandArgument(args[0]!)}.`]);
+        } else if (command === 'selected') {
+          if (args.length > 1)
+            throw new CliError('INVALID_COMMAND', 'Usage: selected [offset].');
+          const values = [...selected.values()].sort((left, right) =>
+            Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)),
+          );
+          const offset = parseOffset(args[0], values.length);
+          writePage(
+            sourcePathPage(inventory, values, offset, 'selected paths'),
+          );
+        } else if (command === 'analyze') {
+          if (args.length > 0)
+            throw new CliError(
+              'INVALID_COMMAND',
+              'analyze takes no arguments.',
+            );
+          if (selected.size === 0)
+            throw new CliError(
+              'INVALID_SELECTION',
+              'Select at least one file before analysis.',
+            );
+          result = [...selected.keys()].sort((left, right) =>
+            Buffer.compare(Buffer.from(left), Buffer.from(right)),
+          );
+          break;
+        } else
+          throw new CliError(
+            'INVALID_COMMAND',
+            `Unknown source-selection command ${quoted(command)}.`,
+          );
+      } catch (error) {
+        printError(error);
+        if (!terminal) {
+          process.exitCode = 2;
+          input.close();
+          break;
+        }
+      }
+      if (terminal) input.prompt();
+    }
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+  }
+  return result;
 }
 
 type InvestigationCommand =
@@ -1123,6 +1486,7 @@ type InvestigationCommand =
       repositoryId: string;
       revision: string;
       selectedPaths: string[];
+      browse: boolean;
       view: boolean;
     }
   | { kind: 'help' };
@@ -1156,7 +1520,8 @@ function parseArguments(args: readonly string[]): InvestigationCommand {
   ) {
     let repositoryPath: string | undefined,
       repositoryId: string | undefined,
-      revision: string | undefined;
+      revision: string | undefined,
+      browse = false;
     const selectedPaths: string[] = [];
     const setValue = (option: string, value: string): void => {
       if (option === '--repo') {
@@ -1184,6 +1549,15 @@ function parseArguments(args: readonly string[]): InvestigationCommand {
     };
     for (let index = 0; index < sourceArgs.length; index++) {
       const argument = sourceArgs[index]!;
+      if (argument === '--browse') {
+        if (browse)
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            '--browse may be specified once.',
+          );
+        browse = true;
+        continue;
+      }
       const equals = /^(--repo|--repository-id|--revision|--file)=(.*)$/.exec(
         argument,
       );
@@ -1216,11 +1590,11 @@ function parseArguments(args: readonly string[]): InvestigationCommand {
       !repositoryPath ||
       !repositoryId ||
       !revision ||
-      selectedPaths.length === 0
+      (browse ? selectedPaths.length !== 0 : selectedPaths.length === 0)
     )
       throw new CliError(
         'INVALID_ARGUMENT',
-        'Usage: pnpm investigate -- --repo <root> --repository-id <uuid> --revision <commit|HEAD|refs/heads/...|refs/tags/...> --file <path> [--file=<path> ...].',
+        'Usage: pnpm investigate -- --repo <root> --repository-id <uuid> --revision <commit|HEAD|refs/heads/...|refs/tags/...> (--browse | --file <path> [--file=<path> ...]).',
       );
     return {
       kind: 'git',
@@ -1228,6 +1602,7 @@ function parseArguments(args: readonly string[]): InvestigationCommand {
       repositoryId,
       revision,
       selectedPaths,
+      browse,
       view,
     };
   }
@@ -1240,14 +1615,16 @@ function parseArguments(args: readonly string[]): InvestigationCommand {
 async function runInvestigationCli(
   args = process.argv.slice(2),
 ): Promise<void> {
-  let acquired: AcquiredGitSources | undefined;
+  let acquired: AcquiredGitSources | undefined,
+    cliInput: CliLineInput | undefined;
+  const commandBudget: SessionCommandBudget = { used: 0 };
   try {
     const command = parseArguments(args);
     if (command.kind === 'help') {
       writePage([
         'CodeThread bounded textual source investigation.',
         'Usage: pnpm investigate -- [--view] --manifest <manifest.json>',
-        '       pnpm investigate -- [--view] --repo <root> --repository-id <uuid> --revision <revision> --file <path> [--file=<path> ...]',
+        '       pnpm investigate -- [--view] --repo <root> --repository-id <uuid> --revision <revision> (--browse | --file <path> [--file=<path> ...])',
         'Pinned examples: pnpm demo:investigation | pnpm demo:visual',
         `Manifest limit: ${MAX_MANIFEST_BYTES} bytes; source limits: ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes/file, ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
       ]);
@@ -1262,11 +1639,36 @@ async function runInvestigationCli(
         onInterrupt = () => controller.abort();
       process.once('SIGINT', onInterrupt);
       try {
+        let revision = command.revision,
+          selectedPaths = command.selectedPaths;
+        if (command.browse) {
+          const inventory = await discoverGitFiles({
+            repositoryPath: command.repositoryPath,
+            repositoryId: command.repositoryId,
+            revision: command.revision,
+            signal: controller.signal,
+          });
+          cliInput = createCliLineInput();
+          const selected = await startSourceSelectionSession(
+            inventory,
+            controller.signal,
+            cliInput,
+            commandBudget,
+          );
+          if (controller.signal.aborted)
+            throw new GitSourceError(
+              'CANCELLED',
+              'Git source selection cancelled.',
+            );
+          if (selected === null) return;
+          revision = inventory.commitId;
+          selectedPaths = selected;
+        }
         acquired = await acquireGitSources({
           repositoryPath: command.repositoryPath,
           repositoryId: command.repositoryId,
-          revision: command.revision,
-          selectedPaths: command.selectedPaths,
+          revision,
+          selectedPaths,
           signal: controller.signal,
         });
       } finally {
@@ -1309,9 +1711,12 @@ async function runInvestigationCli(
         ),
       ]);
     }
-    if (command.view) await runViewer(snapshot);
-    else await startSession(snapshot);
+    if (command.view) {
+      cliInput?.close();
+      await runViewer(snapshot);
+    } else await startSession(snapshot, cliInput, commandBudget);
   } catch (error) {
+    cliInput?.close();
     printError(error);
     process.exitCode =
       error instanceof GitSourceError && error.code === 'CANCELLED' ? 130 : 2;
