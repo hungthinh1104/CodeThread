@@ -21,6 +21,28 @@ acceptance:
     then:
       'Its treatment and conclusions remain separate from the visualization
       comparison.'
+  - id: AC-04
+    given:
+      'A structurally valid participant answer cites incorrect source evidence'
+    then:
+      'The original citation remains unchanged, the dataset remains valid, and
+      the incorrect evidence anchor earns zero.'
+  - id: AC-05
+    given:
+      'A result is marked tool_failure, with or without captured partial answers'
+    then:
+      'The failure remains separately counted and the entire record is excluded
+      from objective denominators and missed-answer counts.'
+  - id: AC-06
+    given: 'A result dataset is prepared for collection or scoring'
+    then:
+      'Its provenance binds the canonical task bank, scoring policy, study
+      version, and exact clean scorer commit; mismatches fail without migration.'
+  - id: AC-07
+    given: 'An answer key used by a result has not passed independent review'
+    then:
+      'Participant scoring is refused; only the separately labeled synthetic
+      engineering demonstration may use that answer key.'
 depends_on:
   - CT-TRACE-001
 verification:

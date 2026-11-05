@@ -1,22 +1,50 @@
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { validateStudyTaskDataset } from '../scripts/study-tasks.ts';
 import {
-  createStudyResultProvenance,
-  scoreStudyResults,
-  scoreSyntheticStudyResults,
+  createStudyResultProvenance as makeStudyResultProvenance,
+  scoreStudyResults as scoreParticipantResults,
+  scoreSyntheticStudyResults as scoreSyntheticResults,
   studyScoringPolicyDigest,
   STUDY_SCORING_POLICY,
+  SYNTHETIC_SCORER_REVISION,
   StudyResultError,
 } from '../scripts/study-results.ts';
-import { runStudyCommand } from '../scripts/study.ts';
+import {
+  resolveStudyScorerRevision,
+  runStudyCommand,
+} from '../scripts/study.ts';
 
 const taskPath = resolve('docs/evaluation/tasks.json');
 const repositoryRoot = process.cwd();
+const TEST_SCORER_REVISION = '1'.repeat(40);
+
+function createStudyResultProvenance(
+  tasks: unknown,
+  scorerRevision = TEST_SCORER_REVISION,
+) {
+  return makeStudyResultProvenance(tasks, scorerRevision);
+}
+
+function scoreStudyResults(
+  input: unknown,
+  tasks: unknown,
+  scorerRevision = TEST_SCORER_REVISION,
+) {
+  return scoreParticipantResults(input, tasks, scorerRevision);
+}
+
+function scoreSyntheticStudyResults(
+  input: unknown,
+  tasks: unknown,
+  scorerRevision = TEST_SCORER_REVISION,
+) {
+  return scoreSyntheticResults(input, tasks, scorerRevision);
+}
 
 function readTaskDataset(): Record<string, unknown> {
   return JSON.parse(readFileSync(taskPath, 'utf8')) as Record<string, unknown>;
@@ -34,7 +62,9 @@ function reverseObjectKeys(value: unknown): unknown {
   return value;
 }
 
-function syntheticF2Result(): Record<string, unknown> {
+function syntheticF2Result(
+  scorerRevision = TEST_SCORER_REVISION,
+): Record<string, unknown> {
   const dataset = readTaskDataset();
   const tasks = dataset['tasks'] as Array<Record<string, unknown>>;
   const task = tasks.find((candidate) => candidate['id'] === 'CTE-F2-001')!;
@@ -76,9 +106,9 @@ function syntheticF2Result(): Record<string, unknown> {
     ];
   });
   return {
-    schemaVersion: 2,
-    studyVersion: 'CT-EVAL-001A-v1',
-    provenance: createStudyResultProvenance(dataset),
+    schemaVersion: 3,
+    studyVersion: 'CT-EVAL-001A-v2',
+    provenance: createStudyResultProvenance(dataset, scorerRevision),
     results: [
       {
         participantToken: 'P-0123456789ABCDEF',
@@ -103,7 +133,7 @@ function syntheticF2Result(): Record<string, unknown> {
   };
 }
 
-describe('CT-EVAL-001A offline study task validation', () => {
+describe('CT-EVAL study validation and scoring', () => {
   it('validates all candidate and rejected task records against pinned bytes and anchors', async () => {
     const result = await validateStudyTaskDataset(readTaskDataset(), {
       repositoryRoot,
@@ -360,6 +390,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
       {
         taskId: 'CTE-F2-001',
         condition: 'textual',
+        objectiveScoredSubmissions: 1,
         objectiveEarned: 12,
         objectiveAvailable: 12,
         objectiveAccuracy: 1,
@@ -407,6 +438,57 @@ describe('CT-EVAL-001A offline study task validation', () => {
     ).toEqual(report);
   });
 
+  it('emits the exact committed scorer revision for dataset collection', async () => {
+    const result = await runStudyCommand(['provenance']);
+    const provenanceResult = result as {
+      schemaVersion: number;
+      studyVersion: string;
+      provenance: { scorerRevision: string };
+    };
+
+    expect(provenanceResult).toMatchObject({
+      schemaVersion: 3,
+      studyVersion: 'CT-EVAL-001A-v2',
+      provenance: { scorerRevision: resolveStudyScorerRevision() },
+    });
+  });
+
+  it('refuses to issue authoritative scorer provenance from a dirty worktree', async () => {
+    const folder = await mkdtemp(join(tmpdir(), 'codethread-scorer-revision-'));
+    const runGit = (args: string[]) =>
+      spawnSync('git', args, {
+        cwd: folder,
+        encoding: 'utf8',
+        windowsHide: true,
+      });
+    try {
+      expect(runGit(['init', '--quiet']).status).toBe(0);
+      expect(
+        runGit(['config', 'user.email', 'test@example.invalid']).status,
+      ).toBe(0);
+      expect(runGit(['config', 'user.name', 'CodeThread Test']).status).toBe(0);
+      const trackedPath = join(folder, 'tracked.txt');
+      await writeFile(trackedPath, 'committed source\n', 'utf8');
+      expect(runGit(['add', 'tracked.txt']).status).toBe(0);
+      expect(runGit(['commit', '--quiet', '-m', 'test baseline']).status).toBe(
+        0,
+      );
+
+      expect(resolveStudyScorerRevision(folder)).toMatch(/^[0-9a-f]{40}$/);
+      const nestedFolder = join(folder, 'nested');
+      await mkdir(nestedFolder);
+      expect(() => resolveStudyScorerRevision(nestedFolder)).toThrow(
+        expect.objectContaining({ code: 'SCORER_REPOSITORY_ROOT_INVALID' }),
+      );
+      await writeFile(trackedPath, 'changed source\n', 'utf8');
+      expect(() => resolveStudyScorerRevision(folder)).toThrow(
+        expect.objectContaining({ code: 'SCORER_WORKTREE_DIRTY' }),
+      );
+    } finally {
+      await rm(folder, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a result dataset whose answer-key bank has changed', () => {
     const tasks = readTaskDataset();
     const taskRecords = tasks['tasks'] as Array<Record<string, unknown>>;
@@ -448,6 +530,14 @@ describe('CT-EVAL-001A offline study task validation', () => {
     );
   });
 
+  it('rejects results pinned to a different scorer commit', () => {
+    const input = syntheticF2Result();
+
+    expect(() =>
+      scoreSyntheticStudyResults(input, readTaskDataset(), '2'.repeat(40)),
+    ).toThrow(expect.objectContaining({ code: 'SCORER_REVISION_MISMATCH' }));
+  });
+
   it('rejects old schemas and missing result provenance explicitly', () => {
     const missing = syntheticF2Result();
     delete missing['provenance'];
@@ -456,11 +546,25 @@ describe('CT-EVAL-001A offline study task validation', () => {
     ).toThrow(expect.objectContaining({ code: 'RESULT_PROVENANCE_MISSING' }));
 
     const old = syntheticF2Result();
-    old['schemaVersion'] = 1;
+    old['schemaVersion'] = 2;
     delete old['provenance'];
     expect(() => scoreSyntheticStudyResults(old, readTaskDataset())).toThrow(
       expect.objectContaining({ code: 'RESULT_SCHEMA_VERSION_UNSUPPORTED' }),
     );
+
+    const missingScorerRevision = syntheticF2Result();
+    delete (missingScorerRevision['provenance'] as Record<string, unknown>)[
+      'scorerRevision'
+    ];
+    expect(() =>
+      scoreSyntheticStudyResults(missingScorerRevision, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'SCORER_PROVENANCE_MISSING' }));
+
+    const oldStudyVersion = syntheticF2Result();
+    oldStudyVersion['studyVersion'] = 'CT-EVAL-001A-v1';
+    expect(() =>
+      scoreSyntheticStudyResults(oldStudyVersion, readTaskDataset()),
+    ).toThrow(expect.objectContaining({ code: 'STUDY_VERSION_MISMATCH' }));
   });
 
   it('prevents participant scoring until answer keys are independently reviewed', () => {
@@ -477,6 +581,67 @@ describe('CT-EVAL-001A offline study task validation', () => {
       datasetKind: 'SYNTHETIC_ENGINEERING_TEST_ONLY',
       answerKeyReviewStatus: 'AWAITING_INDEPENDENT_REVIEW',
     });
+  });
+
+  it('does not score answers or unanswered assertions from a tool failure', () => {
+    for (const includePartialAnswers of [false, true]) {
+      const input = syntheticF2Result();
+      const record = (input['results'] as Array<Record<string, unknown>>)[0]!;
+      record['completionStatus'] = 'tool_failure';
+      record['toolFailureCode'] = 'PRESENTATION_FAILED';
+      if (includePartialAnswers) {
+        record['objectiveClaims'] = (
+          record['objectiveClaims'] as unknown[]
+        ).slice(0, 1);
+        record['evidenceReferences'] = (
+          record['evidenceReferences'] as Array<Record<string, unknown>>
+        ).filter((reference) => reference['assertionId'] === 'F2-A1');
+      } else {
+        record['objectiveClaims'] = [];
+        record['evidenceReferences'] = [];
+      }
+      const original = JSON.stringify(input);
+
+      const report = scoreSyntheticStudyResults(input, readTaskDataset());
+
+      expect(report.groups[0]).toMatchObject({
+        completionCounts: { tool_failure: 1 },
+        objectiveEarned: 0,
+        objectiveAvailable: 0,
+        objectiveAccuracy: null,
+        missedExpectedAssertions: 0,
+        submissions: 1,
+        objectiveScoredSubmissions: 0,
+      });
+      expect(JSON.stringify(input)).toBe(original);
+    }
+  });
+
+  it('keeps a tool failure out of the denominator without excluding another result', () => {
+    const input = syntheticF2Result();
+    const records = input['results'] as Array<Record<string, unknown>>;
+    records[0]!['completionStatus'] = 'tool_failure';
+    records[0]!['toolFailureCode'] = 'QUERY_FAILED';
+    const completed = structuredClone(records[0]!);
+    completed['participantToken'] = 'P-1111111111111111';
+    completed['taskOrder'] = 2;
+    completed['completionStatus'] = 'completed';
+    completed['toolFailureCode'] = null;
+    records.push(completed);
+    const original = JSON.stringify(input);
+
+    const report = scoreSyntheticStudyResults(input, readTaskDataset());
+
+    expect(report.groups[0]).toMatchObject({
+      submissions: 2,
+      objectiveScoredSubmissions: 1,
+      completionCounts: { completed: 1, tool_failure: 1 },
+      objectiveEarned: 12,
+      objectiveAvailable: 12,
+      objectiveAccuracy: 1,
+      missedExpectedAssertions: 0,
+    });
+    expect(JSON.stringify(input)).toBe(original);
   });
 
   it('scores incorrect evidence paths, coordinates, and roles as zero without rejecting or normalizing them', () => {
@@ -798,7 +963,11 @@ describe('CT-EVAL-001A offline study task validation', () => {
     const folder = await mkdtemp(join(tmpdir(), 'codethread-study-'));
     const resultPath = join(folder, 'synthetic-results.json');
     try {
-      await writeFile(resultPath, JSON.stringify(syntheticF2Result()), 'utf8');
+      await writeFile(
+        resultPath,
+        JSON.stringify(syntheticF2Result(resolveStudyScorerRevision())),
+        'utf8',
+      );
 
       const before = readFileSync(resultPath, 'utf8');
       const processResult = spawnSync(
@@ -822,6 +991,7 @@ describe('CT-EVAL-001A offline study task validation', () => {
     expect(result).toMatchObject({
       notice: 'SYNTHETIC DRY RUN — NOT EMPIRICAL DATA',
       report: {
+        provenance: { scorerRevision: SYNTHETIC_SCORER_REVISION },
         groups: [
           {
             taskId: 'CTE-F2-001',
