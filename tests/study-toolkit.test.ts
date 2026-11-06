@@ -530,6 +530,20 @@ describe('CT-EVAL study validation and scoring', () => {
     );
   });
 
+  it('rejects provenance produced under different tool-failure duration handling', () => {
+    const input = syntheticF2Result();
+    const changedPolicy = {
+      ...STUDY_SCORING_POLICY,
+      toolFailureDurationHandling: 'include_in_completion_time_aggregate',
+    };
+    const provenance = input['provenance'] as Record<string, unknown>;
+    provenance['scoringPolicySha256'] = studyScoringPolicyDigest(changedPolicy);
+
+    expect(() => scoreSyntheticStudyResults(input, readTaskDataset())).toThrow(
+      expect.objectContaining({ code: 'SCORING_POLICY_MISMATCH' }),
+    );
+  });
+
   it('rejects results collected under an older scoring-policy version', () => {
     const input = syntheticF2Result();
     const provenance = input['provenance'] as Record<string, unknown>;
@@ -622,6 +636,8 @@ describe('CT-EVAL study validation and scoring', () => {
         missedExpectedAssertions: 0,
         submissions: 1,
         objectiveScoredSubmissions: 0,
+        measuredDurationCount: 0,
+        meanMeasuredDurationMs: null,
       });
       expect(JSON.stringify(input)).toBe(original);
     }
@@ -632,11 +648,13 @@ describe('CT-EVAL study validation and scoring', () => {
     const records = input['results'] as Array<Record<string, unknown>>;
     records[0]!['completionStatus'] = 'tool_failure';
     records[0]!['toolFailureCode'] = 'QUERY_FAILED';
+    records[0]!['durationMs'] = 300000;
     const completed = structuredClone(records[0]!);
     completed['participantToken'] = 'P-1111111111111111';
     completed['taskOrder'] = 2;
     completed['completionStatus'] = 'completed';
     completed['toolFailureCode'] = null;
+    completed['durationMs'] = 120000;
     records.push(completed);
     const original = JSON.stringify(input);
 
@@ -650,6 +668,8 @@ describe('CT-EVAL study validation and scoring', () => {
       objectiveAvailable: 12,
       objectiveAccuracy: 1,
       missedExpectedAssertions: 0,
+      measuredDurationCount: 1,
+      meanMeasuredDurationMs: 120000,
     });
     expect(JSON.stringify(input)).toBe(original);
   });

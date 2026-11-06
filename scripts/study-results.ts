@@ -15,7 +15,7 @@ export const SYNTHETIC_SCORER_REVISION =
 // The digest freezes scoring rules; scorerRevision separately pins the clean
 // source commit so implementation changes cannot reuse this descriptor unseen.
 export const STUDY_SCORING_POLICY = Object.freeze({
-  version: 'objective-source-anchors-v3',
+  version: 'objective-source-anchors-v4',
   points: Object.freeze({
     occurrence: 1,
     conclusion: 1,
@@ -50,6 +50,8 @@ export const STUDY_SCORING_POLICY = Object.freeze({
     'missed_expected_assertion',
   ]),
   toolFailureObjectiveHandling: 'exclude_entire_record_and_censor_answers',
+  toolFailureDurationHandling:
+    'exclude_from_completion_time_aggregate_retain_raw',
 } as const);
 
 const coordinateSchema = z.tuple([
@@ -669,7 +671,11 @@ function addRecordScore(
   group.submissions++;
   group.completionCounts[record.completionStatus]++;
   group.awaitingHumanScoring++;
-  if (record.durationStatus === 'measured' && record.durationMs !== null) {
+  if (
+    record.durationStatus === 'measured' &&
+    record.durationMs !== null &&
+    record.completionStatus !== 'tool_failure'
+  ) {
     group.durationTotal += record.durationMs;
     group.measuredDurationCount++;
   }

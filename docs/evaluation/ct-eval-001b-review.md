@@ -16,8 +16,9 @@ run on the merge commit. This package is tracked by
 ## Decision and gates
 
 **Decision: BLOCKED for participant scoring, recruitment, and pilot readiness.**
-PR #19 is merged. This remediation closes the two confirmed scorer risks by
-censoring objective scoring for tool failures and requiring exact clean-commit
+PR #19 is merged. This remediation closes the confirmed scoring-integrity gaps
+by censoring objective scoring for tool failures, excluding tool-failure elapsed
+time from completion-time summaries, and requiring exact clean-commit
 provenance. The answer keys still have not received independent review, and
 institutional/academic approvals remain outstanding.
 
@@ -31,6 +32,13 @@ All paths, source hashes, byte counts, revisions, and coordinates are defined in
 [`tasks.json`](tasks.json). Local fixture bytes were checked against the pinned
 repository sources; where supplied, Git blob IDs also matched. Coordinates are
 one-based UTF-16, end-exclusive.
+
+On 2026-11-06, I fetched all eight unique selected source files from the two
+upstream repositories at the pinned commit IDs using commit-pinned GitHub file
+requests. Decoded upstream bytes matched the local fixtures byte-for-byte; the
+recomputed raw SHA-256 values and Git `blob <length>\0<bytes>` object IDs match
+the source identity manifest below. The review and extraction checks do not run
+upstream code or install its dependencies.
 
 `study:validate` accepts five records. F1 remains a limited source-grounded
 candidate for RQ1 but is excluded from RQ2 pending review of its callback scope;
@@ -158,19 +166,35 @@ exactly three references and zero calls on the two-file task input; it retrieves
 the occurrence excerpt and follows the declaration. These are headless
 interaction results, not screenshots or human observations.
 
-Textual interaction sequences on the same frozen task inputs:
+Textual interaction sequences on the same frozen task inputs were replayed on
+2026-11-06. Each version-1 manifest was generated only from that task's
+`source.selectedFiles` and validated fixture bytes:
 
-- F1: `symbols routes/index.ts`; `inspect routes/index.ts@9:1 calls outgoing`;
-  retrieve each site with `evidence site <path>@<start>-<end>` and follow its
-  declaration. The selected input is exactly the five F1 files in `tasks.json`;
-  four root-owned direct calls are within the 20-row limit. The CLI query
-  applies depth one and reports its depth limit.
+- F1: `node scripts/investigate.ts --manifest <F1 manifest>`; then
+  `symbols routes/index.ts`, `inspect routes/index.ts@9:1 calls outgoing`,
+  `evidence site routes/index.ts@14:11-14:23`, and
+  `follow config/passport.ts@64:1 calls outgoing`. The session loaded exactly
+  five files, eight declarations, and 58 call sites (five exact, zero
+  unresolved, zero ambiguous, 53 unsupported). Inspecting `routes` showed its
+  four exact direct calls plus unsupported surrounding property/callback calls;
+  the query reported `depth_limit` at depth one. Following `initialize` showed
+  its exact nested `getStrategy()` call.
 - F2: `symbols routes/todo.router.ts`;
-  `inspect routes/todo.router.ts@4:1 references outgoing`; retrieve the three
-  site excerpts, follow each controller method declaration, then return to
-  `todoRouter`. The selected input is exactly the two F2 files in `tasks.json`;
-  the answer subset is three references, zero calls. CLI inspection reports a
-  depth limit when it omits further traversal.
+  `inspect routes/todo.router.ts@4:1 references outgoing`; retrieve each site,
+  follow `controllers/todo.controller.ts@10:3`, then inspect the declaration
+  evidence. The session loaded exactly two files, five declarations, and 41 call
+  sites (zero exact calls; unsupported calls remain explicit). The filtered
+  inspection returned three exact `REFERENCES`, zero exact `CALLS`, and a
+  `depth_limit` marker. Following `getAll` retrieved its complete declaration
+  excerpt and showed an unresolved property reference; no model call target was
+  invented.
+- F3: `symbols src/env.ts`; `inspect src/env.ts@59:1 calls outgoing`,
+  `evidence site src/env.ts@73:23-73:76`, and
+  `follow src/env.ts@18:1 calls outgoing`. The session loaded one file, three
+  declarations, and 13 call sites (one exact, one unresolved, 11 unsupported).
+  `getPathFromEnv(...)` was exact; `addNodeBinToPath(...)` stayed unresolved
+  with `INVALID_BINDING`, retained its source evidence, and was not followable
+  as an exact target.
 
 For both workflows, the manifest is version 1 and is constructed from the task's
 `source.selectedFiles`: preserve each declared source path, read its
@@ -214,20 +238,20 @@ after it. F2 remains the limited RQ2 candidate.
 
 ## Measurement-integrity audit
 
-| Invariant                                               | Baseline finding and current handling                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Incorrect participant answers remain valid observations | Implemented: structurally valid wrong evidence is retained as submitted and scores zero for the incorrect anchor.                                                                                                                                                                                                                    |
-| Wrong evidence does not invalidate the dataset          | Covered for wrong path, coordinates, role, incomplete evidence, mixed answers, and multiple participants.                                                                                                                                                                                                                            |
-| Missing differs from wrong                              | Implemented and covered; missing has explicit status and no submitted claims.                                                                                                                                                                                                                                                        |
-| Unsupported claims are not silently judged              | Additional claims are retained in the private result; automatic scoring does not interpret free text or decide unsupported conclusions. Human scoring remains pending.                                                                                                                                                               |
-| Timeout censoring                                       | Explicit duration status and completion status; tested.                                                                                                                                                                                                                                                                              |
-| Tool failure distinct from participant error            | **Confirmed and corrected:** baseline synthetic empty failure was counted as 0/12 with 3 misses; partial failure was 4/12 with 2 misses. The new scorer preserves the failure count and submitted raw record, excludes the whole failure record from objective denominators/missed counts, and reports `objectiveScoredSubmissions`. |
-| Deterministic score                                     | Input-record reordering produces identical aggregate; canonical bank digest ignores object-key order and whitespace while preserving array order.                                                                                                                                                                                    |
-| Assignment validation                                   | Task eligibility and condition assignment are checked; condition mismatch is tested.                                                                                                                                                                                                                                                 |
-| Aggregate privacy                                       | Tokens and answer text are omitted from aggregates; result schema rejects extra fields; tested. Raw result files still require approved private handling.                                                                                                                                                                            |
-| Independent answer-key review gate                      | Participant scoring refuses unreviewed answer keys. All current keys remain awaiting review.                                                                                                                                                                                                                                         |
-| Synthetic data separation                               | Demo emits `SYNTHETIC_ENGINEERING_TEST_ONLY` / “NOT EMPIRICAL DATA”, creates no file, and does not pass the participant-scoring gate.                                                                                                                                                                                                |
-| No silent historical rescore                            | **Corrected:** schema v3 provenance binds task bank, scoring policy and full scorer commit. The scorer derives its own commit and rejects dirty worktrees or mismatched IDs. There is no compatibility mapping or migration; schema v1/v2 and study v1 data are rejected.                                                            |
+| Invariant                                               | Baseline finding and current handling                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Incorrect participant answers remain valid observations | Implemented: structurally valid wrong evidence is retained as submitted and scores zero for the incorrect anchor.                                                                                                                                                                                                                                                                                                                                                                    |
+| Wrong evidence does not invalidate the dataset          | Covered for wrong path, coordinates, role, incomplete evidence, mixed answers, and multiple participants.                                                                                                                                                                                                                                                                                                                                                                            |
+| Missing differs from wrong                              | Implemented and covered; missing has explicit status and no submitted claims.                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Unsupported claims are not silently judged              | Additional claims are retained in the private result; automatic scoring does not interpret free text or decide unsupported conclusions. Human scoring remains pending.                                                                                                                                                                                                                                                                                                               |
+| Timeout censoring                                       | Explicit duration status and completion status; tested.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Tool failure distinct from participant error            | **Confirmed and corrected:** baseline synthetic empty failure was counted as 0/12 with 3 misses; partial failure was 4/12 with 2 misses. The scorer preserves the failure count and raw record, excludes the whole failure record from objective denominators/missed counts, and reports `objectiveScoredSubmissions`. Re-audit also found its measured elapsed time contaminating the completion-time mean; the follow-up excludes that value while retaining it in the raw result. |
+| Deterministic score                                     | Input-record reordering produces identical aggregate; canonical bank digest ignores object-key order and whitespace while preserving array order.                                                                                                                                                                                                                                                                                                                                    |
+| Assignment validation                                   | Task eligibility and condition assignment are checked; condition mismatch is tested.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Aggregate privacy                                       | Tokens and answer text are omitted from aggregates; result schema rejects extra fields; tested. Raw result files still require approved private handling.                                                                                                                                                                                                                                                                                                                            |
+| Independent answer-key review gate                      | Participant scoring refuses unreviewed answer keys. All current keys remain awaiting review.                                                                                                                                                                                                                                                                                                                                                                                         |
+| Synthetic data separation                               | Demo emits `SYNTHETIC_ENGINEERING_TEST_ONLY` / “NOT EMPIRICAL DATA”, creates no file, and does not pass the participant-scoring gate.                                                                                                                                                                                                                                                                                                                                                |
+| No silent historical rescore                            | **Corrected:** schema v3 provenance binds task bank, scoring policy and full scorer commit. The scorer derives its own commit and rejects dirty worktrees or mismatched IDs. There is no compatibility mapping or migration; schema v1/v2 and study v1 data are rejected.                                                                                                                                                                                                            |
 
 Confirmed baseline counterexamples (synthetic only, not participant data): an
 empty `tool_failure` produced `tool_failure=1`, `objectiveAvailable=12`,
@@ -236,6 +260,18 @@ the failure produced 4/12 and two misses. Regression tests cover both. The
 corrected output keeps `tool_failure=1`, sets `objectiveScoredSubmissions=0`,
 uses `objectiveAvailable=0` / `objectiveAccuracy=null`, and reports zero missed
 assertions.
+
+The duration re-audit used the committed PR #21 head
+`abfab88c600330f7f0ca159edfd009381859f29f`: a `tool_failure` record with a
+measured 120,000 ms was included in `meanMeasuredDurationMs`, although the
+protocol defines completion time as time to a submitted answer. A focused
+regression failed before correction: a failure-only result incorrectly reported
+one measured duration and a 120,000 ms mean, and a mixed result averaged a
+300,000 ms tool failure with a 120,000 ms completed response. The corrected
+policy excludes measured tool-failure duration from the completion-time
+aggregate, preserves the submitted raw record unchanged, and binds the rule into
+scoring-policy provenance. The mixed case now reports one measured completion
+and a 120,000 ms mean.
 
 The before-fix regression was run against baseline `884e979...`: the empty
 failure expected no objective denominator, but the scorer returned 12 available
@@ -344,35 +380,35 @@ CT-EVAL-001B revision:
 | Claim                            | Evidence binding                                                                                                                                                                                                                                                                                                     | Review status                                          |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
 | Source identities and anchors    | Upstream commits `c64bdfaf3f36a3fde88fba8191ad0a98d4acbc8c` and `4a2aca1cf11943445c7bae6c767086a8c61291ef`; fixture Git blob IDs and raw SHA-256 values in this document; `pnpm study:validate`; direct source line inspection.                                                                                      | Same-agent re-audit; not independently reviewed.       |
-| Task/scoring artifact            | Canonical task-bank SHA-256 `e8e7099d2755035f7bf8d37be5a185ab80e14b2ef363ef497b67458947afbf20`; study `CT-EVAL-001A-v2`; result schema 3; policy `objective-source-anchors-v3`, SHA-256 `0151734ba00f4b794e176582815f56d995433213e090ab853f7d5191fbf516ef`.                                                          | Engineering artifact only; not a participant dataset.  |
+| Task/scoring artifact            | Canonical task-bank SHA-256 `e8e7099d2755035f7bf8d37be5a185ab80e14b2ef363ef497b67458947afbf20`; study `CT-EVAL-001A-v2`; result schema 3; policy `objective-source-anchors-v4`, SHA-256 `a9f150d754bc874834332e742989a207d6e42e069ecf5d702292778017b62437`, including tool-failure duration handling.                | Engineering artifact only; not a participant dataset.  |
 | F1/F2 viewer information         | `tests/viewer-browser.ts`, `pnpm test:browser`; task-selected manifests are derived from `tasks.json`; browser interactions use task-pinned source bytes.                                                                                                                                                            | Headless browser regression; not a human observation.  |
 | Scoring semantics and provenance | `tests/study-toolkit.test.ts`; `pnpm check`, `pnpm study:validate`, `pnpm study:demo`, `pnpm study:provenance`.                                                                                                                                                                                                      | Engineering evidence only; does not authorize scoring. |
 | Hosted verification              | PR #21 pre-correction head `cc32580c7d1e6201b819b76c0287627b54ce3fde`, Actions run [42118600564](https://github.com/hungthinh1104/CodeThread/actions/runs/42118600564): Windows and Ubuntu passed frozen install, check, browser, semantic evaluation and security audit. This predates the RQ2 metadata regression. | Prior-revision evidence; final-head CI is separate.    |
 | Independent answer-key approval  | No reviewer identity, decision, or review artifact is present.                                                                                                                                                                                                                                                       | Awaiting independent human review.                     |
 
-The current local verification clone used a clean local commit
-`c97d8feb2d247f5cba52f19a38077cc0449e1189` with the PR tree plus the F1 metadata
-correction. The commit was created only for local verification; its tree and the
-final PR commit are reported separately. `pnpm check` passed all 20 test files
-and 286 tests. `pnpm study:validate`, the synthetic-only `pnpm study:demo`,
-`pnpm eval:semantic`, `pnpm eval:external`, and `pnpm test:browser` passed. The
-local dependency audit could not reach npm (`ERR_PNPM_AUDIT_BAD_RESPONSE`), and
-the clean-clone frozen install could not open pnpm's shared Windows operation
-lock. Hosted audit and frozen-install results are reported only for their exact
-PR revisions; the RQ2 metadata correction still requires its own hosted run.
+### Verification on the previously audited PR #21 head
 
-On 2026-11-06, a fresh local `pnpm check` rerun passed formatting, lint,
-requirements, architecture validation, build, task validation, and typecheck,
-then exited 1 in Vitest: one existing `investigate-cli.test.ts` case exceeded
-its 10-second test timeout (278/279 passed). The same case passed alone in 4.40
-seconds; the complete CLI test file passed with one worker (22/22 in 76.58
-seconds), and the full suite passed with one worker (20 files, 279 tests in
-168.92 seconds). This is consistent with local parallel resource contention, but
-the standard aggregate rerun did not pass. The hosted exact-SHA CI remains
-green.
+The following local checks were run against exact PR head
+`abfab88c600330f7f0ca159edfd009381859f29f` in a clean Git worktree. The frozen
+offline install reused all 139 locked packages and did not change
+`pnpm-lock.yaml`.
 
-The local browser and audit failures above are environmental limitations, not
-successful local checks. Hosted success is a separate evidence tier.
+| Command / evidence                                                                                     | Result                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm check`                                                                                           | Passed: formatting, lint, 26 requirements, architecture check, build, study validation, typecheck, and all 286 tests in 20 files.                                                                                                                                             |
+| `pnpm study:validate`                                                                                  | Passed: all five task records and their local source anchors.                                                                                                                                                                                                                 |
+| `pnpm study:demo`                                                                                      | Passed: synthetic engineering-only example, 12/12; no result file or empirical record.                                                                                                                                                                                        |
+| `pnpm study:provenance`                                                                                | Passed: schema 3, study `CT-EVAL-001A-v2`, task-bank digest `e8e7099d2755035f7bf8d37be5a185ab80e14b2ef363ef497b67458947afbf20`, scorer revision `abfab88c600330f7f0ca159edfd009381859f29f`, policy digest `0151734ba00f4b794e176582815f56d995433213e090ab853f7d5191fbf516ef`. |
+| `pnpm eval:semantic`                                                                                   | Passed: 13/13 exact eligible predictions; zero wrong, missed-resolvable, or evidence-mismatch counts. Labels remain unreviewed.                                                                                                                                               |
+| `pnpm eval:external`                                                                                   | Passed: tinyexec 1 exact, 1 unresolved, 11 unsupported of 13; todo 1 exact, 3 unresolved, 31 unsupported of 35. Both corpus gates passed; labels remain unreviewed.                                                                                                           |
+| `pnpm test:browser`                                                                                    | Passed: exact F1/F2 task inputs, CALLS/REFERENCES filters, tinyexec uncertainty, follow/back, source evidence, and safe rendering. No human observation or screenshot is claimed.                                                                                             |
+| Focused tests                                                                                          | Passed: `tests/study-toolkit.test.ts` (38 tests) and `tests/capability-assessment.test.ts` plus study tests (42 tests).                                                                                                                                                       |
+| `pnpm security:check`                                                                                  | Passed after a registry-authorized retry: no known vulnerabilities. The default sandbox attempt was blocked by Windows socket permission 10013; that first failure was environmental.                                                                                         |
+| Hosted Actions run [42132651336](https://github.com/hungthinh1104/CodeThread/actions/runs/42132651336) | Passed on Windows and Ubuntu for exact PR head `abfab88c600330f7f0ca159edfd009381859f29f`; frozen install, `pnpm check`, browser test, semantic evaluation, and dependency audit steps all succeeded.                                                                         |
+
+These results verify the listed revision only. They predate the duration
+aggregation correction documented above and do not verify that follow-up. The
+source/research limitations and human gates below remain in force.
 
 ## Remaining limitations and next action
 

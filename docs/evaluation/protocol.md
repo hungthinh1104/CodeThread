@@ -150,6 +150,10 @@ not used to award objective points.
 | Unsupported task       | Count separately; exclude from objective participant correctness rather than treating it as a participant error.                                                  |
 | Unsupported conclusion | Preserve in submitted/additional claims for human coding; do not infer it from a wrong answer or automate the judgment.                                           |
 
+An observed duration for a `tool_failure` is retained in the private result but
+is not a task completion time and is excluded from the measured completion-time
+mean. Timeouts remain censored at the recorded cap.
+
 Do not exclude a failed task after seeing an answer without recording the
 predeclared reason and analysis denominator.
 
