@@ -179,13 +179,15 @@ and answer/evidence matching rules.
 Before collecting a dataset, run `pnpm --silent study:provenance` from the clean
 committed release checkout and freeze the returned schema version, study
 version, and provenance object with the result dataset. `study:score` resolves
-its own active `HEAD` and rejects a dirty worktree; the scorer requires an exact
-match with the dataset's scorer revision. A new commit therefore needs new
-result provenance. There is no compatibility mapping, automatic migration, or
-historical rescore. Schema v1/v2, study v1, missing provenance, changed task
-bank/rubric, and a different scorer revision fail with typed errors. The
-synthetic demonstration uses a reserved non-commit scorer marker and cannot pass
-the participant scoring path.
+its own active `HEAD` and rejects a dirty worktree or tracked index flags that
+could hide changed files (`assume-unchanged` and `skip-worktree`); the scorer
+requires an exact match with the dataset's scorer revision. A new commit
+therefore needs new result provenance. There is no compatibility mapping,
+automatic migration, or historical rescore. Schema v1/v2, study v1, missing
+provenance, changed task bank/rubric, and a different scorer revision fail with
+typed errors. The participant scorer rejects the reserved synthetic non-commit
+marker; only the synthetic scoring function accepts it and emits
+`SYNTHETIC_ENGINEERING_TEST_ONLY`.
 
 Each result requires a random pseudonymous token in the form `P-` followed by 16
 uppercase hexadecimal characters, task/condition/order, duration and its

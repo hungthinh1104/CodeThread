@@ -773,6 +773,9 @@ export function scoreStudyResults(
   tasksInput: unknown,
   scorerRevision: string,
 ): StudyScoreReport {
+  if (scorerRevision === SYNTHETIC_SCORER_REVISION) {
+    throw new StudyResultError('SCORER_REVISION_INVALID');
+  }
   const validated = validateStudyResults(input, tasksInput, scorerRevision);
   if (validated.results.results.length === 0) {
     throw new StudyResultError('NO_RESULTS_TO_SCORE');

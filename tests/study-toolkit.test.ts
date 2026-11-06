@@ -494,6 +494,30 @@ describe('CT-EVAL study validation and scoring', () => {
       expect(() => resolveStudyScorerRevision(folder)).toThrow(
         expect.objectContaining({ code: 'SCORER_WORKTREE_DIRTY' }),
       );
+
+      const hiddenIndexFlags = [
+        {
+          set: '--assume-unchanged',
+          clear: '--no-assume-unchanged',
+        },
+        {
+          set: '--skip-worktree',
+          clear: '--no-skip-worktree',
+        },
+      ] as const;
+      for (const flag of hiddenIndexFlags) {
+        await writeFile(trackedPath, 'committed source\n', 'utf8');
+        expect(runGit(['update-index', flag.set, 'tracked.txt']).status).toBe(
+          0,
+        );
+        await writeFile(trackedPath, 'hidden changed source\n', 'utf8');
+        expect(() => resolveStudyScorerRevision(folder)).toThrow(
+          expect.objectContaining({ code: 'SCORER_WORKTREE_DIRTY' }),
+        );
+        expect(runGit(['update-index', flag.clear, 'tracked.txt']).status).toBe(
+          0,
+        );
+      }
     } finally {
       await rm(folder, { recursive: true, force: true });
     }
@@ -560,6 +584,18 @@ describe('CT-EVAL study validation and scoring', () => {
     expect(() =>
       scoreSyntheticStudyResults(input, readTaskDataset(), '2'.repeat(40)),
     ).toThrow(expect.objectContaining({ code: 'SCORER_REVISION_MISMATCH' }));
+  });
+
+  it('does not allow synthetic provenance through the participant scorer', () => {
+    const input = syntheticF2Result(SYNTHETIC_SCORER_REVISION);
+
+    expect(() =>
+      scoreParticipantResults(
+        input,
+        readTaskDataset(),
+        SYNTHETIC_SCORER_REVISION,
+      ),
+    ).toThrow(expect.objectContaining({ code: 'SCORER_REVISION_INVALID' }));
   });
 
   it('rejects old schemas and missing result provenance explicitly', () => {

@@ -120,6 +120,23 @@ export function resolveStudyScorerRevision(
   if (status.stdout.length > 0) {
     throw new StudyCommandError('SCORER_WORKTREE_DIRTY');
   }
+
+  const indexEntries = spawnSync(
+    'git',
+    [...gitPrefix, 'ls-files', '-v', '-z'],
+    options,
+  );
+  if (indexEntries.error || indexEntries.status !== 0) {
+    throw new StudyCommandError('SCORER_INDEX_STATE_UNAVAILABLE');
+  }
+  // `git status` can hide tracked edits behind assume-unchanged or skip-worktree.
+  if (
+    indexEntries.stdout
+      .split('\0')
+      .some((entry) => entry.length > 0 && entry[0] !== 'H')
+  ) {
+    throw new StudyCommandError('SCORER_WORKTREE_DIRTY');
+  }
   return scorerRevision;
 }
 

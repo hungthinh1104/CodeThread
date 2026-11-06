@@ -250,8 +250,8 @@ after it. F2 remains the limited RQ2 candidate.
 | Assignment validation                                   | Task eligibility and condition assignment are checked; condition mismatch is tested.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Aggregate privacy                                       | Tokens and answer text are omitted from aggregates; result schema rejects extra fields; tested. Raw result files still require approved private handling.                                                                                                                                                                                                                                                                                                                            |
 | Independent answer-key review gate                      | Participant scoring refuses unreviewed answer keys. All current keys remain awaiting review.                                                                                                                                                                                                                                                                                                                                                                                         |
-| Synthetic data separation                               | Demo emits `SYNTHETIC_ENGINEERING_TEST_ONLY` / “NOT EMPIRICAL DATA”, creates no file, and does not pass the participant-scoring gate.                                                                                                                                                                                                                                                                                                                                                |
-| No silent historical rescore                            | **Corrected:** schema v3 provenance binds task bank, scoring policy and full scorer commit. The scorer derives its own commit and rejects dirty worktrees or mismatched IDs. There is no compatibility mapping or migration; schema v1/v2 and study v1 data are rejected.                                                                                                                                                                                                            |
+| Synthetic data separation                               | Demo emits `SYNTHETIC_ENGINEERING_TEST_ONLY` / “NOT EMPIRICAL DATA”, creates no file, and does not pass the participant-scoring gate. The participant scorer also rejects that reserved identity even when called directly.                                                                                                                                                                                                                                                          |
+| No silent historical rescore                            | **Corrected:** schema v3 provenance binds task bank, scoring policy and full scorer commit. The scorer derives its own commit, rejects dirty worktrees and non-normal tracked index flags (`assume-unchanged` / `skip-worktree`), and rejects mismatched IDs. There is no compatibility mapping or migration; schema v1/v2 and study v1 data are rejected.                                                                                                                           |
 
 Confirmed baseline counterexamples (synthetic only, not participant data): an
 empty `tool_failure` produced `tool_failure=1`, `objectiveAvailable=12`,
@@ -300,12 +300,34 @@ counts, and `objectiveScoredSubmissions` separately. A future collection design
 may record assertion-level availability, but it is outside this remediation.
 
 The active commit is resolved from the scorer's own clean Git checkout using a
-shell-free Git invocation; it is never trusted from the result file. This binds
-the scoring implementation to an immutable source revision rather than hashing
-arbitrary source files. It relies on the normal guarantee that each scoring
-change is committed under a new Git object; it does not detect a changed binary
-that falsely reports an old commit. The provenance command prepares metadata but
-does not collect responses or authorize data collection.
+shell-free Git invocation; it is never trusted from the result file. In addition
+to `git status`, the resolver inspects `git ls-files -v -z` and rejects index
+entries other than ordinary tracked files. This catches modified tracked files
+hidden by `assume-unchanged` or `skip-worktree`. It binds the scoring
+implementation to an immutable source revision rather than hashing arbitrary
+source files. It still relies on the normal guarantee that each scoring change
+is committed under a new Git object; it does not detect a changed binary or
+injected runtime that falsely reports an old commit. The provenance command
+prepares metadata but does not collect responses or authorize data collection.
+
+### Additional adversarial identity probes
+
+Review of PR #21 head `4d58cdf626dfbec203d44f5e310a69e2f100bdeb` found two
+boundary cases. In a disposable Git repository, a tracked source was marked
+`assume-unchanged`, modified, and then reported clean by `git status`; the
+scorer resolver accepted its old commit. A second probe passed the reserved
+synthetic scorer marker directly to `scoreStudyResults`. With an in-memory
+synthetic task copy carrying test-only review metadata, the exported function
+could return a `PARTICIPANT_DATA` report. No real answer-key review status or
+task data was changed.
+
+Both regressions were added at the public scorer/resolver seams. The resolver
+now rejects non-normal `git ls-files -v -z` entries, including lowercase
+`assume-unchanged` and `S` `skip-worktree` markers. The participant scorer
+rejects `SYNTHETIC_SCORER_REVISION` before dataset scoring; only the explicitly
+synthetic scoring function can emit the engineering-test label. These checks do
+not authenticate a manually fabricated result file or protect against a modified
+runtime that impersonates the recorded commit.
 
 ## Independent answer-key review checklist
 
