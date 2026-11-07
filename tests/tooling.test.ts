@@ -83,7 +83,9 @@ describe('Refactored module size limits', () => {
     const eslint = new ESLint();
     for (const [filePath, limit] of [
       ['packages/contracts/src/graph-queries.ts', 500],
+      ['packages/trace-engine/src/traversal.ts', 500],
       ['tests/contracts.test.ts', 700],
+      ['tests/semantic-trace.test.ts', 700],
     ] as const) {
       const atLimit =
         '// retained explanation\n'.repeat(limit - 1) + 'export {};\n';
@@ -98,18 +100,22 @@ describe('Refactored module size limits', () => {
       'export function example() {\n' +
       '// retained explanation\n'.repeat(147) +
       'return 1;\n}\n';
-    const productionPath = 'packages/contracts/src/graph-queries.ts';
-    const [accepted] = await eslint.lintText(atFunctionLimit, {
-      filePath: productionPath,
-    });
-    expect(accepted?.messages).toEqual([]);
     const tooLong = atFunctionLimit.replace('return 1;', '\nreturn 1;');
-    const [rejected] = await eslint.lintText(tooLong, {
-      filePath: productionPath,
-    });
-    expect(rejected?.messages.map((message) => message.ruleId)).toContain(
-      'max-lines-per-function',
-    );
+    for (const productionPath of [
+      'packages/contracts/src/graph-queries.ts',
+      'packages/trace-engine/src/traversal.ts',
+    ]) {
+      const [accepted] = await eslint.lintText(atFunctionLimit, {
+        filePath: productionPath,
+      });
+      expect(accepted?.messages).toEqual([]);
+      const [rejected] = await eslint.lintText(tooLong, {
+        filePath: productionPath,
+      });
+      expect(rejected?.messages.map((message) => message.ruleId)).toContain(
+        'max-lines-per-function',
+      );
+    }
     const [testBlock] = await eslint.lintText(tooLong, {
       filePath: 'tests/contracts.test.ts',
     });

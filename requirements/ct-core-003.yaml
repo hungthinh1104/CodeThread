@@ -16,8 +16,8 @@ acceptance:
     then: 'Architecture checks fail.'
   - id: AC-03
     given:
-      'An internal source import cycle or a contracts implementation import
-      through a compatibility facade'
+      'An internal source import cycle or a contracts/trace-engine
+      implementation import through a compatibility facade'
     then: 'Architecture checks reject the dependency.'
   - id: AC-04
     given: 'A module covered by the staged size rules'

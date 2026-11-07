@@ -67,22 +67,51 @@ against the original request. Every rule has one implementation. Shared helpers
 remain with their semantic owner and are reused only when their meaning and
 trust boundary agree. No new package or public export is needed for this split.
 
+| Trace-engine owner                             | Responsibility                                                                                                                                |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.ts`                                     | Stable public `createInvestigation()` and `TraceError` exports; bind operations to one context.                                               |
+| `context.ts`                                   | Clone/validate/freeze facts once, bind the retained-source reader, build source-ordered dictionaries and incoming/outgoing adjacency indexes. |
+| `projection.ts`                                | Admit complete graph units within node/relationship/evidence/diagnostic budgets, order output and construct coverage/truncation metadata.     |
+| `traversal.ts`                                 | Neighbor breadth-first search and bounded simple directed paths, preserving relation-kind filters, parallel occurrences and search budgets.   |
+| `evidence.ts`                                  | Bounded evidence requests, retained-source comparison and typed unavailability results.                                                       |
+| `validation.ts`                                | Snapshot identity, collection bounds/uniqueness, validation ordering and call-observation/count consistency.                                  |
+| `source-validation.ts` / `graph-validation.ts` | Verified raw bytes, hashes, encoding and coordinates; declaration/diagnostic/relation integrity respectively.                                 |
+| `fact-integrity.ts`                            | Trace error identity and the shared fact assertions for uniqueness and exact range equality.                                                  |
+
+Each investigation owns its verified context; each operation allocates its own
+projection and traversal budgets. Unknown targets never become adjacency. Path
+node limits continue to count explored nodes, including dead ends; a bounded
+negative result exposes truncation rather than claiming exhaustive absence.
+Graph output still includes complete endpoints and evidence. `CALLS` remains the
+default, and `REFERENCES` requires explicit selection. This organization changes
+neither extraction nor semantic identities. Internal trace modules import their
+owners directly rather than routing through `index.ts`.
+
 ESLint enforces 500 physical lines per production file and 150 per function in
-contracts, plus 700 per file for its contract and architecture/tooling tests.
-Blank lines and comments count; test suite callbacks have no function-size cap.
-Prefer cohesive modules around 200-350 lines. Other owners acquire the same
-checks when their refactor is integrated, preserving separate feature branches.
-An exception must document its owner, reason, baseline SHA and maximum in the
-reviewed configuration. Increasing a maximum requires explicit justification;
-remove exceptions as their modules are cleaned. Compacting code or exporting
-unrelated helpers does not establish maintainability.
+contracts and trace-engine, plus 700 per file for their contract, semantic-trace
+and architecture/tooling tests. These modules require no size exceptions. Blank
+lines and comments count; test suite callbacks have no function-size cap. Prefer
+cohesive modules around 200-350 lines. Other owners acquire the same checks when
+their refactor is integrated, preserving separate feature branches. An exception
+must document its owner, reason, baseline SHA and maximum in the reviewed
+configuration. Increasing a maximum requires explicit justification; remove
+exceptions as their modules are cleaned. Compacting code or exporting unrelated
+helpers does not establish maintainability.
 
 `arch:check` checks internal source cycles in addition to package cycles and
-rejects contracts implementation imports through compatibility facades. It
-continues to inspect imports, re-exports, import types and literal dynamic
-imports using the TypeScript AST. Application and browser dependency checks
-expand with their owning refactor; this contracts stage does not claim those
+rejects contracts and trace-engine implementation imports through compatibility
+facades. It continues to inspect imports, re-exports, import types and literal
+dynamic imports using the TypeScript AST. Application and browser dependency
+checks expand with their owning refactor; these core stages do not claim those
 later guards are active.
+
+Refactor integration remains sequential: contracts, trace-engine, then
+symbol-indexer, with each subsequent PR based on the integrated `main` it needs.
+Application CLI/Git/viewer organization waits for CT-COMP-001 integration; study
+organization requires the integrated PR #21 scoring corrections. Do not rewrite
+those feature branches or create an implicit refactor stack. Test-suite splits
+follow the corresponding application owner rather than moving assertions into
+shared setup files.
 
 ## 2. Canonical language
 
