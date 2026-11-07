@@ -241,6 +241,20 @@ a local result document with:
 pnpm --silent study:score -- ./local-study-data/results.json
 ```
 
+Freeze the exact scoring build for a dataset from a clean committed checkout
+before collection:
+
+```sh
+pnpm --silent study:provenance
+```
+
+The returned provenance binds the validated task bank, scoring policy and full
+Git commit. Scoring requires the same clean commit as the dataset. A new commit,
+changed task bank, changed policy, or old/missing result provenance is rejected;
+there is no automatic historical rescore. A `tool_failure` remains a counted
+failure but is excluded from objective denominators and missed-answer counts,
+including any captured partial claims. The original result file is not changed.
+
 Result files belong under the ignored `local-study-data/` directory. The scorer
 validates the strict pseudonymous format and emits aggregates by task and
 condition, including exploratory usability-rating counts, while omitting

@@ -48,12 +48,15 @@ scale and is not part of the correctness score. Report its 1–5 count
 distribution by task and condition; do not make inferential or population claims
 from it.
 
-F1 and F2 are candidate tasks for all three conditions with limitations. F1's
-RQ2 scoring is restricted to the four direct calls in the route setup because
-the visual client can expose a deeper neighborhood. F2 uses a `REFERENCES`-only
-filter and the same three method-reference occurrences. F3 is exploratory and
-must not be used for confirmatory RQ2 unless diagnostic access is shown to be
-equivalent. Rejected tasks have no answer key and cannot be assigned.
+F1 and F2 remain provisional task candidates for all three conditions with
+limitations. F1 is excluded from RQ2 because its prompt does not resolve whether
+the callback-owned `authenticate(...)` call belongs in the four-item answer key.
+Do not score F1 for RQ2 until an independent reviewer resolves the scope and the
+task wording/key are aligned. F2 is a limited RQ2 candidate using a
+`REFERENCES`-only filter and the same three method-reference occurrences. F3 is
+exploratory and must not be used for confirmatory RQ2 unless diagnostic access
+is shown to be equivalent. Rejected tasks have no answer key and cannot be
+assigned.
 
 ## Participants, assignment and training
 
@@ -137,33 +140,54 @@ run significance tests in an exploratory pilot. It likewise requires a
 count distribution. The usability response is separate from answer text and is
 not used to award objective points.
 
-| Outcome                | Recording and scoring rule                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Completed              | Score submitted objective components; preserve free text for later human review.                                          |
-| Partial or abandoned   | Score only submitted objective components; retain the outcome status.                                                     |
-| Timeout                | Score any submitted partial components; mark duration as censored at the recorded cap.                                    |
-| Missing                | Record an explicit missing status and null duration/confidence when unavailable; unanswered rubric components score zero. |
-| Tool failure           | Record a bounded failure code; apply the predeclared retry rule and do not impute an answer.                              |
-| Unsupported task       | Count separately; exclude from objective participant correctness rather than treating it as a participant error.          |
-| Unsupported conclusion | Preserve in submitted/additional claims for human coding; do not infer it from a wrong answer or automate the judgment.   |
+| Outcome                | Recording and scoring rule                                                                                                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Completed              | Score submitted objective components; preserve free text for later human review.                                                                                  |
+| Partial or abandoned   | Score only submitted objective components; retain the outcome status.                                                                                             |
+| Timeout                | Score any submitted partial components; mark duration as censored at the recorded cap.                                                                            |
+| Missing                | Record an explicit missing status and null duration/confidence when unavailable; unanswered rubric components score zero.                                         |
+| Tool failure           | Record a bounded failure code; preserve captured responses in the raw file, but censor the entire record from objective denominators and missed-assertion counts. |
+| Unsupported task       | Count separately; exclude from objective participant correctness rather than treating it as a participant error.                                                  |
+| Unsupported conclusion | Preserve in submitted/additional claims for human coding; do not infer it from a wrong answer or automate the judgment.                                           |
+
+An observed duration for a `tool_failure` is retained in the private result but
+is not a task completion time and is excluded from the measured completion-time
+mean. Timeouts remain censored at the recorded cap.
 
 Do not exclude a failed task after seeing an answer without recording the
 predeclared reason and analysis denominator.
 
+`submissions` counts every structurally valid result.
+`objectiveScoredSubmissions` counts records that contribute to objective
+denominators. A `tool_failure` record contributes zero objective points, zero
+missed assertions, and no objective denominator, even when a partial answer was
+captured. Its original response stays unchanged in the private input file for
+authorized human review; aggregates do not emit it. If a task/condition group
+contains only tool failures or unsupported tasks, `objectiveAccuracy` is `null`
+because no objective observations were scored.
+
 ## Result file and privacy
 
-Use a JSON document with `schemaVersion: 2`, a study version such as
-`CT-EVAL-001A-v1`, required `provenance`, and a `results` array. Provenance
-contains the SHA-256 digest of the canonical validated task bank, the scoring
-policy version, and the policy SHA-256 digest. Canonical JSON sorts object keys
-and ignores whitespace while preserving array order. The task digest covers the
-complete validated task definitions; the policy digest covers the versioned
-point rubric and answer/evidence matching rules. The collection procedure must
-freeze these values with the result dataset using
-`createStudyResultProvenance(validatedTaskBank)`. Before scoring, the tool
-recomputes both digests and rejects any mismatch with a typed error. Older
-schema-version-1 datasets or results without provenance are rejected; there is
-no automatic migration or historical rescore.
+Use a JSON document with `schemaVersion: 3`, `studyVersion: "CT-EVAL-001A-v2"`,
+required `provenance`, and a `results` array. Provenance contains the SHA-256
+digest of the canonical validated task bank, scoring-policy version and digest,
+and the full scorer Git commit. Canonical JSON sorts object keys and ignores
+whitespace while preserving array order. The task digest covers the complete
+validated task definitions; the policy digest covers the versioned point rubric
+and answer/evidence matching rules.
+
+Before collecting a dataset, run `pnpm --silent study:provenance` from the clean
+committed release checkout and freeze the returned schema version, study
+version, and provenance object with the result dataset. `study:score` resolves
+its own active `HEAD` and rejects a dirty worktree or tracked index flags that
+could hide changed files (`assume-unchanged` and `skip-worktree`); the scorer
+requires an exact match with the dataset's scorer revision. A new commit
+therefore needs new result provenance. There is no compatibility mapping,
+automatic migration, or historical rescore. Schema v1/v2, study v1, missing
+provenance, changed task bank/rubric, and a different scorer revision fail with
+typed errors. The participant scorer rejects the reserved synthetic non-commit
+marker; only the synthetic scoring function accepts it and emits
+`SYNTHETIC_ENGINEERING_TEST_ONLY`.
 
 Each result requires a random pseudonymous token in the form `P-` followed by 16
 uppercase hexadecimal characters, task/condition/order, duration and its

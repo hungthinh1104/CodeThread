@@ -7,10 +7,15 @@ import {
   type StudyTaskDataset,
 } from './study-tasks.ts';
 
-// Update this descriptor whenever scoring code changes its answer-affecting
-// comparisons or point rules. Its digest is frozen into each result dataset.
+export const STUDY_VERSION = 'CT-EVAL-001A-v2' as const;
+export const STUDY_RESULT_SCHEMA_VERSION = 3 as const;
+export const SYNTHETIC_SCORER_REVISION =
+  'SYNTHETIC_ENGINEERING_TEST_ONLY' as const;
+
+// The digest freezes scoring rules; scorerRevision separately pins the clean
+// source commit so implementation changes cannot reuse this descriptor unseen.
 export const STUDY_SCORING_POLICY = Object.freeze({
-  version: 'objective-source-anchors-v2',
+  version: 'objective-source-anchors-v4',
   points: Object.freeze({
     occurrence: 1,
     conclusion: 1,
@@ -44,6 +49,9 @@ export const STUDY_SCORING_POLICY = Object.freeze({
     'false_positive_exact_claim',
     'missed_expected_assertion',
   ]),
+  toolFailureObjectiveHandling: 'exclude_entire_record_and_censor_answers',
+  toolFailureDurationHandling:
+    'exclude_from_completion_time_aggregate_retain_raw',
 } as const);
 
 const coordinateSchema = z.tuple([
@@ -135,6 +143,10 @@ const evidenceReferenceSchema = sourceSpanSchema.extend({
 
 const resultProvenanceSchema = z.strictObject({
   taskBankSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  scorerRevision: z.union([
+    z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    z.literal(SYNTHETIC_SCORER_REVISION),
+  ]),
   scoringPolicyVersion: z
     .string()
     .regex(/^objective-source-anchors-v[1-9][0-9]*$/),
@@ -282,8 +294,8 @@ const studyResultRecordSchema = z
   });
 
 export const studyResultDatasetSchema = z.strictObject({
-  schemaVersion: z.literal(2),
-  studyVersion: z.string().regex(/^CT-EVAL-001A-v[1-9][0-9]*$/),
+  schemaVersion: z.literal(STUDY_RESULT_SCHEMA_VERSION),
+  studyVersion: z.literal(STUDY_VERSION),
   provenance: resultProvenanceSchema,
   results: z.array(studyResultRecordSchema).max(1000),
 });
@@ -296,6 +308,7 @@ export type StudyScoreGroup = Readonly<{
   taskId: string;
   condition: StudyCondition;
   submissions: number;
+  objectiveScoredSubmissions: number;
   completionCounts: Readonly<
     Record<z.infer<typeof completionStatusSchema>, number>
   >;
@@ -320,7 +333,7 @@ export type StudyScoreGroup = Readonly<{
 }>;
 
 export type StudyScoreReport = Readonly<{
-  schemaVersion: 2;
+  schemaVersion: typeof STUDY_RESULT_SCHEMA_VERSION;
   scoringPolicy: typeof STUDY_SCORING_POLICY.version;
   provenance: StudyResultProvenance;
   datasetKind: 'PARTICIPANT_DATA' | 'SYNTHETIC_ENGINEERING_TEST_ONLY';
@@ -390,9 +403,19 @@ export function studyScoringPolicyDigest(
   return canonicalSha256(policy);
 }
 
-function provenanceForTasks(tasks: StudyTaskDataset): StudyResultProvenance {
+function provenanceForTasks(
+  tasks: StudyTaskDataset,
+  scorerRevision: string,
+): StudyResultProvenance {
+  if (
+    !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(scorerRevision) &&
+    scorerRevision !== SYNTHETIC_SCORER_REVISION
+  ) {
+    throw new StudyResultError('SCORER_REVISION_INVALID');
+  }
   return {
     taskBankSha256: canonicalSha256(tasks),
+    scorerRevision,
     scoringPolicyVersion: STUDY_SCORING_POLICY.version,
     scoringPolicySha256: studyScoringPolicyDigest(),
   };
@@ -400,6 +423,7 @@ function provenanceForTasks(tasks: StudyTaskDataset): StudyResultProvenance {
 
 export function createStudyResultProvenance(
   tasksInput: unknown,
+  scorerRevision: string,
 ): StudyResultProvenance {
   const taskResult = studyTaskDatasetSchema.safeParse(tasksInput);
   if (!taskResult.success) {
@@ -408,7 +432,7 @@ export function createStudyResultProvenance(
       taskResult.error.issues.map((entry) => entry.path.join('.')),
     );
   }
-  return provenanceForTasks(taskResult.data);
+  return provenanceForTasks(taskResult.data, scorerRevision);
 }
 
 function evidenceKey(
@@ -442,6 +466,7 @@ function targetKey(
 function validateStudyResults(
   input: unknown,
   tasksInput: unknown,
+  scorerRevision: string,
 ): {
   results: StudyResultDataset;
   tasks: StudyTaskDataset;
@@ -451,7 +476,9 @@ function validateStudyResults(
     typeof input === 'object' &&
     input !== null &&
     Object.hasOwn(input, 'schemaVersion') &&
-    (input as Record<string, unknown>)['schemaVersion'] === 1
+    typeof (input as Record<string, unknown>)['schemaVersion'] === 'number' &&
+    (input as Record<string, unknown>)['schemaVersion'] !==
+      STUDY_RESULT_SCHEMA_VERSION
   ) {
     throw new StudyResultError('RESULT_SCHEMA_VERSION_UNSUPPORTED', [
       'schemaVersion',
@@ -463,6 +490,26 @@ function validateStudyResults(
     !Object.hasOwn(input, 'provenance')
   ) {
     throw new StudyResultError('RESULT_PROVENANCE_MISSING', ['provenance']);
+  }
+  const rawProvenance = (input as Record<string, unknown>)['provenance'];
+  if (
+    typeof rawProvenance !== 'object' ||
+    rawProvenance === null ||
+    !Object.hasOwn(rawProvenance, 'scorerRevision')
+  ) {
+    throw new StudyResultError('SCORER_PROVENANCE_MISSING', [
+      'provenance.scorerRevision',
+    ]);
+  }
+  if (
+    !/^CT-EVAL-001A-v[1-9][0-9]*$/.test(
+      String((input as Record<string, unknown>)['studyVersion']),
+    )
+  ) {
+    throw new StudyResultError('STUDY_VERSION_INVALID', ['studyVersion']);
+  }
+  if ((input as Record<string, unknown>)['studyVersion'] !== STUDY_VERSION) {
+    throw new StudyResultError('STUDY_VERSION_MISMATCH', ['studyVersion']);
   }
   const taskResult = studyTaskDatasetSchema.safeParse(tasksInput);
   if (!taskResult.success) {
@@ -478,12 +525,22 @@ function validateStudyResults(
       result.error.issues.map((entry) => entry.path.join('.')),
     );
   }
-  const expectedProvenance = provenanceForTasks(taskResult.data);
+  const expectedProvenance = provenanceForTasks(
+    taskResult.data,
+    scorerRevision,
+  );
   if (
     result.data.provenance.taskBankSha256 !== expectedProvenance.taskBankSha256
   ) {
     throw new StudyResultError('TASK_BANK_PROVENANCE_MISMATCH', [
       'provenance.taskBankSha256',
+    ]);
+  }
+  if (
+    result.data.provenance.scorerRevision !== expectedProvenance.scorerRevision
+  ) {
+    throw new StudyResultError('SCORER_REVISION_MISMATCH', [
+      'provenance.scorerRevision',
     ]);
   }
   if (
@@ -562,6 +619,7 @@ type MutableGroup = {
   taskId: string;
   condition: StudyCondition;
   submissions: number;
+  objectiveScoredSubmissions: number;
   completionCounts: Record<z.infer<typeof completionStatusSchema>, number>;
   objectiveEarned: number;
   objectiveAvailable: number;
@@ -581,6 +639,7 @@ function newGroup(taskId: string, condition: StudyCondition): MutableGroup {
     taskId,
     condition,
     submissions: 0,
+    objectiveScoredSubmissions: 0,
     completionCounts: {
       completed: 0,
       partial: 0,
@@ -612,7 +671,11 @@ function addRecordScore(
   group.submissions++;
   group.completionCounts[record.completionStatus]++;
   group.awaitingHumanScoring++;
-  if (record.durationStatus === 'measured' && record.durationMs !== null) {
+  if (
+    record.durationStatus === 'measured' &&
+    record.durationMs !== null &&
+    record.completionStatus !== 'tool_failure'
+  ) {
     group.durationTotal += record.durationMs;
     group.measuredDurationCount++;
   }
@@ -638,7 +701,13 @@ function addRecordScore(
       group.usabilityRatingCounts[5]++;
       break;
   }
-  if (record.completionStatus === 'unsupported_task') return;
+  if (
+    record.completionStatus === 'unsupported_task' ||
+    record.completionStatus === 'tool_failure'
+  ) {
+    return;
+  }
+  group.objectiveScoredSubmissions++;
 
   const claims = new Map(
     record.objectiveClaims.map((claim) => [claim.assertionId, claim]),
@@ -702,8 +771,12 @@ function conditionOrder(condition: StudyCondition): number {
 export function scoreStudyResults(
   input: unknown,
   tasksInput: unknown,
+  scorerRevision: string,
 ): StudyScoreReport {
-  const validated = validateStudyResults(input, tasksInput);
+  if (scorerRevision === SYNTHETIC_SCORER_REVISION) {
+    throw new StudyResultError('SCORER_REVISION_INVALID');
+  }
+  const validated = validateStudyResults(input, tasksInput, scorerRevision);
   if (validated.results.results.length === 0) {
     throw new StudyResultError('NO_RESULTS_TO_SCORE');
   }
@@ -728,8 +801,9 @@ export function scoreStudyResults(
 export function scoreSyntheticStudyResults(
   input: unknown,
   tasksInput: unknown,
+  scorerRevision: string,
 ): StudyScoreReport {
-  const validated = validateStudyResults(input, tasksInput);
+  const validated = validateStudyResults(input, tasksInput, scorerRevision);
   return scoreValidatedResults(
     validated,
     'SYNTHETIC_ENGINEERING_TEST_ONLY',
@@ -789,7 +863,7 @@ function scoreValidatedResults(
       conditionOrder(left.condition) - conditionOrder(right.condition),
   );
   return {
-    schemaVersion: 2,
+    schemaVersion: STUDY_RESULT_SCHEMA_VERSION,
     scoringPolicy: STUDY_SCORING_POLICY.version,
     provenance,
     datasetKind,
@@ -799,6 +873,7 @@ function scoreValidatedResults(
       taskId: group.taskId,
       condition: group.condition,
       submissions: group.submissions,
+      objectiveScoredSubmissions: group.objectiveScoredSubmissions,
       completionCounts: group.completionCounts,
       objectiveEarned: group.objectiveEarned,
       objectiveAvailable: group.objectiveAvailable,
