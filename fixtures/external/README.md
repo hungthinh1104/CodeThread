@@ -1,5 +1,9 @@
 # External semantic evaluation inputs
 
+The source-pinned graph claims have a separate
+[independent reviewer packet](GRAPH-REVIEW.md). Existing labels remain
+unreviewed until a human records a review there.
+
 The following source subsets and questions were selected and annotated before
 running CodeThread on them. Codex authored the labels on 2026-11-02 from the
 upstream source; they have not been independently reviewed. Coordinates are

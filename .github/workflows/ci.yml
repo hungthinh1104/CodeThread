@@ -36,5 +36,7 @@ jobs:
         run: pnpm test:browser
       - name: Semantic fixture evaluation
         run: pnpm --silent eval:semantic
+      - name: Pinned external semantic and graph evaluation
+        run: pnpm --silent eval:external
       - name: Dependency security audit (requires advisory service)
         run: pnpm security:check
