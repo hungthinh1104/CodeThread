@@ -84,17 +84,17 @@ trust boundary agree. No new package or public export is needed for this split.
 
 ESLint enforces 500 physical lines per production file and 150 per function in
 contracts, Git source, investigation and source-discovery benchmark modules,
-plus 700 lines per covered contract, architecture, CLI and browser test file.
-Blank lines and comments count; test suite callbacks have no function-size cap.
-Prefer cohesive modules around 200-350 lines. Other owners acquire the same
-checks when their refactor is integrated, preserving separate feature branches.
-An exception must document its owner, reason, baseline SHA and maximum in the
-reviewed configuration. The current viewer and Study files awaiting their
-scheduled ownership refactors have explicit physical-line caps there; they do
-not receive a function-size exemption once those modules are split. Increasing a
-maximum requires explicit justification; remove exceptions as their modules are
-cleaned. Compacting code or exporting unrelated helpers does not establish
-maintainability.
+including the application architecture checker, plus 700 lines per covered
+contract, architecture, CLI and browser test file. Blank lines and comments
+count; test suite callbacks have no function-size cap. Prefer cohesive modules
+around 200-350 lines. Other owners acquire the same checks when their refactor
+is integrated, preserving separate feature branches. An exception must document
+its owner, reason, baseline SHA and maximum in the reviewed configuration. The
+current viewer and Study files awaiting their scheduled ownership refactors have
+explicit physical-line caps there; they do not receive a function-size exemption
+once those modules are split. Increasing a maximum requires explicit
+justification; remove exceptions as their modules are cleaned. Compacting code
+or exporting unrelated helpers does not establish maintainability.
 
 Vitest limits concurrent workers to two because the CLI and Git tests launch
 child processes. This keeps the standard check from oversubscribing Windows and

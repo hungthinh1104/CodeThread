@@ -23,7 +23,10 @@ export default [
   {
     files: [
       'scripts/git-source/**/*.ts',
+      'scripts/git-source.ts',
       'scripts/investigation/**/*.ts',
+      'scripts/investigate.ts',
+      'scripts/architecture.ts',
       'scripts/source-discovery-benchmark/**/*.ts',
       'scripts/benchmark-source-discovery.ts',
     ],
