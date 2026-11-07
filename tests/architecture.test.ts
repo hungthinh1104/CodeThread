@@ -75,6 +75,37 @@ describe('CT-CORE-003 architecture boundaries', () => {
     deep.exports['./internal'] = './src/internal.ts';
     expect(checkArchitecture([deep]).join(' ')).toContain('public root');
   });
+  it('rejects internal source cycles while accepting acyclic implementation imports', () => {
+    const entry = contracts("export * from './graph.js';");
+    const source = {
+      path: resolve(entry.directory, 'src/source.ts'),
+      content: "type Graph = import('./graph.js').Graph;",
+    };
+    entry.sources.push(
+      {
+        path: resolve(entry.directory, 'src/graph.ts'),
+        content: "export * from './source.js';",
+      },
+      source,
+    );
+    expect(checkArchitecture([core(), entry]).join(' ')).toContain(
+      'source import cycle',
+    );
+    source.content = 'export const source = 1;';
+    expect(checkArchitecture([core(), entry])).toEqual([]);
+  });
+  it('rejects contracts implementation imports through compatibility facades', () => {
+    for (const facade of ['index', 'schemas', 'results']) {
+      const entry = contracts();
+      entry.sources.push({
+        path: resolve(entry.directory, 'src/graph.ts'),
+        content: `import './${facade}.js';`,
+      });
+      expect(checkArchitecture([core(), entry]).join(' ')).toContain(
+        'implementation import through facade',
+      );
+    }
+  });
   it('keeps compiler extraction and filesystem access out of the trace engine', () => {
     const directory = resolve('packages/trace-engine');
     const trace: PackageInput = {

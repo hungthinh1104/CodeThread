@@ -36,6 +36,7 @@ const nodeBuiltins: Record<string, readonly string[]> = {
   ],
   '@codethread/trace-engine': ['node:crypto'],
 };
+const contractFacades = new Set(['index.ts', 'schemas.ts', 'results.ts']);
 function inside(path: string, directory: string): boolean {
   const remainder = relative(directory, path);
   return (
@@ -51,11 +52,41 @@ function packageName(specifier: string): string {
     : specifier.split('/')[0]!;
 }
 
+function cycleNodes(graph: ReadonlyMap<string, ReadonlySet<string>>): string[] {
+  const visited = new Set<string>();
+  const active = new Set<string>();
+  const cycles = new Set<string>();
+  function visit(name: string): void {
+    if (active.has(name)) {
+      cycles.add(name);
+      return;
+    }
+    if (visited.has(name)) return;
+    active.add(name);
+    for (const target of graph.get(name) ?? []) visit(target);
+    active.delete(name);
+    visited.add(name);
+  }
+  for (const name of graph.keys()) visit(name);
+  return [...cycles];
+}
+
+function sourceName(path: string, root: string): string {
+  return relative(root, path).split(sep).join('/');
+}
+
 export function checkArchitecture(packages: readonly PackageInput[]): string[] {
   const errors: string[] = [];
   const byName = new Map(packages.map((entry) => [entry.name, entry]));
   if (byName.size !== packages.length) errors.push('Duplicate package name');
   for (const entry of packages) {
+    const sourceRoot = resolve(entry.directory, 'src');
+    const sourceGraph = new Map(
+      entry.sources.map((source) => [
+        sourceName(resolve(source.path), sourceRoot),
+        new Set<string>(),
+      ]),
+    );
     if (!allowed[entry.name])
       errors.push(`${entry.name}: missing explicit module ownership`);
     if (Object.keys(entry.exports).length !== 1 || !('.' in entry.exports))
@@ -77,16 +108,30 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
       function inspect(specifier: string): void {
         if (nodeBuiltins[entry.name]?.includes(specifier)) return;
         if (specifier.startsWith('.')) {
-          if (
-            !inside(
-              resolve(source.path, '..', specifier),
-              resolve(entry.directory, 'src'),
-            )
-          ) {
+          const target = resolve(source.path, '..', specifier);
+          if (!inside(target, sourceRoot)) {
             errors.push(
               `${entry.name}: cross-boundary relative import ${specifier}`,
             );
           }
+          const origin = sourceName(resolve(source.path), sourceRoot);
+          const targetName = sourceName(target, sourceRoot);
+          const candidates = [
+            targetName,
+            targetName.replace(/\.([cm]?)js$/, '.$1ts'),
+            targetName.replace(/\.js$/, '.tsx'),
+            targetName.replace(/\.js$/, '.d.ts'),
+          ];
+          const linked = candidates.find((name) => sourceGraph.has(name));
+          if (linked) sourceGraph.get(origin)!.add(linked);
+          if (
+            entry.name === '@codethread/contracts' &&
+            !contractFacades.has(origin) &&
+            candidates.some((name) => contractFacades.has(name))
+          )
+            errors.push(
+              `${entry.name}: implementation import through facade ${specifier}`,
+            );
           return;
         }
         const imported = packageName(specifier);
@@ -134,27 +179,22 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
       }
       visit(tree);
     }
+    for (const name of cycleNodes(sourceGraph))
+      errors.push(`${entry.name}: source import cycle at ${name}`);
   }
-  const visited = new Set<string>();
-  const active = new Set<string>();
-  function visitPackage(name: string): void {
-    if (active.has(name)) {
-      errors.push(`Package dependency cycle at ${name}`);
-      return;
-    }
-    if (visited.has(name)) return;
-    active.add(name);
-    const entry = byName.get(name);
-    for (const dependency of Object.keys({
-      ...entry?.dependencies,
-      ...entry?.devDependencies,
-    })) {
-      if (byName.has(dependency)) visitPackage(dependency);
-    }
-    active.delete(name);
-    visited.add(name);
-  }
-  for (const entry of packages) visitPackage(entry.name);
+  const packageGraph = new Map(
+    packages.map((entry) => [
+      entry.name,
+      new Set(
+        Object.keys({
+          ...entry.dependencies,
+          ...entry.devDependencies,
+        }).filter((name) => byName.has(name)),
+      ),
+    ]),
+  );
+  for (const name of cycleNodes(packageGraph))
+    errors.push(`Package dependency cycle at ${name}`);
   return [...new Set(errors)].sort();
 }
 

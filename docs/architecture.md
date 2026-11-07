@@ -45,6 +45,45 @@ Its explicit ownership allowlist must change deliberately when real modules are
 introduced. It is a source architecture guard, not a sandbox for running
 analyzed repositories.
 
+### Module organization and staged size checks
+
+The public package root and existing command entry points remain stable while
+implementation files are divided by their owning behavior. Internal modules
+import their direct dependencies, with no source import cycles. Contracts keep
+`schemas.ts` and `results.ts` as explicit compatibility facades; implementation
+modules do not import those facades or `index.ts`.
+
+| Contracts owner                           | Responsibility                                                                                |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `query-common.ts`                         | Cursor encoding/scope, page fields, metadata, response snapshot scope and typed query errors. |
+| `graph-queries.ts` / `graph-results.ts`   | Intrinsic graph schemas and request-aware neighbor/path validation.                           |
+| `test-queries.ts` / `test-results.ts`     | Optional test queries, nested test links, supporting context and trace limits.                |
+| `source-queries.ts` / `source-results.ts` | Evidence batches and diagnostic pages, including request correspondence.                      |
+| `integrity.ts` / `graph-integrity.ts`     | Shared identity, location, declaration, evidence and graph integrity checks.                  |
+| `result-common.ts`                        | Shared request-aware snapshot, applied-limit and page-advancement checks.                     |
+
+Intrinsic schemas own structural validation; named result parsers own checks
+against the original request. Every rule has one implementation. Shared helpers
+remain with their semantic owner and are reused only when their meaning and
+trust boundary agree. No new package or public export is needed for this split.
+
+ESLint enforces 500 physical lines per production file and 150 per function in
+contracts, plus 700 per file for its contract and architecture/tooling tests.
+Blank lines and comments count; test suite callbacks have no function-size cap.
+Prefer cohesive modules around 200-350 lines. Other owners acquire the same
+checks when their refactor is integrated, preserving separate feature branches.
+An exception must document its owner, reason, baseline SHA and maximum in the
+reviewed configuration. Increasing a maximum requires explicit justification;
+remove exceptions as their modules are cleaned. Compacting code or exporting
+unrelated helpers does not establish maintainability.
+
+`arch:check` checks internal source cycles in addition to package cycles and
+rejects contracts implementation imports through compatibility facades. It
+continues to inspect imports, re-exports, import types and literal dynamic
+imports using the TypeScript AST. Application and browser dependency checks
+expand with their owning refactor; this contracts stage does not claim those
+later guards are active.
+
 ## 2. Canonical language
 
 **Repository:** a locally registered Git source lineage, with an identity that

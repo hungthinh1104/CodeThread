@@ -77,3 +77,42 @@ describe('Scoped minimatch override consumer compatibility', () => {
     expect(unmatched?.messages[0]?.message).toContain('allowDefaultProject');
   });
 });
+
+describe('Refactored module size limits', () => {
+  it('counts physical file lines and limits production functions without capping describe blocks', async () => {
+    const eslint = new ESLint();
+    for (const [filePath, limit] of [
+      ['packages/contracts/src/graph-queries.ts', 500],
+      ['tests/contracts.test.ts', 700],
+    ] as const) {
+      const atLimit =
+        '// retained explanation\n'.repeat(limit - 1) + 'export {};\n';
+      const [accepted] = await eslint.lintText(atLimit, { filePath });
+      expect(accepted?.messages).toEqual([]);
+      const [rejected] = await eslint.lintText(atLimit + '\n', { filePath });
+      expect(rejected?.messages.map((message) => message.ruleId)).toContain(
+        'max-lines',
+      );
+    }
+    const atFunctionLimit =
+      'export function example() {\n' +
+      '// retained explanation\n'.repeat(147) +
+      'return 1;\n}\n';
+    const productionPath = 'packages/contracts/src/graph-queries.ts';
+    const [accepted] = await eslint.lintText(atFunctionLimit, {
+      filePath: productionPath,
+    });
+    expect(accepted?.messages).toEqual([]);
+    const tooLong = atFunctionLimit.replace('return 1;', '\nreturn 1;');
+    const [rejected] = await eslint.lintText(tooLong, {
+      filePath: productionPath,
+    });
+    expect(rejected?.messages.map((message) => message.ruleId)).toContain(
+      'max-lines-per-function',
+    );
+    const [testBlock] = await eslint.lintText(tooLong, {
+      filePath: 'tests/contracts.test.ts',
+    });
+    expect(testBlock?.messages).toEqual([]);
+  });
+});
