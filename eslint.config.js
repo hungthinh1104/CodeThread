@@ -37,6 +37,7 @@ export default [
       'tests/{contracts,contract-integrity,query-results,architecture,tooling}.test.ts',
       'tests/git-inventory*.test.ts',
       'tests/git-source-cli*.test.ts',
+      'tests/git-source-process.test.ts',
       'tests/investigate-cli.test.ts',
       'tests/source-browser-cli.test.ts',
       'tests/viewer-browser.ts',
