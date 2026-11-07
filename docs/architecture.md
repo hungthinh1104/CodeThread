@@ -35,6 +35,7 @@ Application script ownership is split by behavior:
 | `scripts/source-discovery-benchmark/`     | Synthetic repository creation and bounded inventory measurements.                 |
 | `scripts/viewer.ts` / `scripts/viewer.js` | Loopback HTTP/security and the browser application remain separate owners.        |
 | `scripts/architecture.ts`                 | Package boundaries, application import cycles and declared script layers.         |
+| `tests/browser/`                          | Browser scenarios grouped by investigation behavior.                              |
 
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
@@ -42,11 +43,13 @@ consumers toward the framework-independent model; the model never imports its
 extractors. Future code dependency direction is transport → application
 orchestration → semantic modules. Symbol/test indexers produce code-model facts;
 trace-engine consumes facts, not framework AST internals. Database owns
-adapters, not semantic rules. `scripts/git-source.ts` owns tree-only discovery
-and Git object acquisition; `scripts/investigate.ts` owns arguments, source
-selection display and session orchestration. API uses contracts rather than
-exposing Drizzle rows. UI uses contracts/API rather than the database. No
-Next.js backend duplicates Fastify/application rules.
+adapters, not semantic rules. `scripts/git-source.ts` remains a compatibility
+facade; Git process, object and inventory behavior lives in
+`scripts/git-source/`. `scripts/investigate.ts` is the command entrypoint;
+parsing, source selection, session orchestration and rendering live in
+`scripts/investigation/`. API uses contracts rather than exposing Drizzle rows.
+UI uses contracts/API rather than the database. No Next.js backend duplicates
+Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -73,13 +76,6 @@ modules do not import those facades or `index.ts`.
 | `source-queries.ts` / `source-results.ts` | Evidence batches and diagnostic pages, including request correspondence.                      |
 | `integrity.ts` / `graph-integrity.ts`     | Shared identity, location, declaration, evidence and graph integrity checks.                  |
 | `result-common.ts`                        | Shared request-aware snapshot, applied-limit and page-advancement checks.                     |
-
-| Application owner                     | Responsibility                                                                        |
-| ------------------------------------- | ------------------------------------------------------------------------------------- |
-| `scripts/git-source/`                 | Process/environment, repository checks, Git object protocol, inventory and selection. |
-| `scripts/investigation/`              | Input loading, command syntax, selectors, session orchestration and rendering.        |
-| `scripts/source-discovery-benchmark/` | Synthetic repository generation, timing and result assembly.                          |
-| `tests/browser/`                      | Browser scenarios grouped by investigation behavior.                                  |
 
 Intrinsic schemas own structural validation; named result parsers own checks
 against the original request. Every rule has one implementation. Shared helpers

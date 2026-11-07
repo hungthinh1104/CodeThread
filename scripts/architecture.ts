@@ -303,6 +303,10 @@ export function checkApplicationArchitecture(
       if (!specifier.startsWith('.')) {
         if (origin === 'scripts/viewer.js')
           errors.push(`Browser viewer imports a nonlocal module: ${specifier}`);
+        else if (origin.startsWith('scripts/viewer-client/'))
+          errors.push(
+            `Browser module imports a nonlocal module: ${origin} -> ${specifier}`,
+          );
         return;
       }
       const targetPath = resolve(source.path, '..', specifier);
