@@ -14,6 +14,17 @@ acceptance:
     given:
       'A forbidden dependency, package cycle or cross-package relative import'
     then: 'Architecture checks fail.'
+  - id: AC-03
+    given:
+      'An internal source import cycle or a contracts implementation import
+      through a compatibility facade'
+    then: 'Architecture checks reject the dependency.'
+  - id: AC-04
+    given: 'A module covered by the staged size rules'
+    then:
+      'Lint rejects production files over 500 physical lines, production
+      functions over 150 lines and test files over 700 lines unless a reviewed
+      exception records its owner, reason, baseline and maximum.'
 depends_on:
   - CT-CORE-001
 verification:

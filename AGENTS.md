@@ -15,6 +15,17 @@ task status; GitHub Issues/Projects own execution tracking.
   product/phase decision.
 - Use the pinned toolchain, strict ESM TypeScript, public package exports and
   validated contracts. Create packages only for real ownership and behavior.
+- Place new behavior in its owning module and import implementation modules
+  directly rather than through compatibility facades. Keep source imports
+  acyclic. Contracts use graph, test and source/diagnostics query families;
+  intrinsic validation belongs with schemas and request-aware checks with result
+  parsers. See the module organization rules in `docs/architecture.md`.
+- For modules covered by the staged ESLint size rules, keep production files at
+  most 500 physical lines, functions at most 150, and test files at most 700.
+  Aim for 200-350 lines per cohesive module. Exceptions need an owner, reason,
+  baseline SHA and maximum in the reviewed configuration; remove them when the
+  module is reorganized. Do not compress code or move complexity into a generic
+  helper file to satisfy a limit.
 - Preserve snapshot scope, immutable published payloads, call occurrences,
   provenance, deterministic ordering and explicit limits. Unknown targets stay
   unknown. Static evidence never proves execution or a passing assertion.
