@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { resolve } from 'node:path';
-import { checkArchitecture, loadPackages } from '../scripts/architecture.ts';
+import {
+  checkApplicationArchitecture,
+  checkArchitecture,
+  loadApplicationSources,
+  loadPackages,
+} from '../scripts/architecture.ts';
 import type { PackageInput } from '../scripts/architecture.ts';
 
 function core(
@@ -127,5 +132,41 @@ describe('CT-CORE-003 architecture boundaries', () => {
     const errors = checkArchitecture([core(), contracts(), trace]).join(' ');
     expect(errors).toContain('forbidden dependency typescript');
     expect(errors).toContain('forbidden import node:fs');
+  });
+  it('accepts the application modules currently present in the workspace', async () => {
+    expect(
+      checkApplicationArchitecture(await loadApplicationSources()),
+    ).toEqual([]);
+  });
+  it('rejects application cycles, owner-layer imports and server imports in browser code', () => {
+    const cycle = checkApplicationArchitecture([
+      {
+        path: resolve('scripts/investigation/one.ts'),
+        content: "import './two.js';",
+      },
+      {
+        path: resolve('scripts/investigation/two.ts'),
+        content: "import './one.js';",
+      },
+    ]);
+    expect(cycle.join(' ')).toContain('Application source import cycle');
+
+    const wrongLayer = checkApplicationArchitecture([
+      {
+        path: resolve('scripts/git-source/selection.ts'),
+        content: "import '../investigation/cli.js';",
+      },
+      {
+        path: resolve('scripts/investigation/session.ts'),
+        content: "import '../git-source.ts';",
+      },
+      {
+        path: resolve('scripts/viewer.js'),
+        content: "import 'node:fs'; import './viewer.ts';",
+      },
+    ]);
+    expect(wrongLayer.join(' ')).toContain('Git source module imports outside');
+    expect(wrongLayer.join(' ')).toContain('compatibility facade');
+    expect(wrongLayer.join(' ')).toContain('Browser viewer imports a nonlocal');
   });
 });

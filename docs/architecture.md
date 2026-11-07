@@ -26,6 +26,16 @@ Current packages:
 | Application scripts | Bounded committed-tree inventory, Git object acquisition, CLI and loopback viewer; no extraction or graph traversal | symbol-indexer, trace-engine, code-model/contracts and Node      |
 | Foundation scripts  | Requirements and package-boundary verification                                                                      | Node, TypeScript API, YAML and Ajv                               |
 
+Application script ownership is split by behavior:
+
+| Module owner                              | Responsibility                                                                    |
+| ----------------------------------------- | --------------------------------------------------------------------------------- |
+| `scripts/git-source/`                     | Trusted Git process, repository layout, object protocol, inventory and selection. |
+| `scripts/investigation/`                  | Manifest input, command parsing, session navigation, selectors and text output.   |
+| `scripts/source-discovery-benchmark/`     | Synthetic repository creation and bounded inventory measurements.                 |
+| `scripts/viewer.ts` / `scripts/viewer.js` | Loopback HTTP/security and the browser application remain separate owners.        |
+| `scripts/architecture.ts`                 | Package boundaries, application import cycles and declared script layers.         |
+
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
 consumers toward the framework-independent model; the model never imports its
@@ -40,10 +50,12 @@ Next.js backend duplicates Fastify/application rules.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
-imports. It rejects CommonJS and nonliteral dynamic imports in these packages.
-Its explicit ownership allowlist must change deliberately when real modules are
-introduced. It is a source architecture guard, not a sandbox for running
-analyzed repositories.
+imports. It also checks import cycles across application scripts and tests,
+enforces the Git source, investigation and benchmark module layers, and keeps
+browser modules from importing server-side code. CommonJS and nonliteral dynamic
+imports are rejected in checked source. The explicit ownership rules must change
+deliberately when real modules are introduced. This source architecture guard is
+not a sandbox for running analyzed repositories.
 
 ### Module organization and staged size checks
 
@@ -62,27 +74,45 @@ modules do not import those facades or `index.ts`.
 | `integrity.ts` / `graph-integrity.ts`     | Shared identity, location, declaration, evidence and graph integrity checks.                  |
 | `result-common.ts`                        | Shared request-aware snapshot, applied-limit and page-advancement checks.                     |
 
+| Application owner                     | Responsibility                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------- |
+| `scripts/git-source/`                 | Process/environment, repository checks, Git object protocol, inventory and selection. |
+| `scripts/investigation/`              | Input loading, command syntax, selectors, session orchestration and rendering.        |
+| `scripts/source-discovery-benchmark/` | Synthetic repository generation, timing and result assembly.                          |
+| `tests/browser/`                      | Browser scenarios grouped by investigation behavior.                                  |
+
 Intrinsic schemas own structural validation; named result parsers own checks
 against the original request. Every rule has one implementation. Shared helpers
 remain with their semantic owner and are reused only when their meaning and
 trust boundary agree. No new package or public export is needed for this split.
 
 ESLint enforces 500 physical lines per production file and 150 per function in
-contracts, plus 700 per file for its contract and architecture/tooling tests.
+contracts, Git source, investigation and source-discovery benchmark modules,
+plus 700 lines per covered contract, architecture, CLI and browser test file.
 Blank lines and comments count; test suite callbacks have no function-size cap.
 Prefer cohesive modules around 200-350 lines. Other owners acquire the same
 checks when their refactor is integrated, preserving separate feature branches.
 An exception must document its owner, reason, baseline SHA and maximum in the
-reviewed configuration. Increasing a maximum requires explicit justification;
-remove exceptions as their modules are cleaned. Compacting code or exporting
-unrelated helpers does not establish maintainability.
+reviewed configuration. The current viewer and Study files awaiting their
+scheduled ownership refactors have explicit physical-line caps there; they do
+not receive a function-size exemption once those modules are split. Increasing a
+maximum requires explicit justification; remove exceptions as their modules are
+cleaned. Compacting code or exporting unrelated helpers does not establish
+maintainability.
+
+Vitest limits concurrent workers to two because the CLI and Git tests launch
+child processes. This keeps the standard check from oversubscribing Windows and
+CI runners while preserving the same test timeout and assertions.
 
 `arch:check` checks internal source cycles in addition to package cycles and
 rejects contracts implementation imports through compatibility facades. It
 continues to inspect imports, re-exports, import types and literal dynamic
-imports using the TypeScript AST. Application and browser dependency checks
-expand with their owning refactor; this contracts stage does not claim those
-later guards are active.
+imports using the TypeScript AST. Application scripts and test modules are
+included in the cycle graph; explicit layer rules prevent the Git adapter from
+depending on the CLI, the CLI from importing compatibility facades, and browser
+modules from reaching server code. Browser imports remain local JavaScript
+modules under the viewer client owner; serving a new module requires a matching
+explicit asset route in the loopback viewer.
 
 ## 2. Canonical language
 
@@ -1138,6 +1168,35 @@ repetition.
 Repeated runs produced identical paths, counts and truncation status. These are
 single-machine synthetic measurements with a warm local filesystem cache; they
 are not performance budgets or evidence about real monorepos.
+
+An expanded 2026-11-07 run measured 100, 1,000 and 10,000 generated tree entries
+with flat, eight-directory-deep and up-to-64-directory-wide layouts. It ran
+three discovery samples per workload and 100 samples per bounded browse
+operation. Fixture generation and commit creation are excluded from stage
+timings. The earlier 24-directory depth approached the adapter's ten-second
+deadline, so the repeatable workload now fixes depth at eight; the adapter
+deadline itself is unchanged.
+
+| Shape / generated tree entries | Committed `.ts` files | Listed files | Trees / visits | Inventory result | Median discovery |
+| ------------------------------ | --------------------: | -----------: | -------------: | ---------------- | ---------------: |
+| flat / 100                     |                    99 |           99 |          2 / 2 | complete         |          1.699 s |
+| deep / 100                     |                    92 |           92 |          9 / 9 | complete         |          3.928 s |
+| wide / 100                     |                    57 |           57 |        44 / 44 | complete         |          1.949 s |
+| flat / 1,000                   |                   999 |          999 |          2 / 2 | complete         |          1.621 s |
+| deep / 1,000                   |                   992 |          992 |          9 / 9 | complete         |          4.146 s |
+| wide / 1,000                   |                   936 |          936 |        65 / 65 | complete         |          2.028 s |
+| flat / 10,000                  |                 9,999 |        1,000 |          2 / 2 | file limit       |          1.767 s |
+| deep / 10,000                  |                 9,992 |        1,000 |          9 / 9 | file limit       |          3.880 s |
+| wide / 10,000                  |                 9,936 |        1,000 |         33 / 9 | file limit       |          1.986 s |
+
+Across these workloads, median literal search ranged from 12.5 to 55.4 ms,
+directory-prefix filtering from 16.6 to 96.2 ms, full cursor paging from 1.9 to
+36.5 ms, exact lookup from 2.8 to 8.2 ms, exact selection validation from 60.4
+to 196.6 ms, and acquisition plus analysis of the selected 20 files from 2.5 to
+3.0 s. Discovery RSS deltas were 0.13 to 0.71 MiB in the benchmark parent; they
+are not child-process or total-system memory bounds. These figures are
+single-machine synthetic evidence only, not scalability claims or performance
+budgets.
 
 ## 13. Evidence-driven capability assessment
 
