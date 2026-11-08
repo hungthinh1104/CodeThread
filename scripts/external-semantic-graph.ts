@@ -242,6 +242,24 @@ function exactEdge(
   return relation;
 }
 
+function verifyRelationEvidenceIds(
+  relations: readonly CodeRelation[],
+  relationId: string,
+  expectedEvidenceIds: readonly string[],
+  label: string,
+): void {
+  const matches = relations.filter((relation) => relation.id === relationId);
+  assert(matches.length === 1, label + ' relation is missing or duplicated.');
+  const relation = matches[0]!;
+  assert(
+    relation.resolution.status === 'exact' &&
+      JSON.stringify(relation.resolution.evidenceIds) ===
+        JSON.stringify(expectedEvidenceIds),
+    label +
+      ' resolution evidence IDs do not match the anchored source path.',
+  );
+}
+
 function verifyGraphAnchors(
   name: CorpusName,
   expectation: ExternalGraphExpectation,
@@ -394,6 +412,25 @@ export function validateExternalGraph(
       root.declarationEvidenceId,
       target.declarationEvidenceId,
     );
+  const expectedEvidenceIds = evidence.map((item) => item.id);
+  verifyRelationEvidenceIds(
+    result.neighbors.relations,
+    edge.id,
+    expectedEvidenceIds,
+    'outgoing',
+  );
+  verifyRelationEvidenceIds(
+    result.incoming.relations,
+    edge.id,
+    expectedEvidenceIds,
+    'incoming',
+  );
+  verifyRelationEvidenceIds(
+    result.paths.relations,
+    edge.id,
+    expectedEvidenceIds,
+    'paths',
+  );
   verifyGraphEvidenceRefs(
     result.neighbors.evidenceRefs,
     evidence,

@@ -138,6 +138,45 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
       },
     ],
     [
+      'an appended unrequested relation evidence ID',
+      /resolution evidence IDs do not match the anchored source path/,
+      (candidate) => {
+        const relation = exactRelation(candidate);
+        if (relation.resolution.status === 'exact')
+          relation.resolution.evidenceIds.push(
+            '00000000-0000-4000-8000-000000000099',
+          );
+      },
+    ],
+    [
+      'an appended unrequested incoming evidence ID',
+      /resolution evidence IDs do not match the anchored source path/,
+      (candidate) => {
+        const relation = candidate.incoming.relations.find(
+          (item) => item.resolution.status === 'exact',
+        );
+        if (!relation || relation.resolution.status !== 'exact')
+          throw new Error('Expected fixture incoming edge.');
+        relation.resolution.evidenceIds.push(
+          '00000000-0000-4000-8000-000000000099',
+        );
+      },
+    ],
+    [
+      'an appended unrequested path evidence ID',
+      /resolution evidence IDs do not match the anchored source path/,
+      (candidate) => {
+        const relation = candidate.paths.relations.find(
+          (item) => item.resolution.status === 'exact',
+        );
+        if (!relation || relation.resolution.status !== 'exact')
+          throw new Error('Expected fixture path edge.');
+        relation.resolution.evidenceIds.push(
+          '00000000-0000-4000-8000-000000000099',
+        );
+      },
+    ],
+    [
       'a discontinuous path',
       /path is missing, reversed, or disconnected/,
       (candidate) => {
