@@ -255,8 +255,7 @@ function verifyRelationEvidenceIds(
     relation.resolution.status === 'exact' &&
       JSON.stringify(relation.resolution.evidenceIds) ===
         JSON.stringify(expectedEvidenceIds),
-    label +
-      ' resolution evidence IDs do not match the anchored source path.',
+    label + ' resolution evidence IDs do not match the anchored source path.',
   );
 }
 
