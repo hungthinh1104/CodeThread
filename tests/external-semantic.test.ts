@@ -2,7 +2,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
-import { loadExternalCorpus } from '../scripts/external-semantic-corpus.ts';
+import {
+  loadExternalCorpus,
+  loadTodoClosure,
+} from '../scripts/external-semantic-corpus.ts';
 import { evaluateSemantic } from '../scripts/eval-semantic.ts';
 
 describe.each(['tinyexec', 'todo'] as const)('external corpus: %s', (name) => {
@@ -99,3 +102,93 @@ describe.each(['tinyexec', 'todo'] as const)('external corpus: %s', (name) => {
     expect(report.gate.passed).toBe(true);
   });
 });
+
+it('keeps pinned ToDoManager db calls method-owned but unresolved without knex source', async () => {
+  const model = (await loadTodoClosure()).find(
+    (file) => file.path === 'models/todo.ts',
+  )!;
+  const snapshot = await analyzeManifest({
+    repositoryId: '00000000-0000-4000-8000-000000000013',
+    compilerOptions: COMPILER_PROFILE,
+    files: [model],
+  });
+  const calls = snapshot.facts.observations.flatMap((observation) => {
+    const excerpt = snapshot.source.readEvidence(observation.evidenceId);
+    if (excerpt.status !== 'available' || excerpt.text !== 'db(this.tbName)')
+      return [];
+    const owner = snapshot.facts.symbols.find(
+      (item) => item.id === observation.ownerId,
+    );
+    const relation = snapshot.facts.relations.find(
+      (item) => item.id === observation.relationId,
+    );
+    const diagnostic = snapshot.facts.diagnostics.find(
+      (item) => item.id === observation.diagnosticId,
+    );
+    return [
+      {
+        line: excerpt.evidence.range.start.line,
+        column: excerpt.evidence.range.start.column,
+        endColumn: excerpt.evidence.range.end.column,
+        owner: owner && {
+          name: owner.name,
+          kind: owner.kind,
+          line: owner.range.start.line,
+        },
+        status: observation.status,
+        targetId:
+          relation && relation.resolution.status === 'unresolved'
+            ? relation.resolution.targetId
+            : 'unexpected-resolution',
+        diagnostic: diagnostic?.code,
+      },
+    ];
+  });
+  expect(calls).toEqual([
+    {
+      line: 28,
+      column: 18,
+      endColumn: 33,
+      owner: { name: 'findAll', kind: 'method', line: 24 },
+      status: 'unresolved',
+      targetId: null,
+      diagnostic: 'TARGET_UNRESOLVED',
+    },
+    {
+      line: 32,
+      column: 18,
+      endColumn: 33,
+      owner: { name: 'findOne', kind: 'method', line: 31 },
+      status: 'unresolved',
+      targetId: null,
+      diagnostic: 'TARGET_UNRESOLVED',
+    },
+    {
+      line: 42,
+      column: 27,
+      endColumn: 42,
+      owner: { name: 'create', kind: 'method', line: 41 },
+      status: 'unresolved',
+      targetId: null,
+      diagnostic: 'TARGET_UNRESOLVED',
+    },
+    {
+      line: 53,
+      column: 27,
+      endColumn: 42,
+      owner: { name: 'update', kind: 'method', line: 52 },
+      status: 'unresolved',
+      targetId: null,
+      diagnostic: 'TARGET_UNRESOLVED',
+    },
+    {
+      line: 69,
+      column: 18,
+      endColumn: 33,
+      owner: { name: 'findByUserId', kind: 'method', line: 68 },
+      status: 'unresolved',
+      targetId: null,
+      diagnostic: 'TARGET_UNRESOLVED',
+    },
+  ]);
+}, 20000);

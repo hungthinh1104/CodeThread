@@ -255,6 +255,257 @@ describe('CT-INDEX-001A semantic extraction', () => {
     ]);
     expect(relations[0]?.siteEvidenceId).not.toBe(relations[1]?.siteEvidenceId);
   }, 15000);
+  it('attributes a direct call in a class method to its source method', async () => {
+    const source = [
+      'class Worker {',
+      '  run() {',
+      '    helper();',
+      '  }',
+      '}',
+      'function helper() {}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('source.ts', source)],
+    });
+    const observation = result.facts.observations[0]!;
+    const owner = result.facts.symbols.find(
+      (symbol) => symbol.id === observation.ownerId,
+    );
+    const relation = result.facts.relations.find(
+      (item) => item.id === observation.relationId,
+    );
+    const target = result.facts.symbols.find(
+      (symbol) =>
+        relation?.resolution.status === 'exact' &&
+        symbol.id === relation.resolution.targetId,
+    );
+    expect({
+      status: observation.status,
+      eligible: observation.eligible,
+      call: result.source.readEvidence(observation.evidenceId),
+      owner: owner && {
+        name: owner.name,
+        kind: owner.kind,
+        start: [owner.range.start.line, owner.range.start.column],
+        end: [owner.range.end.line, owner.range.end.column],
+      },
+      target: target && {
+        name: target.name,
+        kind: target.kind,
+        start: [target.range.start.line, target.range.start.column],
+        end: [target.range.end.line, target.range.end.column],
+      },
+    }).toMatchObject({
+      status: 'exact',
+      eligible: true,
+      call: {
+        status: 'available',
+        filePath: 'source.ts',
+        text: 'helper()',
+        evidence: {
+          range: {
+            start: { line: 3, column: 5 },
+            end: { line: 3, column: 13 },
+          },
+        },
+      },
+      owner: {
+        name: 'run',
+        kind: 'method',
+        start: [2, 3],
+        end: [4, 4],
+      },
+      target: {
+        name: 'helper',
+        kind: 'function',
+        start: [6, 1],
+        end: [6, 21],
+      },
+    });
+    expect(relation?.resolution).toMatchObject({
+      status: 'exact',
+      targetId: target?.id,
+      evidenceIds: [
+        observation.evidenceId,
+        owner?.declarationEvidenceId,
+        target?.declarationEvidenceId,
+      ],
+    });
+    expect(
+      result.source.readEvidence(owner!.declarationEvidenceId),
+    ).toMatchObject({
+      status: 'available',
+      text: 'run() {\n    helper();\n  }',
+    });
+    expect(
+      result.source.readEvidence(target!.declarationEvidenceId),
+    ).toMatchObject({ status: 'available', text: 'function helper() {}' });
+  }, 15000);
+  it('resolves method calls to relative imports only when their source is included', async () => {
+    const caller = sourceFile(
+      'worker.ts',
+      [
+        "import { helper as runHelper } from './helpers.js';",
+        'export class Worker {',
+        '  run() {',
+        '    runHelper();',
+        '  }',
+        '}',
+        '',
+      ].join('\n'),
+    );
+    const callee = sourceFile('helpers.ts', 'export function helper() {}\n');
+    const included = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [caller, callee],
+    });
+    const includedObservation = included.facts.observations[0]!;
+    const includedRelation = included.facts.relations.find(
+      (item) => item.id === includedObservation.relationId,
+    )!;
+    const includedOwner = included.facts.symbols.find(
+      (item) => item.id === includedObservation.ownerId,
+    )!;
+    const includedTarget = included.facts.symbols.find(
+      (item) =>
+        includedRelation.resolution.status === 'exact' &&
+        item.id === includedRelation.resolution.targetId,
+    )!;
+    expect({
+      status: includedObservation.status,
+      owner: [includedOwner.kind, includedOwner.name],
+      call: included.source.readEvidence(includedObservation.evidenceId),
+      target: [
+        includedTarget.filePath,
+        includedTarget.kind,
+        includedTarget.name,
+        [includedTarget.range.start.line, includedTarget.range.start.column],
+        [includedTarget.range.end.line, includedTarget.range.end.column],
+      ],
+    }).toMatchObject({
+      status: 'exact',
+      owner: ['method', 'run'],
+      call: {
+        status: 'available',
+        filePath: 'worker.ts',
+        text: 'runHelper()',
+        evidence: { range: { start: { line: 4, column: 5 } } },
+      },
+      target: ['helpers.ts', 'function', 'helper', [1, 1], [1, 28]],
+    });
+
+    const omitted = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [caller],
+    });
+    const omittedObservation = omitted.facts.observations[0]!;
+    const omittedOwner = omitted.facts.symbols.find(
+      (item) => item.id === omittedObservation.ownerId,
+    );
+    const omittedRelation = omitted.facts.relations.find(
+      (item) => item.id === omittedObservation.relationId,
+    );
+    expect(omittedOwner).toMatchObject({ kind: 'method', name: 'run' });
+    expect(omittedObservation.status).toBe('unresolved');
+    expect(omittedRelation?.resolution).toMatchObject({
+      status: 'unresolved',
+      targetId: null,
+    });
+  }, 20000);
+  it('keeps nested function ownership and does not leak method ownership into arrows', async () => {
+    const source = [
+      'class Worker {',
+      '  run() {',
+      '    methodTarget();',
+      '    function nested() { nestedTarget(); }',
+      '    const callback = () => callbackTarget();',
+      '  }',
+      '}',
+      'function methodTarget() {}',
+      'function nestedTarget() {}',
+      'function callbackTarget() {}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('nested.ts', source)],
+    });
+    const calls = new Map(
+      result.facts.observations.map((observation) => {
+        const evidence = result.source.readEvidence(observation.evidenceId);
+        return [
+          evidence.status === 'available' ? evidence.text : '',
+          observation,
+        ];
+      }),
+    );
+    const ownerName = (text: string) => {
+      const observation = calls.get(text)!;
+      return result.facts.symbols.find(
+        (item) => item.id === observation.ownerId,
+      );
+    };
+    expect(calls.get('methodTarget()')).toMatchObject({ status: 'exact' });
+    expect(ownerName('methodTarget()')).toMatchObject({
+      kind: 'method',
+      name: 'run',
+    });
+    expect(calls.get('nestedTarget()')).toMatchObject({ status: 'exact' });
+    expect(ownerName('nestedTarget()')).toMatchObject({
+      kind: 'function',
+      name: 'nested',
+    });
+    expect(calls.get('callbackTarget()')).toMatchObject({
+      ownerId: null,
+      relationId: null,
+      status: 'unsupported',
+    });
+    const callbackDiagnostic = result.facts.diagnostics.find(
+      (item) => item.id === calls.get('callbackTarget()')?.diagnosticId,
+    );
+    expect(callbackDiagnostic?.code).toBe('OWNER_UNSUPPORTED');
+  }, 15000);
+  it('leaves constructor, accessor, computed, and object-method calls unowned', async () => {
+    const source = [
+      'class Unsupported {',
+      '  constructor() { helper(); }',
+      '  get value() { helper(); return 0; }',
+      "  ['computed']() { helper(); }",
+      '}',
+      'const object = { run() { helper(); } };',
+      'function helper() {}',
+      '',
+    ].join('\n');
+    const result = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [sourceFile('unsupported-owners.ts', source)],
+    });
+    expect(result.facts.observations).toHaveLength(4);
+    expect(
+      result.facts.observations.map((item) => ({
+        ownerId: item.ownerId,
+        relationId: item.relationId,
+        status: item.status,
+        diagnostic: result.facts.diagnostics.find(
+          (diagnostic) => diagnostic.id === item.diagnosticId,
+        )?.code,
+      })),
+    ).toEqual(
+      Array.from({ length: 4 }, () => ({
+        ownerId: null,
+        relationId: null,
+        status: 'unsupported',
+        diagnostic: 'OWNER_UNSUPPORTED',
+      })),
+    );
+  }, 15000);
   it('extracts the three pinned todo method references with exact source evidence', async () => {
     const corpus = await loadExternalCorpus('todo');
     const closure = await loadTodoClosure();

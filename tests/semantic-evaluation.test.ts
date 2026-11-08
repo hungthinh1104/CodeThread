@@ -226,3 +226,141 @@ describe('same-name declarations in different lexical scopes', () => {
     },
   );
 });
+
+describe('source-anchored method-owned call evaluation', () => {
+  const path = 'method-owner.ts';
+  const text = [
+    'class Worker {',
+    '  run() {',
+    '    helper();',
+    '  }',
+    '  fallback() {',
+    '  }',
+    '}',
+    'function helper() {}',
+    'function decoy() {}',
+    '',
+  ].join('\n');
+  const gold: SemanticGold = {
+    authorship: 'manually authored regression',
+    review: 'not independently reviewed',
+    files: {
+      [path]:
+        'bebd1f08de767845cdf66f1ea3367226152ae742c3a8aad0a4e7b6857cafa923',
+    },
+    declarations: [
+      {
+        file: path,
+        name: 'run',
+        kind: 'method',
+        start: [2, 3],
+        end: [4, 4],
+      },
+      {
+        file: path,
+        name: 'fallback',
+        kind: 'method',
+        start: [5, 3],
+        end: [6, 4],
+      },
+      {
+        file: path,
+        name: 'helper',
+        kind: 'function',
+        start: [8, 1],
+        end: [8, 21],
+      },
+      {
+        file: path,
+        name: 'decoy',
+        kind: 'function',
+        start: [9, 1],
+        end: [9, 20],
+      },
+    ],
+    calls: [
+      {
+        file: path,
+        line: 3,
+        column: 5,
+        text: 'helper()',
+        owner: { file: path, start: [2, 3], end: [4, 4] },
+        status: 'exact',
+        target: { file: path, start: [8, 1], end: [8, 21] },
+        eligible: true,
+      },
+    ],
+  };
+  let fixture: AnalysisSnapshot;
+
+  beforeAll(async () => {
+    const bytes = new TextEncoder().encode(text);
+    fixture = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-000000000001',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path,
+          bytes,
+          sha256: gold.files[path]!,
+        },
+      ],
+    });
+  }, 15000);
+
+  it('accepts the independently anchored method owner, call and function target', () => {
+    const report = evaluateSemantic(gold, fixture);
+    expect(report.counts).toMatchObject({
+      correctExactResolutions: 1,
+      incorrectExactResolutions: 0,
+      missedResolvableOccurrences: 0,
+      sourceEvidenceMismatches: 0,
+    });
+    expect(report.gate.passed).toBe(true);
+  });
+
+  it('rejects a wrong exact target even when its declaration evidence is added', () => {
+    const facts = structuredClone(fixture.facts);
+    const relation = facts.relations[0]!;
+    const wrong = facts.symbols.find((symbol) => symbol.name === 'decoy')!;
+    if (relation.resolution.status !== 'exact')
+      throw new Error('expected exact fixture relation');
+    relation.resolution.targetId = wrong.id;
+    relation.resolution.evidenceIds.push(wrong.declarationEvidenceId);
+    const report = evaluateSemantic(gold, { facts, source: fixture.source });
+    expect(report.counts).toMatchObject({
+      correctExactResolutions: 0,
+      incorrectExactResolutions: 1,
+      missedResolvableOccurrences: 1,
+    });
+    expect(report.gate.passed).toBe(false);
+  });
+
+  it('rejects a different method as the call owner', () => {
+    const facts = structuredClone(fixture.facts);
+    const relation = facts.relations[0]!;
+    const wrong = facts.symbols.find((symbol) => symbol.name === 'fallback')!;
+    if (relation.resolution.status !== 'exact')
+      throw new Error('expected exact fixture relation');
+    facts.observations[0]!.ownerId = wrong.id;
+    relation.sourceSymbolId = wrong.id;
+    relation.resolution.evidenceIds.push(wrong.declarationEvidenceId);
+    const report = evaluateSemantic(gold, { facts, source: fixture.source });
+    expect(report.gate.failures).toHaveLength(1);
+    expect(report.gate.passed).toBe(false);
+  });
+
+  it('rejects an exact edge missing its target declaration evidence', () => {
+    const facts = structuredClone(fixture.facts);
+    const relation = facts.relations[0]!;
+    const target = facts.symbols.find((symbol) => symbol.name === 'helper')!;
+    if (relation.resolution.status !== 'exact')
+      throw new Error('expected exact fixture relation');
+    relation.resolution.evidenceIds = relation.resolution.evidenceIds.filter(
+      (id) => id !== target.declarationEvidenceId,
+    );
+    const report = evaluateSemantic(gold, { facts, source: fixture.source });
+    expect(report.counts.sourceEvidenceMismatches).toBe(1);
+    expect(report.gate.passed).toBe(false);
+  });
+});

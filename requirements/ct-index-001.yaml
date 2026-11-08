@@ -40,5 +40,8 @@ verification:
     CT-INDEX-001A verifies a bounded named-function/direct-call subset against
     source-pinned authored annotations. CT-INDEX-001B adds a bounded
     source-backed method-reference subset and kind-filtered graph traversal;
-    broader imports and general reference capabilities remain unimplemented. The
-    pinned external labels have no independent review.
+    body-bearing identifier-named class methods are also supported as owners of
+    direct identifier calls. Nested named functions keep their own ownership;
+    callback and unsupported owner scopes retain uncertainty. Broader imports
+    and general reference capabilities remain unimplemented. The pinned external
+    labels have no independent review.

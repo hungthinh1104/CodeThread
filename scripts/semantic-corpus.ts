@@ -25,6 +25,7 @@ export interface SemanticGold {
   declarations: {
     file: string;
     name: string;
+    kind?: 'function' | 'method';
     start: [number, number];
     end: [number, number];
   }[];

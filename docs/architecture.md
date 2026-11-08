@@ -951,14 +951,16 @@ is an input boundary, not an operating-system sandbox.
 The proof extracts named function declarations with bodies and direct identifier
 calls, including nested named functions, local calls, named relative imports,
 aliases and recursion. Each declaration's primary evidence spans the complete
-declaration, while call ownership is restricted separately to the nearest
-supported function body. Calls in parameter initializers, file scope, arrows,
-function expressions or methods retain diagnostics without an invented function
-owner. Calls to type-only values, re-exports, overloads, default or namespace
-imports, external packages, computed/property calls and dynamic imports remain
-unsupported. Missing bindings are unresolved; conflicting function
-implementations are ambiguous. A direct call affected by a compiler error cannot
-produce an exact relation.
+declaration. Direct identifier calls are owned by the nearest supported named
+function body or body-bearing, identifier-named class method. Nested named
+functions own their calls; arrows and function expressions do not inherit an
+outer owner. Calls in parameter initializers, file scope, arrows, function
+expressions, constructors, accessors, computed methods or non-class method
+declarations retain diagnostics without an invented owner. Calls to type-only
+values, re-exports, overloads, default or namespace imports, external packages,
+computed/property calls and dynamic imports remain unsupported. Missing bindings
+are unresolved; conflicting function implementations are ambiguous. A direct
+call affected by a compiler error cannot produce an exact relation.
 
 CT-INDEX-001B additionally emits method symbols for body-bearing method
 declarations and occurrence-level `references` relations for noncomputed method
@@ -967,12 +969,12 @@ one source method declaration; overloads, accessors, computed or optional
 access, ambiguous candidates, absent declarations and compiler errors affecting
 the member or target retain null targets and diagnostics. Reference ownership is
 the nearest supported named function or method body; unsupported lexical owners
-receive evidence and diagnostics without a graph edge. Calls inside methods
-remain outside the direct-call ownership subset. A reference is a static
-compiler-selected declaration only: it does not identify a runtime receiver,
-prove successful registration, or establish method execution. Named imports
-serve resolution, but import occurrence facts and general property/reference
-support remain unimplemented.
+receive evidence and diagnostics without a graph edge. A method call owner does
+not establish method execution. A reference is a static compiler-selected
+declaration only: it does not identify a runtime receiver, prove successful
+registration, or establish method execution. Named imports serve resolution, but
+import occurrence facts and general property/reference support remain
+unimplemented.
 
 The `declarations.v1` and `relationships.v1` coverage fields are partial because
 their broader domains are not fully implemented. `named_functions.v1` describes

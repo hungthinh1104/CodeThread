@@ -55,7 +55,9 @@ export function validateGraph(
         site &&
         relation.snapshotId === snapshot &&
         site.fileId === owner.fileId &&
-        (relation.kind !== 'calls' || owner.kind === 'function'),
+        (relation.kind !== 'calls' ||
+          owner.kind === 'function' ||
+          owner.kind === 'method'),
     );
     ensure(
       sourceRangeSchema.safeParse({
