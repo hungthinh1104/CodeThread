@@ -177,7 +177,7 @@ export function evaluateSemantic(
         );
     }
     if (!evidenceValid) evidenceMismatches++;
-    if (expected.eligible) {
+    if (expected.eligible && observation.status !== 'unsupported') {
       analyzedSupported++;
       if (
         observation.status === 'unresolved' ||
@@ -313,6 +313,8 @@ export function evaluateSemantic(
     counts,
     precision: rate(correct, exactPredictions),
     recall: rate(correct, resolvable),
+    supportedCoverage: rate(analyzedSupported, gold.calls.length),
+    exactCoverage: rate(correct, gold.calls.length),
     unresolvedRate: rate(unresolvedSupported, analyzedSupported),
     gate: { passed, declarationMatch, failures },
     examples: { correct: correctExamples, incorrect: incorrectExamples },
