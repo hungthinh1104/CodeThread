@@ -54,3 +54,21 @@ investigation, `test-driven-development` for suitable behavior changes, and
 `repo-navigator` for focused discovery; select only skills relevant to the task.
 Do not copy upstream skill content. If any requested upstream skill is
 unavailable, say so and retain repository verification requirements.
+
+## Verification integrity checklist
+
+For semantic, source-discovery, evaluator, or benchmark changes:
+
+- Pair schema and determinism checks with independent expected behavior when
+  output contents matter.
+- Derive reported limits and outcomes from the executed configuration and
+  observed results; keep synthetic performance separate from correctness.
+- Search production paths for fixture-specific names or gold-label fallbacks;
+  exercise renamed, moved, ambiguous, and unrelated inputs before classifying a
+  suspected shortcut.
+- Inject a controlled wrong behavior into each material gate, record the failing
+  assertion and tested SHA, restore it, and rerun the passing baseline.
+- Reject swallowed errors, empty suites, silent skips, and success exits that
+  hide a failed check.
+- Keep local checks, hosted CI, independent label review, and human-study
+  evidence distinct in the final report.
