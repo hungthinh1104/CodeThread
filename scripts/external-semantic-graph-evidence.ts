@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { AnalysisFacts, SourceEvidence } from '@codethread/code-model';
-import type { GetSourceEvidenceResponse } from '@codethread/contracts';
+import type {
+  FindSymbolPathsResponse,
+  GetSourceEvidenceResponse,
+  GraphNeighborsResponse,
+} from '@codethread/contracts';
 import type { ExternalGold } from './external-semantic-corpus.ts';
 import {
   externalGraphExpectations,
@@ -23,6 +27,11 @@ export type AnchoredEvidence = {
   fileId: string;
   text?: string;
 };
+
+type GraphEvidenceResponse = Pick<
+  GraphNeighborsResponse | FindSymbolPathsResponse,
+  'symbols' | 'relations'
+>;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error('External graph evidence: ' + message);
@@ -152,6 +161,14 @@ export function verifyGraphEvidenceRefs(
   snapshotId: string,
   label: string,
 ): void {
+  const expectedIds = expected.map((item) => item.id),
+    actualIds = refs.map((item) => item.id);
+  assert(
+    actualIds.length === expectedIds.length &&
+      new Set(actualIds).size === expectedIds.length &&
+      expectedIds.every((id) => actualIds.includes(id)),
+    label + ' evidence IDs do not match the anchored source path.',
+  );
   for (const item of expected) {
     const matches = refs.filter((ref) => ref.id === item.id);
     assert(
@@ -214,6 +231,90 @@ export function verifyEvidenceItems(
     );
     assert(item.text === text, 'source excerpt differs from pinned bytes.');
   }
+}
+
+export function expectedEvidenceForGraphResponse(
+  graph: GraphEvidenceResponse,
+  pinnedFiles: Readonly<Record<string, PinnedSourceFile>>,
+  facts: AnalysisFacts,
+  label: string,
+): readonly AnchoredEvidence[] {
+  const factSymbols = new Map(
+      facts.symbols.map((symbol) => [symbol.id, symbol]),
+    ),
+    factRelations = new Map(
+      facts.relations.map((relation) => [relation.id, relation]),
+    ),
+    factEvidence = new Map(facts.evidenceRefs.map((item) => [item.id, item])),
+    factFiles = new Map(facts.files.map((file) => [file.id, file])),
+    evidenceIds = new Set<string>();
+  assert(
+    factEvidence.size === facts.evidenceRefs.length,
+    'fact evidence IDs are duplicated.',
+  );
+  assert(
+    factFiles.size === facts.files.length,
+    'fact file IDs are duplicated.',
+  );
+  assert(
+    new Set(graph.relations.map((relation) => relation.id)).size ===
+      graph.relations.length,
+    label + ' contains duplicate relations.',
+  );
+  for (const symbol of graph.symbols) {
+    const fact = factSymbols.get(symbol.id);
+    assert(fact, label + ' contains a symbol absent from analysis facts.');
+    assert(
+      symbol.declarationEvidenceId === fact.declarationEvidenceId &&
+        JSON.stringify(symbol.evidenceIds) === JSON.stringify(fact.evidenceIds),
+      label + ' symbol evidence differs from analysis facts.',
+    );
+    for (const id of fact.evidenceIds) evidenceIds.add(id);
+  }
+  for (const relation of graph.relations) {
+    const fact = factRelations.get(relation.id);
+    assert(fact, label + ' contains a relation absent from analysis facts.');
+    assert(
+      relation.snapshotId === fact.snapshotId &&
+        relation.key === fact.key &&
+        relation.sourceSymbolId === fact.sourceSymbolId &&
+        relation.kind === fact.kind &&
+        relation.siteEvidenceId === fact.siteEvidenceId &&
+        JSON.stringify(relation.resolution) === JSON.stringify(fact.resolution),
+      label + ' relation evidence or resolution differs from analysis facts.',
+    );
+    evidenceIds.add(fact.siteEvidenceId);
+    for (const id of fact.resolution.evidenceIds) evidenceIds.add(id);
+  }
+  return [...evidenceIds].sort().map((id) => {
+    const evidence = factEvidence.get(id),
+      file = evidence && factFiles.get(evidence.fileId),
+      pinnedFile = file && pinnedFiles[file.path];
+    assert(
+      evidence,
+      label + ' references evidence absent from analysis facts.',
+    );
+    assert(file, label + ' evidence references an absent source file.');
+    assert(pinnedFile, label + ' evidence file is not independently pinned.');
+    return {
+      id,
+      anchor: {
+        file: file.path,
+        range: {
+          start: {
+            line: evidence.range.start.line,
+            column: evidence.range.start.column,
+          },
+          end: {
+            line: evidence.range.end.line,
+            column: evidence.range.end.column,
+          },
+        },
+      },
+      file: pinnedFile,
+      fileId: evidence.fileId,
+    };
+  });
 }
 
 export function expectedEvidenceForGraph(

@@ -79,6 +79,15 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
       },
     ],
     [
+      'an extra exact neighbor edge',
+      /outgoing has missing or fabricated exact edges/,
+      (candidate) => {
+        candidate.neighbors.relations.push(
+          structuredClone(exactRelation(candidate)),
+        );
+      },
+    ],
+    [
       'a wrong exact target',
       /outgoing edge has the wrong source, target, kind, or evidence/,
       (candidate) => {
@@ -109,6 +118,21 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
           (item) => item.resolution.status === 'unsupported',
         );
         if (!relation) throw new Error('Expected unsupported fixture site.');
+        relation.resolution = {
+          status: 'exact',
+          targetId: rootId(candidate),
+          evidenceIds: [relation.siteEvidenceId],
+        };
+      },
+    ],
+    [
+      'an exact edge fabricated from an unresolved site',
+      /outgoing has missing or fabricated exact edges/,
+      (candidate) => {
+        const relation = candidate.neighbors.relations.find(
+          (item) => item.resolution.status === 'unresolved',
+        );
+        if (!relation) throw new Error('Expected unresolved fixture site.');
         relation.resolution = {
           status: 'exact',
           targetId: rootId(candidate),
@@ -199,6 +223,13 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
       },
     ],
     [
+      'a truncation reason with an untruncated flag',
+      /unexpected truncation/,
+      (candidate) => {
+        candidate.neighbors.meta.truncationReasons = ['result_limit'];
+      },
+    ],
+    [
       'a changed applied depth',
       /reported depth differs from request/,
       (candidate) => {
@@ -222,6 +253,48 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
             (item) => item.id === relation.siteEvidenceId,
           )!;
         reference.range.start.column += 1;
+      },
+    ],
+    [
+      'an unrequested but source-backed graph evidence reference',
+      /outgoing evidence IDs do not match the anchored source path/,
+      (candidate) => {
+        const referenced = new Set([
+          ...candidate.neighbors.symbols.flatMap(
+            (symbol) => symbol.evidenceIds,
+          ),
+          ...candidate.neighbors.relations.flatMap(
+            (relation) => relation.resolution.evidenceIds,
+          ),
+        ]);
+        const extra = snapshot.facts.evidenceRefs.find(
+          (item) => !referenced.has(item.id),
+        );
+        if (!extra) throw new Error('Expected unrequested source evidence.');
+        candidate.neighbors.evidenceRefs.push(structuredClone(extra));
+      },
+    ],
+    [
+      'a missing graph evidence reference',
+      /outgoing evidence IDs do not match the anchored source path/,
+      (candidate) => {
+        candidate.neighbors.evidenceRefs.pop();
+      },
+    ],
+    [
+      'an extra source excerpt item',
+      /source evidence IDs do not match the anchored path and declarations/,
+      (candidate) => {
+        candidate.excerpts.items.push(
+          structuredClone(candidate.excerpts.items[0]!),
+        );
+      },
+    ],
+    [
+      'a missing source excerpt item',
+      /source evidence IDs do not match the anchored path and declarations/,
+      (candidate) => {
+        candidate.excerpts.items.pop();
       },
     ],
     [
@@ -250,6 +323,24 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
         extra.key = 'symbol:v1:unexpected';
         extra.name = 'unanchored';
         candidate.neighbors.symbols.push(extra);
+      },
+    ],
+    [
+      'a neighbor symbol with a wrong source anchor',
+      /outgoing root did not resolve to one source anchor/,
+      (candidate) => {
+        const root = candidate.neighbors.symbols.find(
+          (symbol) => symbol.id === candidate.neighbors.rootSymbolId,
+        )!;
+        root.range.start.column += 1;
+      },
+    ],
+    [
+      'a source excerpt with a wrong path',
+      /source evidence returned the wrong path/,
+      (candidate) => {
+        const item = candidate.excerpts.items[0]!;
+        if (item.status === 'available') item.filePath = 'wrong/source.ts';
       },
     ],
   ];

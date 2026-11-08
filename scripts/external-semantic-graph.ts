@@ -13,6 +13,7 @@ import { createInvestigation } from '@codethread/trace-engine';
 import type { ExternalGold } from './external-semantic-corpus.ts';
 import {
   expectedEvidenceForGraph,
+  expectedEvidenceForGraphResponse,
   verifyEvidenceItems,
   verifyExternalSourcePins,
   verifyGraphEvidenceRefs,
@@ -430,21 +431,39 @@ export function validateExternalGraph(
     expectedEvidenceIds,
     'paths',
   );
+  const outgoingEvidence = expectedEvidenceForGraphResponse(
+      result.neighbors,
+      pinnedFiles,
+      facts,
+      'outgoing',
+    ),
+    incomingEvidence = expectedEvidenceForGraphResponse(
+      result.incoming,
+      pinnedFiles,
+      facts,
+      'incoming',
+    ),
+    pathEvidence = expectedEvidenceForGraphResponse(
+      result.paths,
+      pinnedFiles,
+      facts,
+      'paths',
+    );
   verifyGraphEvidenceRefs(
     result.neighbors.evidenceRefs,
-    evidence,
+    outgoingEvidence,
     facts.snapshotId,
     'outgoing',
   );
   verifyGraphEvidenceRefs(
     result.incoming.evidenceRefs,
-    evidence,
+    incomingEvidence,
     facts.snapshotId,
     'incoming',
   );
   verifyGraphEvidenceRefs(
     result.paths.evidenceRefs,
-    evidence,
+    pathEvidence,
     facts.snapshotId,
     'paths',
   );
