@@ -18,6 +18,80 @@ beforeAll(async () => {
 }, 15000);
 
 describe('CT-INDEX-001A in-memory code investigation', () => {
+  it('retains one verified snapshot while keeping query budgets isolated', () => {
+    const input = structuredClone(snapshot.facts);
+    let reads = 0;
+    const reader = {
+      source: snapshot.source,
+      readFile(id: string) {
+        reads++;
+        return this.source.readFile(id);
+      },
+      readEvidence(id: string) {
+        return this.source.readEvidence(id);
+      },
+    };
+    const investigation = createInvestigation(input, reader);
+    const start = input.symbols.find((symbol) => symbol.name === 'start')!;
+    const request = { snapshotId: input.snapshotId, symbolId: start.id };
+    const original = investigation.neighbors(request);
+    const limited = investigation.neighbors({ ...request, nodeLimit: 1 });
+    expect(limited.meta.truncationReasons).toContain('result_limit');
+    expect(limited.relations).toEqual([]);
+    start.name = 'caller mutation';
+    reader.readEvidence = () => {
+      throw new Error('replacement must not change the bound reader');
+    };
+    expect(investigation.neighbors(request)).toEqual(original);
+    const site = original.relations[0]!.siteEvidenceId;
+    expect(
+      investigation.sourceEvidence({
+        snapshotId: input.snapshotId,
+        evidenceIds: [site],
+      }).items[0],
+    ).toEqual(snapshot.source.readEvidence(site));
+    expect(reads).toBe(input.files.length);
+    expect(Object.isFrozen(investigation)).toBe(true);
+  });
+  it('preserves source ordering when fact dictionaries arrive in a different order', () => {
+    const investigation = createInvestigation(snapshot.facts, snapshot.source);
+    const reversed = createInvestigation(
+      {
+        ...snapshot.facts,
+        files: [...snapshot.facts.files].reverse(),
+        symbols: [...snapshot.facts.symbols].reverse(),
+        relations: [...snapshot.facts.relations].reverse(),
+        evidenceRefs: [...snapshot.facts.evidenceRefs].reverse(),
+        diagnostics: [...snapshot.facts.diagnostics].reverse(),
+        observations: [...snapshot.facts.observations].reverse(),
+      },
+      snapshot.source,
+    );
+    for (const symbol of snapshot.facts.symbols) {
+      for (const direction of ['outgoing', 'incoming', 'both']) {
+        const request = {
+          snapshotId: snapshot.facts.snapshotId,
+          symbolId: symbol.id,
+          direction,
+          relationKinds: ['calls', 'references'],
+          depth: 5,
+        };
+        expect(reversed.neighbors(request)).toEqual(
+          investigation.neighbors(request),
+        );
+      }
+    }
+    const start = snapshot.facts.symbols.find(
+      (symbol) => symbol.name === 'start',
+    )!;
+    const end = snapshot.facts.symbols.find((symbol) => symbol.name === 'end')!;
+    const request = {
+      snapshotId: snapshot.facts.snapshotId,
+      fromSymbolId: start.id,
+      toSymbolId: end.id,
+    };
+    expect(reversed.paths(request)).toEqual(investigation.paths(request));
+  });
   it('reports truncation when an explored dead end consumes the node budget before a valid path', async () => {
     const bytes = new TextEncoder().encode(
       [

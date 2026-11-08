@@ -19,7 +19,9 @@ task status; GitHub Issues/Projects own execution tracking.
   directly rather than through compatibility facades. Keep source imports
   acyclic. Contracts use graph, test and source/diagnostics query families;
   intrinsic validation belongs with schemas and request-aware checks with result
-  parsers. See the module organization rules in `docs/architecture.md`.
+  parsers. Trace operations share one verified snapshot context; traversal,
+  projection budgets and source verification stay in their owning modules. See
+  the module organization rules in `docs/architecture.md`.
 - For modules covered by the staged ESLint size rules, keep production files at
   most 500 physical lines, functions at most 150, and test files at most 700.
   Aim for 200-350 lines per cohesive module. Exceptions need an owner, reason,

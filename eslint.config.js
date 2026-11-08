@@ -14,7 +14,7 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['packages/contracts/src/**/*.ts'],
+    files: ['packages/{contracts,trace-engine}/src/**/*.ts'],
     rules: {
       'max-lines': ['error', { max: 500 }],
       'max-lines-per-function': ['error', { max: 150, IIFEs: true }],
@@ -22,7 +22,7 @@ export default [
   },
   {
     files: [
-      'tests/{contracts,contract-integrity,query-results,architecture,tooling}.test.ts',
+      'tests/{contracts,contract-integrity,query-results,semantic-trace,architecture,tooling}.test.ts',
     ],
     rules: { 'max-lines': ['error', { max: 700 }] },
   },
