@@ -19,17 +19,14 @@ task status; GitHub Issues/Projects own execution tracking.
   directly rather than through compatibility facades. Keep source imports
   acyclic. Contracts use graph, test and source/diagnostics query families;
   intrinsic validation belongs with schemas and request-aware checks with result
-  parsers. See the module organization rules in `docs/architecture.md`.
-- `arch:check` scans application scripts and tests for import cycles and checks
-  the Git source, investigation, benchmark and browser ownership layers. Keep
-  browser modules in the browser owner and add any new served module to the
-  loopback viewer's explicit asset routes.
+  parsers. Trace operations share one verified snapshot context; traversal,
+  projection budgets and source verification stay in their owning modules. See
+  the module organization rules in `docs/architecture.md`.
 - For modules covered by the staged ESLint size rules, keep production files at
   most 500 physical lines, functions at most 150, and test files at most 700.
   Aim for 200-350 lines per cohesive module. Exceptions need an owner, reason,
   baseline SHA and maximum in the reviewed configuration; remove them when the
-  module is reorganized. Current viewer and Study exceptions are capped there.
-  Do not raise a cap silently, compress code, or move complexity into a generic
+  module is reorganized. Do not compress code or move complexity into a generic
   helper file to satisfy a limit.
 - Preserve snapshot scope, immutable published payloads, call occurrences,
   provenance, deterministic ordering and explicit limits. Unknown targets stay
@@ -38,10 +35,8 @@ task status; GitHub Issues/Projects own execution tracking.
   dependencies, follow escaping symlinks, expose secrets or substitute
   working-tree source for immutable evidence.
 - The local Git source adapter reads only explicitly selected regular blobs from
-  a resolved commit. CT-COMP-001 browse mode lists bounded committed `.ts`
-  metadata without reading blobs; it does not create an import closure. Both
-  modes assume the developer trusts the local Git executable and repository
-  metadata; neither is a sandbox for malicious Git metadata.
+  a resolved commit. It assumes the developer trusts the local Git executable
+  and repository metadata; it is not a sandbox for malicious Git metadata.
 - Keep canonical product, requirements and architecture documents authoritative.
   Record significant decisions in `docs/decisions/`; do not add duplicate status
   reports. Never copy BA_Helper workflows or modify BA_Helper as part of this

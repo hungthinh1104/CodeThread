@@ -40,7 +40,10 @@ const nodeBuiltins: Record<string, readonly string[]> = {
   ],
   '@codethread/trace-engine': ['node:crypto'],
 };
-const contractFacades = new Set(['index.ts', 'schemas.ts', 'results.ts']);
+const implementationFacades: Record<string, ReadonlySet<string>> = {
+  '@codethread/contracts': new Set(['index.ts', 'schemas.ts', 'results.ts']),
+  '@codethread/trace-engine': new Set(['index.ts']),
+};
 function inside(path: string, directory: string): boolean {
   const remainder = relative(directory, path);
   return (
@@ -124,6 +127,7 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
   if (byName.size !== packages.length) errors.push('Duplicate package name');
   for (const entry of packages) {
     const sourceRoot = resolve(entry.directory, 'src');
+    const facades = implementationFacades[entry.name];
     const sourceGraph = new Map(
       entry.sources.map((source) => [
         sourceName(resolve(source.path), sourceRoot),
@@ -168,9 +172,9 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
           const linked = candidates.find((name) => sourceGraph.has(name));
           if (linked) sourceGraph.get(origin)!.add(linked);
           if (
-            entry.name === '@codethread/contracts' &&
-            !contractFacades.has(origin) &&
-            candidates.some((name) => contractFacades.has(name))
+            facades &&
+            !facades.has(origin) &&
+            candidates.some((name) => facades.has(name))
           )
             errors.push(
               `${entry.name}: implementation import through facade ${specifier}`,

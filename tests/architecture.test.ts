@@ -111,6 +111,37 @@ describe('CT-CORE-003 architecture boundaries', () => {
       );
     }
   });
+  it('rejects trace implementation imports through the public facade', () => {
+    const directory = resolve('packages/trace-engine');
+    const trace: PackageInput = {
+      name: '@codethread/trace-engine',
+      directory,
+      dependencies: {
+        '@codethread/code-model': 'workspace:*',
+        '@codethread/contracts': 'workspace:*',
+      },
+      exports: { '.': './dist/index.js' },
+      sources: [
+        {
+          path: resolve(directory, 'src/index.ts'),
+          content: 'export const createInvestigation = () => {};',
+        },
+        {
+          path: resolve(directory, 'src/traversal.ts'),
+          content: "type Investigation = import('./index.js').Investigation;",
+        },
+      ],
+    };
+    expect(checkArchitecture([core(), contracts(), trace]).join(' ')).toContain(
+      'implementation import through facade',
+    );
+    trace.sources[1]!.content = "import './context.js';";
+    trace.sources.push({
+      path: resolve(directory, 'src/context.ts'),
+      content: 'export const context = {};',
+    });
+    expect(checkArchitecture([core(), contracts(), trace])).toEqual([]);
+  });
   it('keeps compiler extraction and filesystem access out of the trace engine', () => {
     const directory = resolve('packages/trace-engine');
     const trace: PackageInput = {
