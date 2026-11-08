@@ -1,8 +1,15 @@
+import {
+  verifyLatestQueryWins,
+  verifyTaskF1,
+  verifyTodo,
+} from './browser/semantic-scenarios.ts';
+import { openPage, assertLocalOnly, selectByName } from './browser/helpers.ts';
+import { verifyGitSourceDiscovery } from './browser/source-discovery.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser } from 'playwright';
 import { graphNeighborsResponseSchema } from '@codethread/contracts';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import type {
@@ -25,7 +32,6 @@ const repositoryIds = {
   tinyexec: '00000000-0000-4000-8000-000000000022',
   safe: '00000000-0000-4000-8000-000000000023',
 } as const;
-const crossOriginRequests = new WeakMap<Page, string[]>();
 
 function analysisInput(
   repositoryId: string,
@@ -82,281 +88,6 @@ async function analyzePinnedSources(): Promise<{
     ),
   ]);
   return { todo, todoF1, todoF2, tinyexec };
-}
-
-async function openPage(
-  browser: Browser,
-  origin: string,
-  url: string,
-): Promise<Page> {
-  const outsideOrigin: string[] = [];
-  const context = await browser.newContext({
-    viewport: { width: 1100, height: 900 },
-  });
-  await context.route('**/*', async (route) => {
-    if (new URL(route.request().url()).origin !== origin) {
-      outsideOrigin.push(route.request().url());
-      await route.abort('blockedbyclient');
-      return;
-    }
-    await route.continue();
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(10000);
-  const browserErrors: string[] = [];
-  page.on('pageerror', (error) => browserErrors.push(error.message));
-  page.on('console', (message) => {
-    if (message.type() === 'error') browserErrors.push(message.text());
-  });
-  await page.goto(url, { waitUntil: 'domcontentloaded' });
-  try {
-    await page.waitForFunction(
-      () =>
-        document
-          .querySelector('#snapshot-summary')
-          ?.textContent?.includes('source files'),
-      undefined,
-      { timeout: 8000 },
-    );
-  } catch (error) {
-    const body = await page.locator('body').innerText();
-    throw new Error(
-      `Viewer did not initialize: ${body}\n${browserErrors.join('\n')}\n${error instanceof Error ? error.message : ''}`,
-      { cause: error },
-    );
-  }
-  crossOriginRequests.set(page, outsideOrigin);
-  await page.keyboard.press('Tab');
-  assert.equal(
-    await page.evaluate(() => document.activeElement?.id),
-    'symbol-query',
-    'keyboard focus should reach symbol search before investigation controls',
-  );
-  assert.equal(
-    await page.evaluate(() =>
-      document.activeElement?.matches(':focus-visible'),
-    ),
-    true,
-    'keyboard focus should remain visible',
-  );
-  return page;
-}
-
-function assertLocalOnly(page: Page): void {
-  assert.deepEqual(
-    crossOriginRequests.get(page),
-    [],
-    'the viewer must not request external browser resources',
-  );
-}
-
-async function selectByName(
-  page: Page,
-  name: string,
-  kind: string,
-): Promise<void> {
-  const search = page.getByLabel('Name or source path');
-  await search.fill(name);
-  await search.press('Enter');
-  await page
-    .getByRole('button', { name: new RegExp(`${name} · ${kind}`) })
-    .click();
-  await page.waitForFunction(
-    (expected) =>
-      document.querySelector('#root-symbol h3')?.textContent === expected,
-    `${kind} ${name}`,
-  );
-}
-
-async function verifyTodo(
-  browser: Browser,
-  snapshot: AnalysisSnapshot,
-): Promise<void> {
-  const viewer = await createViewer(snapshot);
-  try {
-    const page = await openPage(browser, viewer.origin, viewer.url);
-    assert.match(
-      await page.locator('#snapshot-summary').innerText(),
-      /\b2 source files\b/,
-      'the F2 visual condition must use its exact two-file task input',
-    );
-    await page.setViewportSize({ width: 390, height: 844 });
-    await selectByName(page, 'todoRouter', 'function');
-
-    await page.getByRole('checkbox', { name: 'REFERENCES' }).check();
-    await page.getByRole('checkbox', { name: 'CALLS' }).uncheck();
-    const referenceRows = page
-      .locator('#relationships .relationship-item')
-      .filter({
-        hasText: 'REFERENCES exact',
-      });
-    await page.waitForFunction(
-      () =>
-        [
-          ...document.querySelectorAll('#relationships .relationship-item'),
-        ].filter((row) => row.textContent?.includes('REFERENCES exact'))
-          .length === 3,
-    );
-    assert.equal(await referenceRows.count(), 3);
-    assert.equal(
-      await page
-        .locator('#relationships .relationship-item')
-        .filter({ hasText: 'CALLS exact' })
-        .count(),
-      0,
-      'the REFERENCES filter must not relabel call occurrences',
-    );
-    const getAllRow = referenceRows.filter({ hasText: 'getAll' }).first();
-    const getAllEdge = page.getByRole('button', {
-      name: /REFERENCES occurrence at routes\/todo\.router\.ts:\d+:\d+, from todoRouter to getAll/,
-    });
-    assert.equal(await getAllEdge.count(), 1);
-    const getAllRelationId = await getAllEdge.getAttribute('data-relation-id');
-    assert.ok(getAllRelationId);
-    await getAllEdge.click();
-    await page.getByText(/toDoCtrl\.getAll/).waitFor();
-    assert.equal(
-      await page
-        .locator(`#relationships li[data-relation-id="${getAllRelationId}"]`)
-        .evaluate((row) => row.classList.contains('selected')),
-      true,
-      'selecting an SVG REFERENCES edge highlights the matching occurrence row',
-    );
-    const referenceExcerpt = await page.locator('#evidence pre').textContent();
-    assert.ok(referenceExcerpt);
-    assert.match(referenceExcerpt, /toDoCtrl\.getAll/);
-    await getAllRow.getByRole('button', { name: 'Follow getAll' }).click();
-    await page.getByRole('heading', { name: 'method getAll' }).waitFor();
-    await page.getByRole('button', { name: 'Back' }).click();
-    await page.getByRole('heading', { name: 'function todoRouter' }).waitFor();
-    const uncertainText =
-      (await page.locator('#relationships').innerText()) +
-      (await page.locator('#unknowns').innerText());
-    assert.match(uncertainText, /unsupported|unresolved/i);
-    assert.equal(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth > window.innerWidth,
-      ),
-      false,
-      'narrow viewport should not require horizontal page scrolling',
-    );
-    assertLocalOnly(page);
-    await page.context().close();
-  } finally {
-    await viewer.close();
-  }
-}
-
-async function verifyTaskF1(
-  browser: Browser,
-  snapshot: AnalysisSnapshot,
-): Promise<void> {
-  const viewer = await createViewer(snapshot);
-  try {
-    const page = await openPage(browser, viewer.origin, viewer.url);
-    assert.match(
-      await page.locator('#snapshot-summary').innerText(),
-      /\b5 source files\b/,
-      'the F1 visual condition must use its exact five-file task input',
-    );
-    await selectByName(page, 'routes', 'function');
-    await page.getByRole('checkbox', { name: 'REFERENCES' }).uncheck();
-
-    const expectedCalls = [
-      { line: 14, column: 11, target: 'initialize' },
-      { line: 40, column: 20, target: 'authRouter' },
-      { line: 41, column: 20, target: 'userRouter' },
-      { line: 42, column: 20, target: 'todoRouter' },
-    ];
-    for (const call of expectedCalls) {
-      await page
-        .getByRole('button', {
-          name: new RegExp(
-            `CALLS occurrence at routes\\/index\\.ts:${call.line}:${call.column}, from routes to ${call.target}`,
-          ),
-        })
-        .waitFor();
-    }
-    const exactCalls = page
-      .locator('#relationships .relationship-item')
-      .filter({ hasText: 'CALLS exact' });
-    await page.waitForFunction(
-      () =>
-        [
-          ...document.querySelectorAll('#relationships .relationship-item'),
-        ].filter((row) => row.textContent?.includes('CALLS exact')).length ===
-        5,
-    );
-    assert.equal(
-      await exactCalls.count(),
-      5,
-      'the four answer calls and the extra depth-two call remain visible',
-    );
-    assert.equal(
-      await page
-        .getByRole('button', { name: /CALLS occurrence.*authenticate/ })
-        .count(),
-      0,
-      'the callback-owned authenticate call is not exposed as an exact CALLS edge',
-    );
-    await page.getByText(/Query truncated:/).waitFor();
-    await page.getByText(/depth_limit/).waitFor();
-
-    const authRow = exactCalls.filter({
-      hasText: 'Target: authRouter (function)',
-    });
-    await authRow
-      .getByRole('button', { name: 'View occurrence evidence' })
-      .click();
-    assert.match(
-      await page.locator('#evidence pre').innerText(),
-      /authRouter\(\)/,
-    );
-    await authRow.getByRole('button', { name: 'Follow authRouter' }).click();
-    await page.getByRole('heading', { name: 'function authRouter' }).waitFor();
-    await page.getByRole('button', { name: 'Back' }).click();
-    await page.getByRole('heading', { name: 'function routes' }).waitFor();
-    assertLocalOnly(page);
-    await page.context().close();
-  } finally {
-    await viewer.close();
-  }
-}
-
-async function verifyLatestQueryWins(
-  browser: Browser,
-  snapshot: AnalysisSnapshot,
-): Promise<void> {
-  const viewer = await createViewer(snapshot);
-  try {
-    const page = await openPage(browser, viewer.origin, viewer.url);
-    let delayed = false;
-    await page.route('**/api/neighbors', async (route) => {
-      if (!delayed) {
-        delayed = true;
-        await new Promise((resolve) => setTimeout(resolve, 600));
-      }
-      await route.continue();
-    });
-    const search = page.getByLabel('Name or source path');
-    await search.fill('todoRouter');
-    await search.press('Enter');
-    await page.getByRole('button', { name: /todoRouter · function/ }).click();
-    await search.fill('getAll');
-    await search.press('Enter');
-    await page.getByRole('button', { name: /getAll · method/ }).click();
-    await page.getByRole('heading', { name: 'method getAll' }).waitFor();
-    await page.waitForTimeout(700);
-    assert.equal(
-      await page.locator('#root-symbol h3').textContent(),
-      'method getAll',
-      'a slower response for the previous root must not replace the current selection',
-    );
-    assertLocalOnly(page);
-    await page.context().close();
-  } finally {
-    await viewer.close();
-  }
 }
 
 async function verifyDirectCalls(
@@ -840,6 +571,7 @@ async function main(): Promise<void> {
     await verifyInteractiveGraphOccurrences(browser);
     await verifyTruncatedGraphOnlyExposesReturnedEdges(browser);
     await verifySafeEvidence(browser);
+    await verifyGitSourceDiscovery(browser);
   } finally {
     await browser.close();
   }

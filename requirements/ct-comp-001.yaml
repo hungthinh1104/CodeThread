@@ -1,0 +1,54 @@
+id: CT-COMP-001
+title: Bounded pinned source discovery and selection
+module: application
+statement: >-
+  The investigation CLI shall let a developer browse a bounded inventory of
+  committed TypeScript paths, select exact files or a complete directory-backed
+  module set, and pass that selection atomically into the existing analyzer and
+  investigation session.
+lifecycle: proposed
+priority: must
+acceptance:
+  - id: AC-01
+    given: A supported local revision and a standard Git checkout
+    then: >-
+      The CLI resolves one commit and discovers TypeScript paths only from
+      verified commit and tree objects without reading source blobs.
+  - id: AC-02
+    given:
+      An inventory within or beyond its declared path, tree, visit, entry and
+      result bounds
+    then: >-
+      Paths are byte-ordered, paged and marked incomplete whenever a traversal
+      or result bound or unsupported path prevents a complete inventory;
+      metadata-size and deadline violations return typed failures.
+  - id: AC-03
+    given: Exact selected paths or one directory-backed module request
+    then: >-
+      The CLI admits the complete selection from the pinned inventory or returns
+      a typed error without analyzing a silent subset.
+  - id: AC-04
+    given: A successful browse selection
+    then: >-
+      Analysis reads only selected regular blobs from the resolved commit and
+      continues in the existing source investigation session.
+  - id: AC-05
+    given:
+      An incomplete inventory, unsupported mode, absent path or source limit
+    then: >-
+      The CLI exposes the limitation and never substitutes working-tree bytes,
+      follows symlinks or starts an empty/partial analysis.
+depends_on:
+  - CT-INDEX-001
+  - CT-INV-001
+  - CT-SOURCE-001
+verification:
+  method: mixed
+  description: >-
+    Exercise real disposable Git trees and the CLI for metadata-only inventory,
+    literal search and prefix paging, selected-session handoff, pinned
+    revisions, incomplete inventory, mode rejection and all source/tree bounds.
+    Measure repeated deterministic discovery runs at multiple generated tree
+    sizes.
+  test_ids:
+    - tests/investigate-cli.test.ts

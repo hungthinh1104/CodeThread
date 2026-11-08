@@ -12,10 +12,17 @@ identity, computes raw-source SHA-256 hashes, then hands the resulting manifest
 to the existing analyzer and session. Git commit/blob IDs are displayed and
 retained as acquisition provenance outside the analyzer's manifest identity.
 
+CT-COMP-001 adds an optional metadata-only browse path over the same resolved
+commit. It reads bounded verified commit/tree objects to list candidate `.ts`
+paths, but reads no blobs until selection. The browser applies explicit file,
+tree, visit, entry, byte and time bounds; an incomplete inventory cannot be used
+for module-wide selection. A successful selection is handed back as the full
+commit ID, so ref movement during browsing does not change the source.
+
 Selection is all-or-error. Only regular blob modes `100644` and `100755` are
-admitted. Dirty working-tree contents are ignored. The adapter does not crawl,
-infer dependencies, check out files, hydrate LFS pointers, follow symlinks or
-read submodules.
+admitted. Dirty working-tree contents are ignored. The adapter does not crawl
+the working tree, infer dependencies, check out files, hydrate LFS pointers,
+follow symlinks or read submodules.
 
 ## Trust boundary and failure modes
 
@@ -47,9 +54,10 @@ working-tree files.
 - **Use `git show <revision>:<path>`:** rejected because revision/path parsing
   and pathspec semantics are harder to constrain, and a per-path command does
   not provide the same explicit binary tree traversal and object verification.
-- **Enumerate the full tree recursively:** rejected because the caller selected
-  a bounded set of paths; unrelated repository trees add parsing and resource
-  exposure without improving that request.
+- **Enumerate an unbounded tree or source closure:** rejected because a broad
+  traversal adds work and exposure without a demonstrated need. CT-COMP-001
+  permits a bounded, tree-object-only candidate inventory for explicit user
+  navigation; it does not read unselected source blobs or infer imports.
 - **Create a Git crawler or source-cache service:** deferred because the current
   product needs only a selected-file handoff into the already implemented
   in-memory analyzer. Persistence, dependency closure and background services
@@ -59,10 +67,10 @@ working-tree files.
 
 Disposable-repository regressions exercise real commits, refs, object reads,
 dirty working trees, unusual literal paths, binary tree framing, missing and
-corrupt objects, symlink/gitlink modes, content hashes and rejection behavior.
-The acceptance suite also injects inherited Git overrides and tracing. These
-tests establish behavior for the tested Git versions and fixtures; they do not
-prove safety for hostile local Git metadata, compromised Git installations,
-remote/promisor retrieval, linked worktrees, alternate object stores or every
-filesystem. Database provenance persistence and coordinated source-cache backup
-remain unimplemented.
+corrupt objects, symlink/gitlink modes, content hashes, metadata-only discovery,
+shared-subtree visit limits and selected-session handoff. The acceptance suite
+also injects inherited Git overrides and tracing. These tests establish behavior
+for the tested Git versions and fixtures; they do not prove safety for hostile
+local Git metadata, compromised Git installations, remote/promisor retrieval,
+linked worktrees, alternate object stores or every filesystem. Database
+provenance persistence and coordinated source-cache backup remain unimplemented.

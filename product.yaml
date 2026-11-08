@@ -22,8 +22,12 @@ v0:
     - Optional test to behavior and code, or code to related tests.
   local_source_adapter:
     revision: Full commit ID, HEAD, or fully qualified local branch/tag ref.
+    browse: >-
+      Optional bounded inventory of committed .ts paths from verified Git
+      metadata; blobs are read only after selection.
     selection:
-      Explicit literal .ts paths only; no crawl, glob, or dependency discovery.
+      Explicit literal .ts paths or an atomic module set from a complete pinned
+      inventory; no glob or automatic dependency discovery.
     worktree: Dirty working-tree contents are ignored.
   presentation: >-
     A bounded textual CLI plus an opt-in ephemeral loopback browser proof for

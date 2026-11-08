@@ -16,9 +16,9 @@ The repository supplies Foundation validation/tooling, the proposed DB-01
 logical design, a bounded in-memory TypeScript semantic proof, a local Git
 adapter for explicitly selected committed files, and an opt-in ephemeral local
 browser viewer over the same investigation projections. It contains no database
-implementation, recursive Git crawler, persistent frontend, public API or Gemini
-integration. See `product.yaml` and `docs/architecture.md` for scope, ownership
-and gates.
+implementation, repository-wide Git crawler, persistent frontend, public API or
+Gemini integration. See `product.yaml` and `docs/architecture.md` for scope,
+ownership and gates.
 
 ## Developer setup
 
@@ -158,23 +158,47 @@ pnpm --silent investigate -- --repo ./my-repository \
   --revision HEAD --file src/main.ts --file src/target.ts
 ```
 
+For a bounded, read-only inventory before selecting files, replace the `--file`
+arguments with `--browse`:
+
+```sh
+pnpm --silent investigate -- --repo ./my-repository \
+  --repository-id 00000000-0000-4000-8000-000000000012 \
+  --revision HEAD --browse
+```
+
+In the source prompt, use `files [directory-prefix] [offset]`,
+`search <literal> [offset]`, `select <file-path>`, `select-module <directory>`,
+`selected [offset]`, then `analyze`. The inventory traverses verified
+commit/tree metadata only; it reads no source blobs until a selection is
+analyzed. Pages contain at most 50 rows. The inventory is limited to 1,000
+TypeScript paths, 128 unique trees, 4,096 tree-path visits, 10,000 tree entries,
+64 path components, 1 MiB per metadata object, 4 MiB total metadata and a
+10-second Git deadline. Path/tree/result limits and unsupported paths are shown
+as incomplete; module selection is then rejected because its membership cannot
+be proven complete. Metadata-size and deadline violations return typed errors.
+Selection remains bounded by 20 files, 256 KiB per file and 2 MiB total. Run
+`pnpm bench:source-discovery` to reproduce the generated-tree measurements in
+`docs/architecture.md`.
+
 Add `--view` to that command to open the same selected commit and files in the
 visual investigation session.
 
 The adapter supports full commit IDs, `HEAD`, and fully qualified local branch
-or tag refs. It resolves the revision once, reads only those committed `.ts`
-blobs, and ignores dirty working-tree changes. Directories, globs and automatic
-dependency discovery are not supported. The repository root must have a real
-`.git` directory; bare repositories, linked worktrees, symlinked Git metadata,
-and alternate object stores are rejected. No checkout, filter, hook, repository
-script or dependency installation is run. The developer is responsible for
-trusting the local Git executable and repository metadata. Git commit/blob
-identities are reported as provenance; the analyzer's existing manifest-based
-semantic identity is unchanged. In either session, start with `help`. Copy
-source selectors exactly as printed; they are JSON-quoted tokens so unusual
-legal paths remain safe and reversible. Interactive command errors leave the
-prompt available; piped sessions stop on error with a typed diagnostic and
-nonzero exit status. The reproducible todo flow is:
+or tag refs. It resolves the revision once, reads only selected committed `.ts`
+blobs, and ignores dirty working-tree changes. Direct-file mode accepts literal
+paths only. Browse mode can select a complete directory-backed module set from
+its pinned inventory, but does not expand globs or discover import dependencies.
+The repository root must have a real `.git` directory; bare repositories, linked
+worktrees, symlinked Git metadata, and alternate object stores are rejected. No
+checkout, filter, hook, repository script or dependency installation is run. The
+developer is responsible for trusting the local Git executable and repository
+metadata. Git commit/blob identities are reported as provenance; the analyzer's
+existing manifest-based semantic identity is unchanged. In either session, start
+with `help`. Copy source selectors exactly as printed; they are JSON-quoted
+tokens so unusual legal paths remain safe and reversible. Interactive command
+errors leave the prompt available; piped sessions stop on error with a typed
+diagnostic and nonzero exit status. The reproducible todo flow is:
 
 ```text
 symbols controllers/todo.controller.ts

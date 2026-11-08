@@ -19,6 +19,7 @@
     "bench:positions": "node scripts/benchmark-source-positions.ts",
     "demo:semantic": "node scripts/demo-semantic.ts",
     "investigate": "node scripts/investigate.ts",
+    "bench:source-discovery": "node --expose-gc scripts/benchmark-source-discovery.ts",
     "demo:investigation": "node scripts/investigate.ts --demo todo",
     "demo:visual": "node scripts/investigate.ts --demo todo --view",
     "test:browser": "node tests/viewer-browser.ts",
