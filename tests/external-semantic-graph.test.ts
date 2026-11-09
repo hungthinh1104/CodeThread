@@ -111,6 +111,23 @@ describe.each(corpusNames)('external graph oracle: %s', (name: CorpusName) => {
       },
     ],
     [
+      'an incoming query rooted at the caller instead of the target',
+      /incoming graph root is incorrect/,
+      (candidate) => {
+        candidate.incoming.rootSymbolId = rootId(candidate);
+      },
+    ],
+    [
+      'an incoming target with a wrong source anchor',
+      /incoming root did not resolve to one source anchor/,
+      (candidate) => {
+        const target = candidate.incoming.symbols.find(
+          (symbol) => symbol.id === candidate.incoming.rootSymbolId,
+        )!;
+        target.range.start.column += 1;
+      },
+    ],
+    [
       'an exact edge fabricated from an unsupported site',
       /outgoing has missing or fabricated exact edges/,
       (candidate) => {
