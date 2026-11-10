@@ -31,7 +31,7 @@ export async function measureRepository(
       truncationReasons: context.inventory.truncationReasons,
       uniqueTrees: context.inventory.counts.uniqueTrees,
       treeVisits: context.inventory.counts.treeVisits,
-      identityStableAcrossSamples: true,
+      identityStableAcrossSamples: context.identityStableAcrossSamples,
       omittedPathLookup: context.omittedPathLookup,
     },
     stages,
