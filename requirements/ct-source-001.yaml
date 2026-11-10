@@ -51,6 +51,15 @@ acceptance:
     then:
       The adapter suppresses inherited Git control settings and uses object
       reads that do not execute filters, hooks or repository scripts.
+  - id: AC-08
+    given: A repository-scope source request at one resolved commit
+    then: >-
+      The adapter reads every regular .ts blob and only bounded pinned compiler
+      and workspace metadata from that commit. The 1,000-file, 32-MiB source
+      bounds, metadata bounds and cancellation apply atomically; excluded
+      symlink/gitlink source candidates retain their path and exclusion reason.
+      No working-tree source or repository-controlled command enters the project
+      session.
 depends_on:
   - CT-CORE-004
   - CT-DB-001
@@ -63,6 +72,10 @@ verification:
     Use disposable Git repositories and real object operations for revision
     pinning, path framing, evidence, mode, object-integrity, resource,
     environment and all-or-error admission regressions. Run workspace checks,
-    semantic evaluations and the native dependency audit.
+    semantic evaluations, project-context regressions and the native dependency
+    audit.
   test_ids:
     - tests/investigate-cli.test.ts
+    - tests/repository-intake.test.ts
+    - tests/repository-projects.test.ts
+    - tests/repository-session.test.ts

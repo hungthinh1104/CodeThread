@@ -76,3 +76,33 @@ against source declarations. The analyzer records these as static `REFERENCES`,
 not calls or framework registration. The inputs do not change the external gold
 labels; `references.v1` remains partial because only this narrow subset is
 implemented.
+
+## Whole-repository source and browser workflow evaluation
+
+The repository corpora pin every regular tracked `.ts` blob, compiler/workspace
+metadata, Git commit/tree objects, and license bytes. The loader checks source
+SHA-256 and Git blob identity before analysis. It does not run upstream code,
+tests, package scripts or dependencies.
+
+| Repository                                                        | Pinned commit                              | Scope                  | Source bytes | License material                                              |
+| ----------------------------------------------------------------- | ------------------------------------------ | ---------------------- | -----------: | ------------------------------------------------------------- |
+| [unjs/ufo](https://github.com/unjs/ufo)                           | `f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6` | 21 regular `.ts` files |       82,502 | `LICENSE` (1,078 bytes; SHA-256 is in `repository.json`)      |
+| [jridgewell/sourcemaps](https://github.com/jridgewell/sourcemaps) | `b7600158f4de012d246b7834a73c7c2190e75136` | 53 regular `.ts` files |      286,449 | Five package `LICENSE` files, all hashed in `repository.json` |
+
+`eval:external` prints semantic label counts separately from project-level
+occurrences and raw analyzer observations. Repository occurrences that have no
+source-authored label remain unscored; repeated occurrences in two TypeScript
+contexts are not silently deduplicated into one semantic observation. Inventory,
+source coverage, context completion and semantic coverage are independent
+fields. The expected source labels are Codex-authored; the sourcemaps corpus
+records one overload-related expectation corrected after prediction. No label
+set has independent human review.
+
+`repository-workflows.json` pins five browser tasks on the ufo commit:
+repository symbol search, outgoing CALLS, occurrence and declaration evidence,
+target follow with Back/Forward, and source/context-status inspection. These
+tasks were authored after analyzer predictions were observed. Their five-task
+denominator is a workflow completion check, not a blind semantic gold set.
+Browser task completion, source labels and total project occurrences must be
+reported as separate counts. No human participant or comprehension outcome is
+measured.

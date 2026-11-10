@@ -31,14 +31,14 @@ acceptance:
       The evidence inspector shows source path, line and column, source hash and
       the exact verified excerpt or a typed unavailable result.
   - id: AC-05
-    given: A graph result, filter change, root change or back-navigation action
+    given: A graph result, filter change, root change or Back/Forward navigation
     then:
       Snapshot identity is preserved; stale relation and evidence selections are
       cleared; history restores the prior root, filters and selection; and
       omitted or truncated relationships are not interactable. Relation, node
       and evidence selection reuse the current projection without a neighbor
-      request; root/filter changes, target following and Back issue one bounded
-      query and restore only selections still present in that result.
+      request; root/filter changes, target following and Back/Forward issue one
+      bounded query and restore only selections still present in that result.
   - id: AC-06
     given:
       A graph query reaches an existing result limit or the viewer's
@@ -68,9 +68,24 @@ acceptance:
     given: The pinned todo corpus and a pinned direct-call corpus
     then:
       Browser-level tests demonstrate source selection, explicit REFERENCES,
-      exact evidence and declaration inspection, target following, back
-      navigation, direct CALLS and visible uncertainty without asserting runtime
-      execution or comprehension improvement.
+      exact evidence and declaration inspection, target following, Back and
+      Forward navigation, direct CALLS and visible uncertainty without asserting
+      runtime execution or comprehension improvement.
+  - id: AC-11
+    given: A repository session with multiple compiler project contexts
+    then: >-
+      The viewer offers a repository-wide symbol catalog and paged source
+      inventory with per-file analysis status and failure reason, while project
+      selection keeps each graph query bound to one snapshot. Following a
+      declaration uses its verified path, range and source hash; if more than
+      one project contains that anchor, the user chooses the destination
+      context.
+  - id: AC-12
+    given: A repository investigation with more than one navigation state
+    then: >-
+      Back and Forward restore the project, snapshot, root, filters, direction
+      and still-valid selections. Responses from a previous project or query
+      generation are ignored after a context switch.
 depends_on:
   - CT-CORE-004
   - CT-INDEX-001
@@ -81,9 +96,14 @@ verification:
   method: mixed
   description: >-
     Verify loopback request and payload boundaries, semantic projection parity,
-    state restoration, safe source rendering and typed failure behavior with
-    focused tests and real browser interactions. Run workspace checks, both
-    semantic evaluations and the native dependency audit on the final commit.
+    repository-wide source and symbol presentation, context choice and
+    Back/Forward state restoration, per-file failure reasons, safe source
+    rendering and typed failure behavior with focused tests and real browser
+    interactions. Run workspace checks, both semantic evaluations and the native
+    dependency audit on the final commit.
   test_ids:
     - tests/viewer.test.ts
     - tests/viewer-browser.ts
+    - tests/repository-viewer.test.ts
+    - tests/browser/repository-navigation.ts
+    - tests/browser/repository-corpus.ts

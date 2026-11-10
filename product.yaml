@@ -6,10 +6,13 @@ north_star:
 audience: A single developer investigating a local repository.
 v0:
   source: >-
-    A local standard Git checkout supplies one pinned commit and an explicit
-    list of TypeScript files. Original verified bytes remain in the in-memory
-    analysis session; persistent source caching is not implemented.
-  language: TypeScript
+    A standard local Git checkout supplies one pinned commit. The repository
+    scope admits all regular .ts blobs and bounded compiler/workspace metadata;
+    the selected-file and metadata-only browse workflows remain available.
+    Original verified bytes live only in the in-memory session.
+  language: >-
+    TypeScript .ts files only. .tsx, JavaScript, ambient machine types and
+    repository-installed dependencies are outside this MVP.
   optional_test_analysis: Jest behavior can provide supporting evidence.
   framework_extensions:
     Supported NestJS patterns may enrich generic TypeScript facts.
@@ -25,9 +28,13 @@ v0:
     browse: >-
       Optional bounded inventory of committed .ts paths from verified Git
       metadata; blobs are read only after selection.
-    selection:
-      Explicit literal .ts paths or an atomic module set from a complete pinned
-      inventory; no glob or automatic dependency discovery.
+    repository_scope: >-
+      --scope repository admits all regular committed .ts blobs up to 1,000
+      files and 32 MiB total, plus bounded pinned project/workspace metadata.
+      Over-limit or unsafe inventories fail explicitly without a partial run.
+    selection: >-
+      Repository scope or explicit literal .ts paths/an atomic module set from a
+      complete pinned inventory; no inferred dependency closure.
     worktree: Dirty working-tree contents are ignored.
   presentation: >-
     A bounded textual CLI plus an opt-in ephemeral loopback browser proof for
@@ -62,12 +69,17 @@ first_batch:
   approval: Explicit user approval is required before DB-02.
 semantic_proof:
   input:
-    Caller-supplied immutable UTF-8 manifests and explicit compiler profile.
+    Caller-supplied immutable UTF-8 manifests or pinned repository source with
+    hash-verified compiler/workspace metadata in a virtual filesystem.
   capabilities: >-
-    Named function declarations, direct identifier calls owned by supported
-    named functions or class methods, and source-backed references for
-    noncomputed method properties passed as call arguments.
+    Named functions, body-bearing identifier-named class methods as call owners,
+    supported direct identifier calls and partial source-backed method
+    references. TypeScript config aliases, relative imports and workspace
+    entries resolve only when the pinned compiler context proves a source path.
   exclusions:
-    Re-exports, overloads, dynamic dispatch and external implementations.
+    Re-exports, overload targets, dynamic dispatch, unsupported syntax,
+    JavaScript, .tsx and external implementations remain unresolved or
+    unsupported as appropriate.
   persistence:
-    None; this proof precedes DB-02 and does not establish Git provenance.
+    Repository and project sessions are in memory only. PostgreSQL and durable
+    source/provenance storage remain behind DB-02 and later approval gates.

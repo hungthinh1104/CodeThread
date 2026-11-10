@@ -4,8 +4,8 @@ module: application
 statement: >-
   The investigation CLI shall let a developer browse a bounded inventory of
   committed TypeScript paths, select exact files or a complete directory-backed
-  module set, and pass that selection atomically into the existing analyzer and
-  investigation session.
+  module set, or admit the whole supported repository into independent project
+  contexts in the existing investigation session.
 lifecycle: proposed
 priority: must
 acceptance:
@@ -38,6 +38,42 @@ acceptance:
     then: >-
       The CLI exposes the limitation and never substitutes working-tree bytes,
       follows symlinks or starts an empty/partial analysis.
+  - id: AC-06
+    given: '--scope repository and one supported pinned Git revision'
+    then: >-
+      The CLI admits every regular committed .ts blob and only the bounded
+      tsconfig/workspace metadata needed to plan contexts. The repository
+      profile accepts at most 1,000 source files and 32 MiB total; unsafe paths,
+      excluded nonregular entries, metadata overflow and source limits have
+      explicit outcomes, and source-admission failure never starts a partial
+      repository analysis. Project-level failures after complete acquisition
+      remain isolated to their own contexts.
+  - id: AC-07
+    given: A successful whole-repository acquisition
+    then: >-
+      Source inventory, analyzed-source coverage, project analysis status,
+      compiler/type-context completeness, semantic coverage and query truncation
+      remain separate. Every regular source path is listed as analyzed or not
+      analyzed with a context/error reason; nonregular .ts candidates remain
+      excluded with their Git mode reason in the paged browser source inventory.
+  - id: AC-08
+    given: >-
+      A repository with multiple tsconfig files, project references, workspace
+      metadata, unassigned source files or an invalid project
+    then: >-
+      Each compiler context receives its own snapshot and resolution inputs.
+      Unassigned source uses a labeled default context, invalid contexts retain
+      diagnostics while valid projects remain usable, and contexts are never
+      merged into one graph.
+  - id: AC-09
+    given: Pinned compiler and workspace metadata for a repository context
+    then: >-
+      TypeScript resolves only against the hash-verified virtual source set and
+      pinned compiler-library closure. Relative configuration, aliases,
+      references and workspace packages resolve only where the compiler and
+      supplied metadata prove a path; missing outputs, ambient host types,
+      unsupported patterns and ambiguous package names do not receive guessed
+      targets.
 depends_on:
   - CT-INDEX-001
   - CT-INV-001
@@ -47,8 +83,16 @@ verification:
   description: >-
     Exercise real disposable Git trees and the CLI for metadata-only inventory,
     literal search and prefix paging, selected-session handoff, pinned
-    revisions, incomplete inventory, mode rejection and all source/tree bounds.
-    Measure repeated deterministic discovery runs at multiple generated tree
-    sizes.
+    revisions, repository-wide source admission at both resource boundaries,
+    project references/workspace resolution, unassigned files, project-local
+    failures, per-file analysis reasons, cancellation, incomplete inventory,
+    mode rejection and all source/tree bounds. Measure repeated deterministic
+    discovery runs at multiple generated tree sizes and profile a 1,000-file,
+    32-MiB repository through analysis and loopback queries.
   test_ids:
     - tests/investigate-cli.test.ts
+    - tests/repository-intake.test.ts
+    - tests/repository-projects.test.ts
+    - tests/repository-session.test.ts
+    - tests/repository-viewer.test.ts
+    - tests/repository-self.test.ts

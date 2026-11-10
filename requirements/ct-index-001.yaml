@@ -29,6 +29,22 @@ acceptance:
       A bounded virtual compiler host reads only supplied files and pinned
       compiler libraries and never executes target code or installs
       dependencies.
+  - id: AC-05
+    given: >-
+      The same pinned source is analyzed through more than one TypeScript
+      project configuration
+    then: >-
+      Each context has a distinct snapshot identity containing its verified
+      source, configuration and resolution inputs. Resolution stays within that
+      context; project facts are not merged, and missing or ambiguous paths
+      retain diagnostics instead of guessed relationships.
+  - id: AC-06
+    given: A selected-file or repository resource profile
+    then: >-
+      Source admission, worker extraction, fact validation and trace validation
+      share that profile's finite limits. Repository contexts run sequentially;
+      resource exhaustion and cancellation produce typed incomplete/failure
+      states rather than an empty successful snapshot.
 depends_on:
   - CT-CORE-004
   - CT-CORE-005
@@ -44,4 +60,7 @@ verification:
     direct identifier calls. Nested named functions keep their own ownership;
     callback and unsupported owner scopes retain uncertainty. Broader imports
     and general reference capabilities remain unimplemented. The pinned external
-    labels have no independent review.
+    labels have no independent review. Repository mode analyzes up to 1,000
+    pinned .ts sources/32 MiB in distinct TypeScript project snapshots with
+    pinned compiler-library hashes; `.tsx`, JavaScript, ambient machine types
+    and general dynamic dispatch remain outside the supported subset.

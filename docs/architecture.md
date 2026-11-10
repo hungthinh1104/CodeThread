@@ -107,11 +107,11 @@ later guards are active.
 
 Refactor integration remains sequential: contracts, trace-engine, then
 symbol-indexer, with each subsequent PR based on the integrated `main` it needs.
-Application CLI/Git/viewer organization waits for CT-COMP-001 integration; study
-organization requires the integrated PR #21 scoring corrections. Do not rewrite
-those feature branches or create an implicit refactor stack. Test-suite splits
-follow the corresponding application owner rather than moving assertions into
-shared setup files.
+CT-COMP-001 now owns the bounded Git repository planner and session
+orchestration; study organization requires the integrated PR #21 scoring
+corrections. Do not rewrite those feature branches or create an implicit
+refactor stack. Test-suite splits follow the corresponding application owner
+rather than moving assertions into shared setup files.
 
 ## 2. Canonical language
 
@@ -987,17 +987,18 @@ classifications. Decorator syntax receives a source-anchored unsupported
 diagnostic; runtime framework wiring and constructor relationships remain
 `not_analyzed`.
 
-The public analysis boundary allows twenty files, 256 KiB per file, 2 MiB total,
-2,000 supported body-bearing function/method declarations, 5,000 call sites and
-5,000 method-reference candidate sites. Compiler diagnostics and unsupported
-decorator occurrences are each capped at 10,000. A parent starts a short-lived
-child, clears inherited Node injection settings, enforces a ten-second maximum
-deadline and limits the V8 heap to at most 512 MiB; callers may request lower
-limits. The child verifies the actual V8 heap ceiling. The heap limit does not
-bound total RSS. IPC is bounded. Malformed source, invalid inputs, resource
-exhaustion, timeout and compiler failure return typed failures rather than empty
-successful graphs. These limits are proof-of-concept safety bounds, not
-scalability guarantees.
+The `selected` analysis profile allows twenty files, 256 KiB per file, 2 MiB
+total, 2,000 supported body-bearing function/method declarations, 5,000 call
+sites and 5,000 method-reference candidate sites. Compiler diagnostics and
+unsupported decorator occurrences are each capped at 10,000. A parent starts a
+short-lived child, clears inherited Node injection settings, enforces a
+ten-second maximum deadline and limits the V8 heap to at most 512 MiB; callers
+may request lower limits. The child verifies the actual V8 heap ceiling. The
+heap limit does not bound total RSS. IPC is bounded. Malformed source, invalid
+inputs, resource exhaustion, timeout and compiler failure return typed failures
+rather than empty successful graphs. The larger repository profile is described
+in section 15. Both profiles are finite safety bounds, not scalability
+guarantees.
 
 `createInvestigation` copies facts, verifies retained raw source hashes and
 positions, and builds source-ordered occurrence indexes. Neighbors use bounded
@@ -1068,10 +1069,10 @@ and closure through the existing corpus loader. It is a local reproducible
 example, not repository crawling or proof of general accuracy. The documented
 route-to-controller `REFERENCES` describe source-level method references only;
 they do not assert handler registration, runtime receiver identity or method
-execution. Visual presentation and a general filesystem/Git manifest builder
-remain unimplemented; the narrow CT-SOURCE-001 adapter accepts explicitly
-selected files from a pinned local Git commit but does not crawl or build a
-general manifest from filesystem state.
+execution. Repository-wide source and project discovery is implemented through
+the `--scope repository` mode described in section 15. The selected-file
+CT-SOURCE-001 adapter remains a separate path; neither mode reads source from
+the working tree or builds a manifest from arbitrary filesystem state.
 
 ### CT-SOURCE-001 local Git acquisition
 
@@ -1115,10 +1116,12 @@ selected/admitted/rejected/not-admitted counts. Typed failures do not expose
 absolute repository paths, raw Git stderr or source content. Cancellation kills
 the active Git child and exits with status 130.
 
-This adapter does not persist a source cache or make Git provenance part of
-semantic identity. Source bytes remain in the analyzer's verified in-memory
-reader for the session. Persistent database/cache design, Git crawling,
-dependency closure, bare/worktree support and remote Git are deferred.
+This selected-file adapter does not persist a source cache or make Git
+provenance part of semantic identity. Source bytes remain in the analyzer's
+verified in-memory reader for the session. The separate repository-scope path
+and its bounded Git traversal are described in section 15. Persistent
+database/cache design, inferred dependency closure, bare/worktree support and
+remote Git are deferred.
 
 ## 13. Evidence-driven capability assessment
 
@@ -1324,3 +1327,92 @@ projection; explicit unknown/truncation states; keyboard use and narrow viewport
 behavior; safe rendering of HTML/script/bidi source; and proof that requests
 never leave loopback. Implementation tests do not establish improved
 comprehension; that remains CT-EVAL-001 study work.
+
+## 15. Repository-wide TypeScript investigation sessions
+
+`pnpm investigate -- --repo <root> --revision <commit|HEAD|refs/...> --scope repository [--repository-id <uuid>] [--view]`
+is the repository entry path. The adapter resolves one commit, reads its
+verified tree objects, and admits every regular `.ts` blob at that revision.
+When no repository UUID is supplied, the CLI creates one for that invocation; it
+is not a durable registration. Dirty working-tree bytes, hooks, filters, scripts
+and installed dependencies are not consulted.
+
+The repository source profile is capped at 1,000 files, 32 MiB total, and 32 MiB
+per file. Tree traversal is capped at 8,192 unique trees, 100,000 entries,
+16,384 tree visits and 64 path components; the Git stage has a 120-second
+overall session deadline. Compiler metadata is limited to 256 files and 4 MiB
+total, with each metadata blob capped at 1 MiB. The metadata set includes
+`tsconfig*.json`, `package.json` and `pnpm-workspace.yaml`, plus the bounded
+relative `extends` and project-reference configuration closure. Source and
+metadata are read as verified commit objects and retain the original Git blob ID
+and SHA-256. Unsafe paths, inventory collisions, unsupported modes and resource
+overflow fail closed; the adapter does not silently analyze a subset. Symlinks
+and gitlinks are not followed. `.ts` symlink/gitlink entries are shown in the
+paged browser source inventory as excluded with their mode reason.
+
+Project configuration is parsed by the pinned TypeScript 6.0.3 compiler against
+a virtual filesystem containing only acquired source, hash-checked metadata and
+the verified compiler-library closure. No machine filesystem or ambient node
+types are available. Supported relative configuration, project references,
+compiler aliases and workspace package paths resolve only if TypeScript and the
+included metadata identify a path in this virtual source set. Package scripts
+are data and never run. Missing `dist` outputs are not rewritten to `src` unless
+the compiler's project mapping proves that source redirect. Unsupported globs,
+path escapes, ambiguous package names, missing metadata and reference cycles
+remain diagnostics or invalid project states.
+
+At most 32 project contexts and 4,000 source memberships are admitted. Each
+context receives a distinct analysis snapshot; source, config and workspace
+metadata hashes, config/reference paths, roots and resolution inputs contribute
+to its identity. A file selected by more than one tsconfig belongs to each
+context separately. Files not assigned by tsconfig enter a labeled default
+context. Project workers run sequentially with one active worker, at most a 2
+GiB V8 heap, and the remaining portion of the 120-second session deadline.
+Context source retention is capped at 128 MiB and combined worker result/IPC
+retention at 128 MiB. These are explicit engineering bounds; the V8 heap limit
+is not a total RSS limit.
+
+An invalid or failed context retains its own diagnostic and does not invalidate
+other ready contexts. The session and viewer distinguish complete Git inventory,
+per-file source analysis, project analysis success, compiler/type-context
+completeness, per-snapshot semantic coverage, and per-query truncation. Every
+regular `.ts` path is shown as analyzed or not analyzed with its owning context
+and failure code. None of these status fields implies another is complete. Large
+catalogs and file inventories are paged; graph, evidence and query limits remain
+those of the selected context's validated trace engine.
+
+In repository browser mode, symbol search spans the catalog but each result
+retains its project ID and snapshot ID. Project selection binds graph queries to
+one context. Following a target into another context requires a matching source
+path, declaration range and verified content hash. Multiple matching project
+contexts require an explicit user choice; their graphs are never joined. Back
+and Forward restore the bounded history state including project, snapshot, root,
+filters, direction and still-valid selections. Responses associated with an
+older request or project are discarded.
+
+The local profile benchmark generates exactly 1,000 `.ts` files totaling 32 MiB,
+exercises one known direct call through project analysis and all exposed
+loopback query families, and reports Git operations, per-phase timing, query
+latency/bytes and sampled parent/worker RSS. Its RSS sampling scope excludes
+system memory and must not be read as an OS-level worker limit. The separate
+source-discovery benchmark covers flat, deep and wide trees at 100, 1,000 and
+10,000 entries; workloads exceeding inventory limits must report incomplete
+inventory or a typed failure. Neither benchmark establishes performance on
+arbitrary repositories.
+
+Repository sessions are process-local and ephemeral. The in-memory project
+catalog and source bytes disappear when the CLI exits. PostgreSQL, a durable
+repository/session registry, source caching, hosted source acquisition, `.tsx`,
+JavaScript, general dynamic dispatch, arbitrary TypeScript configuration and AI
+remain outside this MVP. DB-02 still requires its own authorization and evidence
+gate; no PostgreSQL migration or production persistence is implied.
+
+The browser workflow task manifest pins the ufo commit and defines five
+automatable tasks for symbol search, CALLS, occurrence/declaration evidence,
+Back/Forward, and source/context-status inspection. It reports task completion
+separately from semantic labels and observations. Those workflow tasks were
+authored after analyzer predictions had been observed and are not a blind gold
+set; their completion does not establish semantic correctness or comprehension
+improvement. Semantic labels, unscored project occurrences and observations
+remain separate evaluation denominators, and the Codex-authored labels have not
+received independent human review.
