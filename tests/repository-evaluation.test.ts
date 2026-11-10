@@ -23,17 +23,20 @@ beforeAll(async () => {
 
 describe('whole-repository source-pinned acceptance', () => {
   it.each([
-    ['ufo', 21, 4, 4],
-    ['sourcemaps', 53, 5, 2],
+    ['ufo', 21, 4, 4, 0],
+    ['sourcemaps', 53, 5, 2, 1],
   ] as const)(
     'verifies every source and labeled case for %s',
-    (name, files, labels, exact) => {
+    (name, files, labels, exact, excluded) => {
       const result = evaluated.get(name)!;
       expect(result.report.gate).toEqual({ passed: true, failures: [] });
       expect(result.report.sourceFiles).toBe(files);
       expect(result.report.counts).toMatchObject({
         labeledCases: labels,
-        correctCases: labels,
+        scoredCases: labels - excluded,
+        prePredictionCases: labels - excluded,
+        postPredictionExcludedCases: excluded,
+        correctCases: labels - excluded,
         correctExact: exact,
         wrongExact: 0,
         missedExact: 0,
@@ -48,7 +51,7 @@ describe('whole-repository source-pinned acceptance', () => {
         labels,
       );
       expect(result.report.unscoredProjectOccurrences).toBe(
-        result.report.rawCounts.projectOccurrences - labels,
+        result.report.rawCounts.projectOccurrences - (labels - excluded),
       );
     },
   );
@@ -196,6 +199,11 @@ describe('whole-repository source-pinned acceptance', () => {
     const result = evaluated.get('sourcemaps')!;
     expect(result.report.authoredBeforePredictions).toBe(false);
     expect(result.report.counts.prePredictionCases).toBe(4);
+    expect(result.report.counts.scoredCases).toBe(4);
+    expect(result.report.counts.postPredictionExcludedCases).toBe(1);
+    expect(result.report.counts.correctCases).toBe(4);
+    expect(result.report.counts.expectedExact).toBe(2);
+    expect(result.report.counts.wrongExact).toBe(0);
     expect(result.report.postPredictionCorrections).toHaveLength(1);
     expect(result.report.postPredictionCorrections[0]).toMatchObject({
       previousStatus: 'exact',
@@ -208,5 +216,10 @@ describe('whole-repository source-pinned acceptance', () => {
     expect(() =>
       validateRepositoryGoldCorrections(result.corpus, invalid),
     ).toThrow(/overload signatures/);
+    const duplicate = structuredClone(result.gold);
+    duplicate.corrections.push(structuredClone(duplicate.corrections[0]!));
+    expect(() =>
+      validateRepositoryGoldCorrections(result.corpus, duplicate),
+    ).toThrow(/Duplicate post-prediction correction/);
   });
 });

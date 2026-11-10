@@ -21,8 +21,9 @@ acceptance:
   - id: AC-03
     given: A semantic evaluation
     then:
-      Source-pinned annotations independent of analyzer output define precision,
-      recall and unresolved-rate denominators.
+      Pre-prediction source-pinned annotations define precision, recall and
+      unresolved-rate denominators. Post-prediction corrections stay disclosed
+      for audit and are excluded from acceptance metrics.
   - id: AC-04
     given: Untrusted source or a resource limit
     then:
@@ -60,7 +61,8 @@ verification:
     direct identifier calls. Nested named functions keep their own ownership;
     callback and unsupported owner scopes retain uncertainty. Broader imports
     and general reference capabilities remain unimplemented. The pinned external
-    labels have no independent review. Repository mode analyzes up to 1,000
-    pinned .ts sources/32 MiB in distinct TypeScript project snapshots with
-    pinned compiler-library hashes; `.tsx`, JavaScript, ambient machine types
-    and general dynamic dispatch remain outside the supported subset.
+    labels have no independent review. Post-prediction corrections are disclosed
+    and excluded from acceptance denominators. Repository mode analyzes up to
+    1,000 pinned .ts sources/32 MiB in distinct TypeScript project snapshots
+    with pinned compiler-library hashes; `.tsx`, JavaScript, ambient machine
+    types and general dynamic dispatch remain outside the supported subset.

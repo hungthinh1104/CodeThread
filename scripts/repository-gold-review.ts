@@ -26,9 +26,22 @@ export function validateRepositoryGoldCorrections(
     assert(!keys.has(key), 'Duplicate labeled occurrence');
     keys.add(key);
   }
+  const correctionKeys = new Set<string>();
   for (const correction of gold.corrections.filter(
     (item) => item.repository === corpus.name,
   )) {
+    const correctionKey = JSON.stringify([
+      correction.repository,
+      correction.configPath,
+      correction.site.file,
+      correction.site.start.offset,
+      correction.site.end.offset,
+    ]);
+    assert(
+      !correctionKeys.has(correctionKey),
+      'Duplicate post-prediction correction',
+    );
+    correctionKeys.add(correctionKey);
     const labels = gold.labels.filter(
       (label) =>
         label.repository === correction.repository &&

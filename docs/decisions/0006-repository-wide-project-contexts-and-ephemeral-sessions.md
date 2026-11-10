@@ -70,10 +70,13 @@ The synthetic 1,000-file/32-MiB profile benchmark measures this implementation
 and reports its measurement scope; it is not evidence of performance on
 arbitrary repositories. The whole-repository semantic corpora pin ufo and
 sourcemaps commits and report source labels separately from unscored project
-occurrences. Their labels are Codex-authored and have not received independent
-human review. The browser workflow tasks were written after analyzer predictions
-were observed; they are usability checks, not a blind semantic gold set. No
-benchmark or static graph proves runtime execution or improved comprehension.
+occurrences. Only labels fixed before predictions contribute to acceptance
+counts. Post-prediction corrections remain visible in the report for audit and
+are excluded from scored cases, exact denominators and closed-owner checks.
+Their labels are Codex-authored and have not received independent human review.
+The browser workflow tasks were written after analyzer predictions were
+observed; they are usability checks, not a blind semantic gold set. No benchmark
+or static graph proves runtime execution or improved comprehension.
 
 The repository-scope mode uses the existing trusted-local-Git boundary in
 ADR-0004. It does not defend against malicious Git metadata or a compromised

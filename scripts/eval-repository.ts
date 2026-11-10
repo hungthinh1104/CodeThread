@@ -25,11 +25,30 @@ export function evaluateRepositorySession(
   corpus: RepositoryCorpus,
   gold: RepositoryGold,
 ) {
-  const labels = gold.labels.filter(
+  const allLabels = gold.labels.filter(
     (label) => label.repository === corpus.name,
   );
   const corrections = gold.corrections.filter(
     (correction) => correction.repository === corpus.name,
+  );
+  const goldOccurrenceKey = (item: {
+    repository: string;
+    configPath: string;
+    site: { file: string; start: { offset: number }; end: { offset: number } };
+  }) =>
+    JSON.stringify([
+      item.repository,
+      item.configPath,
+      item.site.file,
+      item.site.start.offset,
+      item.site.end.offset,
+    ]);
+  const correctedOccurrenceKeys = new Set(corrections.map(goldOccurrenceKey));
+  const labels = allLabels.filter(
+    (label) => !correctedOccurrenceKeys.has(goldOccurrenceKey(label)),
+  );
+  const postPredictionLabels = allLabels.filter((label) =>
+    correctedOccurrenceKeys.has(goldOccurrenceKey(label)),
   );
   const failures: {
     configPath: string | null;
@@ -231,9 +250,11 @@ export function evaluateRepositorySession(
       gold.originalLabelsAuthoredBeforePredictions,
     postPredictionCorrections: corrections,
     counts: {
-      labeledCases: labels.length,
+      labeledCases: allLabels.length,
+      scoredCases: labels.length,
       observedLabeledCases,
-      prePredictionCases: labels.length - corrections.length,
+      prePredictionCases: labels.length,
+      postPredictionExcludedCases: postPredictionLabels.length,
       correctCases,
       expectedExact: labels.filter((label) => label.status === 'exact').length,
       correctExact,
@@ -262,7 +283,7 @@ export function evaluateRepositorySession(
     metrics: session.metrics,
     gate: { passed: failures.length === 0, failures },
     interpretation:
-      'Correctness is evaluated only on the source-authored labeled cases; all other occurrence counts are unscored static output, not a repository-wide accuracy claim.',
+      'Correctness is evaluated only on source-authored labels fixed before predictions; post-prediction corrections are disclosed but excluded from acceptance counts. All other occurrence counts are unscored static output, not a repository-wide accuracy claim.',
   };
 }
 
