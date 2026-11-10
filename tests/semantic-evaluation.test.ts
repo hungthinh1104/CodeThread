@@ -36,12 +36,39 @@ describe('CT-INDEX-001A semantic quality accounting', () => {
       value: 1,
     });
     expect(report.recall).toEqual({ numerator: 13, denominator: 13, value: 1 });
+    expect(report.supportedCoverage).toEqual({
+      numerator: 17,
+      denominator: 30,
+      value: 17 / 30,
+    });
+    expect(report.exactCoverage).toEqual({
+      numerator: 13,
+      denominator: 30,
+      value: 13 / 30,
+    });
     expect(report.unresolvedRate).toEqual({
       numerator: 4,
       denominator: 17,
       value: 4 / 17,
     });
     expect(report.gate.passed).toBe(true);
+  });
+  it('reduces observed coverage when an eligible call is emitted as unsupported', () => {
+    const facts = structuredClone(snapshot.facts);
+    const observation = facts.observations.find((item) => item.eligible)!;
+    observation.status = 'unsupported';
+    const report = evaluateSemantic(gold, { facts, source: snapshot.source });
+    expect(report.supportedCoverage).toEqual({
+      numerator: 16,
+      denominator: 30,
+      value: 16 / 30,
+    });
+    expect(report.exactCoverage).toEqual({
+      numerator: 12,
+      denominator: 30,
+      value: 12 / 30,
+    });
+    expect(report.gate.passed).toBe(false);
   });
   it('counts a wrong exact target as both an incorrect prediction and a missed gold relation', () => {
     const facts = structuredClone(snapshot.facts);
@@ -73,6 +100,8 @@ describe('CT-INDEX-001A semantic quality accounting', () => {
     );
     expect(report.precision.value).toBeNull();
     expect(report.recall.value).toBeNull();
+    expect(report.supportedCoverage.value).toBeNull();
+    expect(report.exactCoverage.value).toBeNull();
     expect(report.unresolvedRate.value).toBeNull();
   });
   it('does not hide an unlocatable extra occurrence from unannotated counts', () => {

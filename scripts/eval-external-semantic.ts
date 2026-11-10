@@ -1,7 +1,10 @@
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
-import { createInvestigation } from '@codethread/trace-engine';
 import { evaluateSemantic } from './eval-semantic.ts';
 import { loadExternalCorpus } from './external-semantic-corpus.ts';
+import {
+  collectExternalGraph,
+  validateExternalGraph,
+} from './external-semantic-graph.ts';
 
 const ratio = (numerator: number, denominator: number) => ({
   numerator,
@@ -60,47 +63,12 @@ for (const name of ['tinyexec', 'todo'] as const) {
         call.eligible && rows.length === 1 && rows[0]!.status !== 'unsupported'
       );
     }).length;
-    const investigation = createInvestigation(snapshot.facts, snapshot.source);
-    const select = (symbolName: string) => {
-      const symbol = snapshot.facts.symbols.find(
-        (item) => item.name === symbolName,
-      );
-      if (!symbol)
-        throw new Error(`Missing investigation anchor ${symbolName}`);
-      return symbol;
-    };
-    const root = select(name === 'tinyexec' ? 'computeEnv' : 'routes');
-    const target = select(
-      name === 'tinyexec' ? 'getPathFromEnv' : 'todoRouter',
+    const investigation = collectExternalGraph(
+      name,
+      snapshot.facts,
+      snapshot.source,
     );
-    const neighbors = investigation.neighbors({
-      snapshotId: snapshot.facts.snapshotId,
-      symbolId: root.id,
-      direction: 'outgoing',
-      depth: 2,
-    });
-    const incoming = investigation.neighbors({
-      snapshotId: snapshot.facts.snapshotId,
-      symbolId: target.id,
-      direction: 'incoming',
-      depth: 1,
-    });
-    const paths = investigation.paths({
-      snapshotId: snapshot.facts.snapshotId,
-      fromSymbolId: root.id,
-      toSymbolId: target.id,
-    });
-    const evidenceIds = [
-      ...new Set([
-        ...paths.relations.map((item) => item.siteEvidenceId),
-        root.declarationEvidenceId,
-        target.declarationEvidenceId,
-      ]),
-    ];
-    const excerpts = investigation.sourceEvidence({
-      snapshotId: snapshot.facts.snapshotId,
-      evidenceIds,
-    });
+    validateExternalGraph(name, gold, files, snapshot.facts, investigation);
     const result = {
       name,
       repository: gold.repository,
@@ -114,17 +82,15 @@ for (const name of ['tinyexec', 'todo'] as const) {
         report.counts.correctExactResolutions,
         gold.calls.length,
       ),
+      graphEvaluation: {
+        independentlyPinned: true,
+        interpretation:
+          'Static source relationships only; runtime behavior was not observed.',
+      },
       unsupportedByDiagnostic: unsupported,
       resourceFailures: [],
       coverageByCapability: snapshot.facts.coverageByCapability,
-      investigation: {
-        root: root.name,
-        target: target.name,
-        neighbors,
-        incoming,
-        paths,
-        excerpts,
-      },
+      investigation,
     };
     process.stdout.write(JSON.stringify(result) + '\n');
     if (!report.gate.passed) process.exitCode = 1;

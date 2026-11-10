@@ -160,6 +160,92 @@ describe('CT-INDEX-001A semantic extraction', () => {
     });
     expect(second.facts).toEqual(first.facts);
   }, 15000);
+  it('keeps source-anchored calls exact across renames, file moves, and byte changes', async () => {
+    const variants = [
+      {
+        callerPath: 'src/caller.ts',
+        targetPath: 'src/leaf.ts',
+        targetName: 'leaf',
+        importPath: './leaf.js',
+        targetText: 'export function leaf() { return 1; }\n',
+        extraFiles: [],
+      },
+      {
+        callerPath: 'src/moved/caller.ts',
+        targetPath: 'src/moved/renamed-leaf.ts',
+        targetName: 'renamedLeaf',
+        importPath: './renamed-leaf.js',
+        targetText: 'export function renamedLeaf() { return 1; }\n',
+        extraFiles: [
+          sourceFile('extra.ts', 'export function unrelated() {}\n'),
+        ],
+      },
+      {
+        callerPath: 'src/caller.ts',
+        targetPath: 'src/leaf.ts',
+        targetName: 'leaf',
+        importPath: './leaf.js',
+        targetText: 'export function leaf() { return 2; }\n',
+        extraFiles: [
+          sourceFile('extra.ts', 'export function unrelated() {}\n'),
+        ],
+      },
+    ];
+    for (const variant of variants) {
+      const callerText =
+        `import { ${variant.targetName} } from '${variant.importPath}';\n` +
+        `export function caller() { return ${variant.targetName}(); }\n`;
+      const result = await analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        files: [
+          sourceFile(variant.callerPath, callerText),
+          sourceFile(variant.targetPath, variant.targetText),
+          ...variant.extraFiles,
+        ],
+      });
+      const callerFile = result.facts.files.find(
+        (file) => file.path === variant.callerPath,
+      )!;
+      const observations = result.facts.observations.filter(
+        (item) => item.fileId === callerFile.id,
+      );
+      expect(observations).toHaveLength(1);
+      const observation = observations[0]!;
+      expect(observation.status).toBe('exact');
+      expect(observation.relationId).toBeDefined();
+      const relation = result.facts.relations.find(
+        (item) => item.id === observation.relationId,
+      )!;
+      expect(relation).toMatchObject({
+        kind: 'calls',
+        sourceSymbolId: observation.ownerId,
+        resolution: { status: 'exact' },
+      });
+      if (relation.resolution.status !== 'exact')
+        throw new Error('Expected a source-supported exact call target.');
+      const target = result.facts.symbols.find(
+        (symbol) => symbol.id === relation.resolution.targetId,
+      )!;
+      expect(target).toMatchObject({
+        filePath: variant.targetPath,
+        name: variant.targetName,
+        kind: 'function',
+      });
+      expect(result.source.readEvidence(observation.evidenceId)).toMatchObject({
+        status: 'available',
+        filePath: variant.callerPath,
+        text: `${variant.targetName}()`,
+      });
+      expect(
+        result.source.readEvidence(target.declarationEvidenceId),
+      ).toMatchObject({
+        status: 'available',
+        filePath: variant.targetPath,
+        text: variant.targetText.trim(),
+      });
+    }
+  }, 30000);
   it.each([
     [
       'declarations',
