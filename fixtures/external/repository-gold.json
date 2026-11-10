@@ -1,0 +1,488 @@
+{
+  "version": 2,
+  "author": "Codex",
+  "reviewStatus": "not_independently_reviewed",
+  "authoredBeforePredictions": false,
+  "originalLabelsAuthoredBeforePredictions": true,
+  "corrections": [
+    {
+      "repository": "sourcemaps",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "site": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 8331,
+          "line": 275,
+          "column": 10
+        },
+        "end": {
+          "offset": 8464,
+          "line": 282,
+          "column": 4
+        }
+      },
+      "previousStatus": "exact",
+      "revisedStatus": "unsupported",
+      "previousTarget": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 16592,
+          "line": 547,
+          "column": 1
+        },
+        "end": {
+          "offset": 17983,
+          "line": 584,
+          "column": 2
+        }
+      },
+      "overloadSignatures": 2,
+      "trigger": "post_prediction_source_review",
+      "reason": "The pinned source has two overload signatures before this implementation. Overloaded call targets are outside the declared semantic subset. The original exact expectation was an annotation error."
+    }
+  ],
+  "closedOwners": [
+    {
+      "repository": "ufo",
+      "configPath": "tsconfig.json",
+      "owner": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8196,
+          "line": 348,
+          "column": 1
+        },
+        "end": {
+          "offset": 8452,
+          "line": 353,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "sourcemaps",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/binary-search.ts",
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "start": {
+          "offset": 2317,
+          "line": 96,
+          "column": 1
+        },
+        "end": {
+          "offset": 3081,
+          "line": 123,
+          "column": 2
+        }
+      }
+    }
+  ],
+  "labels": [
+    {
+      "repository": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "configPath": "tsconfig.json",
+      "owner": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8196,
+          "line": 348,
+          "column": 1
+        },
+        "end": {
+          "offset": 8452,
+          "line": 353,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8284,
+          "line": 349,
+          "column": 18
+        },
+        "end": {
+          "offset": 8299,
+          "line": 349,
+          "column": 33
+        }
+      },
+      "expression": "parseURL",
+      "status": "exact",
+      "target": {
+        "file": "src/parse.ts",
+        "sourceSha256": "c8b4224297787a599669cc7e41242113a927c1f5fd9b2d1c835440f247d716ea",
+        "start": {
+          "offset": 1342,
+          "line": 51,
+          "column": 1
+        },
+        "end": {
+          "offset": 2546,
+          "line": 95,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "configPath": "tsconfig.json",
+      "owner": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8196,
+          "line": 348,
+          "column": 1
+        },
+        "end": {
+          "offset": 8452,
+          "line": 353,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8328,
+          "line": 350,
+          "column": 28
+        },
+        "end": {
+          "offset": 8353,
+          "line": 350,
+          "column": 53
+        }
+      },
+      "expression": "parseQuery",
+      "status": "exact",
+      "target": {
+        "file": "src/query.ts",
+        "sourceSha256": "be4106f9d10b9ac90da3893c0046956375d7c67ff1430ddc8a77de899e19db49",
+        "start": {
+          "offset": 1000,
+          "line": 47,
+          "column": 1
+        },
+        "end": {
+          "offset": 1963,
+          "line": 75,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "configPath": "tsconfig.json",
+      "owner": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8196,
+          "line": 348,
+          "column": 1
+        },
+        "end": {
+          "offset": 8452,
+          "line": 353,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8385,
+          "line": 351,
+          "column": 19
+        },
+        "end": {
+          "offset": 8412,
+          "line": 351,
+          "column": 46
+        }
+      },
+      "expression": "stringifyQuery",
+      "status": "exact",
+      "target": {
+        "file": "src/query.ts",
+        "sourceSha256": "be4106f9d10b9ac90da3893c0046956375d7c67ff1430ddc8a77de899e19db49",
+        "start": {
+          "offset": 3135,
+          "line": 132,
+          "column": 1
+        },
+        "end": {
+          "offset": 3351,
+          "line": 138,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "configPath": "tsconfig.json",
+      "owner": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8196,
+          "line": 348,
+          "column": 1
+        },
+        "end": {
+          "offset": 8452,
+          "line": 353,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "src/utils.ts",
+        "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+        "start": {
+          "offset": 8423,
+          "line": 352,
+          "column": 10
+        },
+        "end": {
+          "offset": 8449,
+          "line": 352,
+          "column": 36
+        }
+      },
+      "expression": "stringifyParsedURL",
+      "status": "exact",
+      "target": {
+        "file": "src/parse.ts",
+        "sourceSha256": "c8b4224297787a599669cc7e41242113a927c1f5fd9b2d1c835440f247d716ea",
+        "start": {
+          "offset": 4554,
+          "line": 182,
+          "column": 1
+        },
+        "end": {
+          "offset": 5069,
+          "line": 195,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/binary-search.ts",
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "start": {
+          "offset": 2317,
+          "line": 96,
+          "column": 1
+        },
+        "end": {
+          "offset": 3081,
+          "line": 123,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "packages/trace-mapping/src/binary-search.ts",
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "start": {
+          "offset": 3028,
+          "line": 122,
+          "column": 29
+        },
+        "end": {
+          "offset": 3077,
+          "line": 122,
+          "column": 78
+        }
+      },
+      "expression": "binarySearchSegments",
+      "status": "exact",
+      "target": {
+        "file": "packages/trace-mapping/src/binary-search.ts",
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "start": {
+          "offset": 795,
+          "line": 28,
+          "column": 1
+        },
+        "end": {
+          "offset": 1260,
+          "line": 52,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 8104,
+          "line": 267,
+          "column": 1
+        },
+        "end": {
+          "offset": 8467,
+          "line": 283,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 8331,
+          "line": 275,
+          "column": 10
+        },
+        "end": {
+          "offset": 8464,
+          "line": 282,
+          "column": 4
+        }
+      },
+      "expression": "traceSegmentInternal",
+      "status": "unsupported",
+      "target": null
+    },
+    {
+      "repository": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 16592,
+          "line": 547,
+          "column": 1
+        },
+        "end": {
+          "offset": 17983,
+          "line": 584,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 16880,
+          "line": 556,
+          "column": 15
+        },
+        "end": {
+          "offset": 16938,
+          "line": 556,
+          "column": 73
+        }
+      },
+      "expression": "memoizedBinarySearchSegments",
+      "status": "exact",
+      "target": {
+        "file": "packages/trace-mapping/src/binary-search.ts",
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "start": {
+          "offset": 2317,
+          "line": 96,
+          "column": 1
+        },
+        "end": {
+          "offset": 3081,
+          "line": 123,
+          "column": 2
+        }
+      }
+    },
+    {
+      "repository": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 7310,
+          "line": 248,
+          "column": 1
+        },
+        "end": {
+          "offset": 7463,
+          "line": 250,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 7432,
+          "line": 249,
+          "column": 34
+        },
+        "end": {
+          "offset": 7459,
+          "line": 249,
+          "column": 61
+        }
+      },
+      "expression": "decode",
+      "status": "unresolved",
+      "target": null
+    },
+    {
+      "repository": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "configPath": "packages/trace-mapping/tsconfig.json",
+      "owner": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 13169,
+          "line": 436,
+          "column": 1
+        },
+        "end": {
+          "offset": 13410,
+          "line": 441,
+          "column": 2
+        }
+      },
+      "site": {
+        "file": "packages/trace-mapping/src/trace-mapping.ts",
+        "sourceSha256": "e45736cfe634564cbd3fc54f746fc23104f4e8ae82014dd492ad62384e7befa4",
+        "start": {
+          "offset": 13381,
+          "line": 440,
+          "column": 33
+        },
+        "end": {
+          "offset": 13407,
+          "line": 440,
+          "column": 59
+        }
+      },
+      "expression": "ignoreList.includes",
+      "status": "unsupported",
+      "target": null
+    }
+  ]
+}

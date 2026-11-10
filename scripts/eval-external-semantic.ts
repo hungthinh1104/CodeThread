@@ -5,6 +5,7 @@ import {
   collectExternalGraph,
   validateExternalGraph,
 } from './external-semantic-graph.ts';
+import { runRepositoryEvaluations } from './eval-repository.ts';
 
 const ratio = (numerator: number, denominator: number) => ({
   numerator,
@@ -111,3 +112,5 @@ for (const name of ['tinyexec', 'todo'] as const) {
     process.exitCode = 1;
   }
 }
+
+await runRepositoryEvaluations();

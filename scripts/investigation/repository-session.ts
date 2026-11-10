@@ -135,7 +135,17 @@ export async function analyzeGitRepository(
     projects.every(
       (project) =>
         (project.status === 'ready' || project.status === 'solution') &&
-        !project.snapshot?.contextDiagnostics?.length,
+        !project.snapshot?.contextDiagnostics?.length &&
+        !project.snapshot?.facts.diagnostics.some((diagnostic) =>
+          [
+            'TS_2307',
+            'TS_2688',
+            'TS_6053',
+            'TS_7016',
+            'TS_2792',
+            'TS_2591',
+          ].includes(diagnostic.code),
+        ),
     );
   const files = acquired.files.map((file) =>
     Object.freeze({

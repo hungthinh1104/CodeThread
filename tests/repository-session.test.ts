@@ -13,6 +13,38 @@ afterEach(async () => {
 const repositoryId = '00000000-0000-4000-8000-000000000074';
 
 describe('repository project execution', () => {
+  it('reports missing module context separately from complete source acquisition', async () => {
+    const repository = await createGitRepository(
+      [
+        {
+          path: 'tsconfig.json',
+          source:
+            '{"compilerOptions":{"types":[],"target":"ES2023"},"files":["index.ts"]}',
+        },
+        {
+          path: 'index.ts',
+          source:
+            "import { unavailable } from 'package-not-installed'; export function entry(){ return unavailable(); }",
+        },
+      ],
+      temporaryDirectories,
+    );
+    const session = await analyzeGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+    expect(session.inventory.complete).toBe(true);
+    expect(session.sourceCoverageComplete).toBe(true);
+    expect(session.analysisComplete).toBe(true);
+    expect(
+      session.projects[0]?.snapshot?.facts.diagnostics.some(
+        (diagnostic) => diagnostic.code === 'TS_2307',
+      ),
+    ).toBe(true);
+    expect(session.contextComplete).toBe(false);
+  }, 30000);
+
   it('retains a usable project when another project contains malformed source', async () => {
     const repository = await createGitRepository(
       [
