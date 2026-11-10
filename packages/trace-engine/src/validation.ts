@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
 import {
+  analysisResourceLimits,
+  withinAnalysisCollectionLimits,
   coverageByCapabilitySchema,
   idSchema,
   snapshotIdentitySchema,
 } from '@codethread/code-model';
 import type {
   AnalysisFacts,
+  AnalysisResourceLimits,
   VerifiedSourceReader,
 } from '@codethread/code-model';
 import { ensure, sameRange, TraceError, unique } from './fact-integrity.js';
@@ -16,9 +19,10 @@ import { validateGraph } from './graph-validation.js';
 export function validateFacts(
   facts: AnalysisFacts,
   reader: VerifiedSourceReader,
+  limits = analysisResourceLimits(),
 ): Map<string, RetainedSource> {
   try {
-    return validate(facts, reader);
+    return validate(facts, reader, limits);
   } catch (error) {
     if (error instanceof TraceError) throw error;
     throw new TraceError('INVALID_FACTS', 'Invalid semantic facts');
@@ -27,6 +31,7 @@ export function validateFacts(
 function validate(
   facts: AnalysisFacts,
   reader: VerifiedSourceReader,
+  limits: AnalysisResourceLimits,
 ): Map<string, RetainedSource> {
   ensure(
     facts &&
@@ -50,26 +55,13 @@ function validate(
       `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`,
   );
   coverageByCapabilitySchema.parse(facts.coverageByCapability);
-  ensure(
-    Array.isArray(facts.files) &&
-      facts.files.length <= 20 &&
-      Array.isArray(facts.symbols) &&
-      facts.symbols.length <= 2000 &&
-      Array.isArray(facts.relations) &&
-      facts.relations.length <= 10000 &&
-      Array.isArray(facts.evidenceRefs) &&
-      facts.evidenceRefs.length <= 17000 &&
-      Array.isArray(facts.diagnostics) &&
-      facts.diagnostics.length <= 25000 &&
-      Array.isArray(facts.observations) &&
-      facts.observations.length <= 5000,
-  );
+  ensure(withinAnalysisCollectionLimits(facts, limits));
   unique(facts.files);
   unique(facts.symbols);
   unique(facts.relations);
   unique(facts.evidenceRefs);
   unique(facts.diagnostics);
-  const sources = validateSources(facts, reader);
+  const sources = validateSources(facts, reader, limits);
   validateGraph(facts, sources);
   validateObservations(facts);
   return sources;

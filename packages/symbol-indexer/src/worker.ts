@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { getHeapStatistics } from 'node:v8';
 import ts from 'typescript';
 import type { AnalysisFacts } from '@codethread/code-model';
+import { analysisResourceLimits } from '@codethread/code-model';
 import type { WorkerInput, WorkerOutput } from './protocol.js';
 import { hash, identity } from './identity.js';
 import { extractFacts } from './extract.js';
@@ -71,9 +72,10 @@ function libraries(): { files: Map<string, string>; buildHash: string } {
 }
 
 function analyze(input: WorkerInput): WorkerOutput {
+  const limits = analysisResourceLimits(input.resourceProfile);
   if (
     getHeapStatistics().heap_size_limit > input.heapLimitBytes ||
-    input.heapLimitBytes > 512 * 1024 * 1024
+    input.heapLimitBytes > limits.maxHeapMiB * 1024 * 1024
   )
     return {
       ok: false,
@@ -217,14 +219,18 @@ function analyze(input: WorkerInput): WorkerOutput {
       notAnalyzedInputs: input.files.length,
     },
   };
-  return extractFacts(program, facts, sourceRoot);
+  return extractFacts(program, facts, sourceRoot, limits);
 }
 
 let request = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk: string) => {
   request += chunk;
-  if (request.length > 8 * 1024 * 1024) process.exit(2);
+  if (
+    Buffer.byteLength(request) >
+    analysisResourceLimits('repository').maxRequestBytes
+  )
+    process.exit(2);
 });
 process.stdin.on('end', () => {
   try {

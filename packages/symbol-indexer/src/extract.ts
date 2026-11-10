@@ -1,5 +1,8 @@
 import ts from 'typescript';
-import { createSourcePositionIndex } from '@codethread/code-model';
+import {
+  createSourcePositionIndex,
+  analysisResourceLimits,
+} from '@codethread/code-model';
 import type {
   AnalysisFacts,
   AnalysisObservation,
@@ -15,6 +18,7 @@ export function extractFacts(
   program: ts.Program,
   base: AnalysisFacts,
   root: string,
+  limits = analysisResourceLimits(),
 ): WorkerOutput {
   const checker = program.getTypeChecker();
   const files = new Map(base.files.map((file) => [root + file.path, file]));
@@ -40,14 +44,14 @@ export function extractFacts(
           (ts.isMethodDeclaration(node) &&
             ts.isIdentifier(node.name) &&
             node.body)) &&
-        ++declarationCount > 2000
+        ++declarationCount > limits.maxDeclarations
       )
         return {
           ok: false,
           code: 'RESOURCE_LIMIT',
           message: 'Declaration limit exceeded',
         };
-      if (ts.isCallExpression(node) && ++callCount > 5000)
+      if (ts.isCallExpression(node) && ++callCount > limits.maxCallSites)
         return {
           ok: false,
           code: 'RESOURCE_LIMIT',
@@ -58,14 +62,17 @@ export function extractFacts(
           if (
             (ts.isPropertyAccessExpression(argument) ||
               ts.isElementAccessExpression(argument)) &&
-            ++referenceCandidateCount > 5000
+            ++referenceCandidateCount > limits.maxReferenceSites
           )
             return {
               ok: false,
               code: 'RESOURCE_LIMIT',
               message: 'Reference site limit exceeded',
             };
-      if (ts.isDecorator(node) && ++decoratorCount > 10000)
+      if (
+        ts.isDecorator(node) &&
+        ++decoratorCount > limits.maxUnsupportedSyntax
+      )
         return {
           ok: false,
           code: 'RESOURCE_LIMIT',
@@ -132,7 +139,7 @@ export function extractFacts(
         filePath: source.path,
         range: { start: index.positionAt(start), end: index.positionAt(end) },
       });
-      if (diagnostics.length > 10000)
+      if (diagnostics.length > limits.maxCompilerDiagnostics)
         return {
           ok: false,
           code: 'RESOURCE_LIMIT',
@@ -290,7 +297,7 @@ export function extractFacts(
     }
     visit(file);
   }
-  if (symbols.length > 2000)
+  if (symbols.length > limits.maxDeclarations)
     return {
       ok: false,
       code: 'RESOURCE_LIMIT',
@@ -681,7 +688,7 @@ export function extractFacts(
     }
     visit(file);
   }
-  if (observations.length > 5000)
+  if (observations.length > limits.maxCallSites)
     return {
       ok: false,
       code: 'RESOURCE_LIMIT',

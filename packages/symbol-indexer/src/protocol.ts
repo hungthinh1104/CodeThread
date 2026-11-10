@@ -1,4 +1,7 @@
-import type { AnalysisFacts } from '@codethread/code-model';
+import type {
+  AnalysisFacts,
+  AnalysisResourceProfile,
+} from '@codethread/code-model';
 
 export interface PreparedFile {
   path: string;
@@ -7,6 +10,7 @@ export interface PreparedFile {
   base64: string;
 }
 export interface WorkerInput {
+  resourceProfile: AnalysisResourceProfile;
   heapLimitBytes: number;
   repositoryId: string;
   sourceFingerprint: string;
