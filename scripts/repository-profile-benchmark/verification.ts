@@ -36,16 +36,16 @@ export function assertRepositoryProfileCall<T>(
 }
 
 export interface RepositoryProfileQueryEvidence {
-  projectMode?: string;
-  fileTotal?: number;
+  projectMode?: string | undefined;
+  fileTotal?: number | undefined;
   expectedFileTotal: number;
-  catalogTotal?: number;
+  catalogTotal?: number | undefined;
   expectedSnapshotId: string;
-  sessionSnapshotId?: string;
-  symbolTotal?: number;
-  graphRelationCount?: number;
-  evidenceStatus?: string;
-  followRequiresChoice?: boolean;
+  sessionSnapshotId?: string | undefined;
+  symbolTotal?: number | undefined;
+  graphRelationCount?: number | undefined;
+  evidenceStatus?: string | undefined;
+  followRequiresChoice?: boolean | undefined;
 }
 
 export function assertRepositoryProfileQueries(
