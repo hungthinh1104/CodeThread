@@ -1339,16 +1339,18 @@ and installed dependencies are not consulted.
 
 The repository source profile is capped at 1,000 files, 32 MiB total, and 32 MiB
 per file. Tree traversal is capped at 8,192 unique trees, 100,000 entries,
-16,384 tree visits and 64 path components; the Git stage has a 120-second
-overall session deadline. Compiler metadata is limited to 256 files and 4 MiB
-total, with each metadata blob capped at 1 MiB. The metadata set includes
-`tsconfig*.json`, `package.json` and `pnpm-workspace.yaml`, plus the bounded
-relative `extends` and project-reference configuration closure. Source and
-metadata are read as verified commit objects and retain the original Git blob ID
-and SHA-256. Unsafe paths, inventory collisions, unsupported modes and resource
-overflow fail closed; the adapter does not silently analyze a subset. Symlinks
-and gitlinks are not followed. `.ts` symlink/gitlink entries are shown in the
-paged browser source inventory as excluded with their mode reason.
+16,384 tree visits and 64 path components. A single 120-second monotonic session
+deadline spans Git intake, workspace and project planning, sequential project
+workers, and response assembly; timeout returns a typed failure. Compiler
+metadata is limited to 256 files and 4 MiB total, with each metadata blob capped
+at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json` and
+`pnpm-workspace.yaml`, plus the bounded relative `extends` and project-reference
+configuration closure. Source and metadata are read as verified commit objects
+and retain the original Git blob ID and SHA-256. Unsafe paths, inventory
+collisions, unsupported modes and resource overflow fail closed; the adapter
+does not silently analyze a subset. Symlinks and gitlinks are not followed.
+`.ts` symlink/gitlink entries are shown in the paged browser source inventory as
+excluded with their mode reason.
 
 Project configuration is parsed by the pinned TypeScript 6.0.3 compiler against
 a virtual filesystem containing only acquired source, hash-checked metadata and

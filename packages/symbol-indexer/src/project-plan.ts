@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import ts from 'typescript';
 import { AnalysisError } from './analysis-types.js';
 import {
@@ -18,7 +19,22 @@ import type {
 export function planRepositoryProjects(
   input: ProjectEnvironment,
 ): RepositoryProjectPlan {
+  const checkpoint = () => {
+    if (input.deadlineAt !== undefined) {
+      if (!Number.isFinite(input.deadlineAt))
+        throw new AnalysisError('INVALID_MANIFEST', 'Invalid project deadline');
+      if (performance.now() >= input.deadlineAt)
+        throw new AnalysisError(
+          'ANALYSIS_TIMEOUT',
+          'Project planning deadline exceeded',
+        );
+    }
+    if (input.signal?.aborted)
+      throw new AnalysisError('CANCELLED', 'Project planning cancelled');
+  };
+  checkpoint();
   const prepared = prepareProjectEnvironment(input);
+  checkpoint();
   const filesystem = createProjectFilesystem(
     [...prepared.files, ...prepared.metadata],
     prepared.workspacePackages,
@@ -30,6 +46,7 @@ export function planRepositoryProjects(
   const parents = new Set<string>(),
     referenced = new Set<string>();
   for (const configPath of configPaths) {
+    checkpoint();
     const file = prepared.metadata.find(
       (candidate) => candidate.path === configPath,
     );
@@ -43,7 +60,8 @@ export function planRepositoryProjects(
         : Array.isArray(raw.extends)
           ? raw.extends
           : [];
-    for (const extension of extensions)
+    for (const extension of extensions) {
+      checkpoint();
       if (typeof extension === 'string' && /^\.\.?\//.test(extension)) {
         const path = posix.resolve(prefix, posix.dirname(file.path), extension);
         if (path.startsWith(prefix))
@@ -53,8 +71,11 @@ export function planRepositoryProjects(
             ),
           );
       }
+    }
+    checkpoint();
     if (Array.isArray(raw.references))
       for (const reference of raw.references) {
+        checkpoint();
         const path = (reference as { path?: unknown })?.path;
         if (typeof path === 'string') {
           const resolved = posix.resolve(
@@ -67,8 +88,11 @@ export function planRepositoryProjects(
         }
       }
   }
-  for (const path of referenced)
+  checkpoint();
+  for (const path of referenced) {
+    checkpoint();
     if (!configPaths.includes(path)) configPaths.push(path);
+  }
   const metadataIdentity = prepared.metadata.map(({ path, sha256 }) => [
     path,
     sha256,
@@ -89,6 +113,7 @@ export function planRepositoryProjects(
   const sourcePaths = new Set(prepared.files.map((file) => file.path));
   const projects: RepositoryProject[] = [];
   for (const configPath of configPaths.sort(projectOrder)) {
+    checkpoint();
     if (
       parents.has(configPath) &&
       !referenced.has(configPath) &&
@@ -96,6 +121,7 @@ export function planRepositoryProjects(
     )
       continue;
     const { parsed, diagnostics } = parseProjectConfig(filesystem, configPath);
+    checkpoint();
     const rootPaths = [
       ...new Set(
         (parsed?.fileNames ?? [])
@@ -122,15 +148,18 @@ export function planRepositoryProjects(
       diagnostics,
     });
   }
-  markReferenceCycles(projects);
+  markReferenceCycles(projects, checkpoint);
+  checkpoint();
   const assigned = new Set(
     projects
       .filter((project) => project.status !== 'invalid')
       .flatMap((project) => [...project.rootPaths]),
   );
-  const inferred = prepared.files
-    .map((file) => file.path)
-    .filter((path) => !assigned.has(path));
+  const inferred: string[] = [];
+  for (const file of prepared.files) {
+    checkpoint();
+    if (!assigned.has(file.path)) inferred.push(file.path);
+  }
   if (inferred.length)
     projects.push({
       id: projectId(null, inferred),
@@ -159,24 +188,28 @@ export function planRepositoryProjects(
       'RESOURCE_LIMIT',
       'Repository project contexts exceed the declared limit',
     );
+  checkpoint();
+  let sourceBytes = 0;
+  for (const file of prepared.files) {
+    checkpoint();
+    sourceBytes += file.bytes.length;
+  }
   return Object.freeze({
     projects: Object.freeze(
-      projects.map((project) =>
-        Object.freeze({
+      projects.map((project) => {
+        checkpoint();
+        return Object.freeze({
           ...project,
           rootPaths: Object.freeze([...project.rootPaths]),
           referencePaths: Object.freeze([...project.referencePaths]),
           diagnostics: Object.freeze(
             project.diagnostics.map((diagnostic) => Object.freeze(diagnostic)),
           ),
-        }),
-      ),
+        });
+      }),
     ),
     sourceFiles: prepared.files.length,
-    sourceBytes: prepared.files.reduce(
-      (count, file) => count + file.bytes.length,
-      0,
-    ),
+    sourceBytes,
     assignedFiles: assigned.size,
     inferredFiles: inferred.length,
     contextComplete:
@@ -185,7 +218,10 @@ export function planRepositoryProjects(
   });
 }
 
-function markReferenceCycles(projects: RepositoryProject[]): void {
+function markReferenceCycles(
+  projects: RepositoryProject[],
+  checkpoint: () => void,
+): void {
   const byPath = new Map(
     projects
       .filter((project) => project.configPath !== null)
@@ -194,6 +230,7 @@ function markReferenceCycles(projects: RepositoryProject[]): void {
   const completed = new Set<string>(),
     active: string[] = [];
   const visit = (path: string): void => {
+    checkpoint();
     const cycle = active.indexOf(path);
     if (cycle >= 0) {
       for (const member of active.slice(cycle)) {
@@ -218,5 +255,8 @@ function markReferenceCycles(projects: RepositoryProject[]): void {
     active.pop();
     completed.add(path);
   };
-  for (const path of byPath.keys()) visit(path);
+  for (const path of byPath.keys()) {
+    checkpoint();
+    visit(path);
+  }
 }

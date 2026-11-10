@@ -13,6 +13,9 @@ export interface ProjectEnvironment {
   files: readonly ProjectFile[];
   metadata: readonly ProjectFile[];
   workspacePackages: readonly WorkspacePackage[];
+  /** Absolute monotonic deadline shared by repository planning and analysis. */
+  deadlineAt?: number;
+  signal?: AbortSignal;
 }
 export interface RepositoryProject {
   id: string;
@@ -35,7 +38,6 @@ export interface ProjectAnalysisInput extends ProjectEnvironment {
   configPath: string | null;
   /** Explicit roots for the disclosed inferred context; configured projects use tsconfig. */
   rootPaths?: readonly string[];
-  signal?: AbortSignal;
   deadlineMs?: number;
   heapLimitMiB?: number;
 }

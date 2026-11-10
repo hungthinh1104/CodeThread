@@ -45,6 +45,22 @@ describe('repository project execution', () => {
     expect(session.contextComplete).toBe(false);
   }, 30000);
 
+  it('propagates caller cancellation through the repository session', async () => {
+    const repository = await createGitRepository(
+      [{ path: 'index.ts', source: 'export function entry() {}' }],
+      temporaryDirectories,
+    );
+    const controller = new AbortController();
+    const pending = analyzeGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+      signal: controller.signal,
+    });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' });
+  }, 30000);
+
   it('retains a usable project when another project contains malformed source', async () => {
     const repository = await createGitRepository(
       [

@@ -19,6 +19,7 @@ const MAX_PATH_COMPONENTS = 64;
 
 export async function acquireGitRepository(
   request: Omit<GitSourceRequest, 'selectedPaths'>,
+  sessionCheckpoint: () => void = () => {},
 ) {
   const started = performance.now(),
     limits = analysisResourceLimits('repository');
@@ -28,6 +29,10 @@ export async function acquireGitRepository(
     objectBytes: 1024 * 1024,
     blobBytes: limits.maxTotalBytes + PROJECT_LIMITS.maxMetadataBytes,
   });
+  const checkpoint = () => {
+    repository.reader.checkpoint();
+    sessionCheckpoint();
+  };
   const trees = createTreeStore(repository.reader, repository.objectFormat, {
     trees: MAX_TREES,
     treeEntries: MAX_TREE_ENTRIES,
@@ -40,7 +45,7 @@ export async function acquireGitRepository(
   const folded = new Set<string>();
   let visitedEntries = 0;
   for (let offset = 0; offset < pending.length;) {
-    repository.reader.checkpoint();
+    checkpoint();
     const batch = pending.slice(offset, offset + 32);
     await trees.load(batch.map((entry) => entry.oid));
     offset += batch.length;
@@ -51,6 +56,7 @@ export async function acquireGitRepository(
             'RESOURCE_LIMIT',
             'Repository inventory exceeds its path-entry limit.',
           );
+        if ((visitedEntries & 0xff) === 0) sessionCheckpoint();
         let name: string;
         try {
           name = new TextDecoder('utf-8', {
@@ -114,13 +120,16 @@ export async function acquireGitRepository(
       'INVALID_SELECTION',
       'The pinned repository has no regular .ts source.',
     );
+  checkpoint();
   const metadata = await acquireRepositoryMetadata(entries, repository.reader);
+  checkpoint();
   sources.sort((a, b) => compareGitPaths(a.path, b.path));
   const blobs = await repository.reader.readObjects(
     sources.map((entry) => entry.oid),
     'blob',
     limits.maxFileBytes,
   );
+  checkpoint();
   const sourceBytes = sources.reduce(
     (count, entry) => count + blobs.get(entry.oid)!.size,
     0,
@@ -135,7 +144,7 @@ export async function acquireGitRepository(
       materializePinnedInput(entry, blobs.get(entry.oid)!.bytes),
     ),
   );
-  repository.reader.checkpoint();
+  checkpoint();
   return Object.freeze({
     repositoryId: repository.repositoryId,
     commitId: repository.commitId,

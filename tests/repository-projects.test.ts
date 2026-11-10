@@ -244,6 +244,21 @@ describe('pinned monorepo project contexts', () => {
     }
   }, 30000);
 
+  it('rejects expired planning and analysis deadlines before publishing work', async () => {
+    const input = fixture();
+    expect(() =>
+      planRepositoryProjects({ ...input, deadlineAt: 0 }),
+    ).toThrowError(expect.objectContaining({ code: 'ANALYSIS_TIMEOUT' }));
+    await expect(
+      analyzeProject({
+        ...input,
+        repositoryId,
+        configPath: 'packages/a/tsconfig.json',
+        deadlineAt: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'ANALYSIS_TIMEOUT' });
+  });
+
   it('keeps resolution deterministic when source and metadata order change', async () => {
     const input = fixture();
     const first = await analyzeProject({

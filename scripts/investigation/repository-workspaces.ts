@@ -11,7 +11,11 @@ const MAX_WORKSPACE_PATH_LENGTH = 1024;
 const MAX_WORKSPACE_NAME_LENGTH = 256;
 
 /** Workspace declarations are data; package scripts and executable configuration are never loaded. */
-export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
+export function repositoryWorkspaces(
+  metadata: readonly PinnedInput[],
+  checkpoint: () => void = () => {},
+) {
+  checkpoint();
   const diagnostics: ProjectDiagnostic[] = [],
     patterns: string[] = [];
   const fail = (path: string, code = 'WORKSPACE_METADATA_INVALID') =>
@@ -43,6 +47,7 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
     } catch {
       fail(root.path);
     }
+  checkpoint();
   const pnpm = metadata.find((file) => file.path === 'pnpm-workspace.yaml');
   if (pnpm)
     try {
@@ -65,7 +70,9 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
     } catch {
       fail(pnpm.path);
     }
+  checkpoint();
   const valid = patterns.filter((pattern) => {
+    checkpoint();
     if (
       !pattern ||
       pattern.length > MAX_WORKSPACE_PATH_LENGTH ||
@@ -86,6 +93,7 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
       .map((pattern) => pattern.slice(1));
   const candidates: WorkspacePackage[] = [];
   for (const file of metadata) {
+    checkpoint();
     if (posix.basename(file.path) !== 'package.json') continue;
     const path =
       posix.dirname(file.path) === '.' ? '' : posix.dirname(file.path);
@@ -110,9 +118,12 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
     }
   }
   const names = new Map<string, number>();
-  for (const candidate of candidates)
+  for (const candidate of candidates) {
+    checkpoint();
     names.set(candidate.name, (names.get(candidate.name) ?? 0) + 1);
+  }
   const packages = candidates.filter((candidate) => {
+    checkpoint();
     if (names.get(candidate.name) === 1) return true;
     fail(
       (candidate.path ? candidate.path + '/' : '') + 'package.json',
@@ -120,5 +131,6 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
     );
     return false;
   });
+  checkpoint();
   return { packages, diagnostics };
 }
