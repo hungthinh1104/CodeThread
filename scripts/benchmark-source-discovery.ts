@@ -12,6 +12,7 @@ import {
   wideDirectoryLimit,
 } from './source-discovery-benchmark/config.ts';
 import { measureRepository } from './source-discovery-benchmark/measure-repository.ts';
+import { benchmarkLimits } from './source-discovery-benchmark/limits.ts';
 import type { BenchmarkResult } from './source-discovery-benchmark/config.ts';
 
 async function main(): Promise<void> {
@@ -44,17 +45,7 @@ async function main(): Promise<void> {
           repetitions: repeats,
           queryOperationsPerSample: queryRepeats,
           workload: { deepDirectoryDepth, wideDirectoryLimit },
-          limits: {
-            inventoryFiles: 1000,
-            uniqueTrees: 128,
-            treeVisits: 4096,
-            treeEntries: 10000,
-            metadataObjectBytes: 1048576,
-            metadataBytes: 4194304,
-            sourceFiles: 20,
-            sourceBytesPerFile: 262144,
-            sourceBytesTotal: 2097152,
-          },
+          limits: benchmarkLimits,
           partialInventory: {
             lowerTreeLimitReason: 'tree_limit',
             cancelledBeforeStartCode: 'CANCELLED',

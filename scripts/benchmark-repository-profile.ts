@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 import ts from 'typescript';
 import { analyzeGitRepository } from './investigation/repository-session.ts';
+import {
+  assertRepositoryProfileCall,
+  assertRepositoryProfileInputs,
+  assertRepositoryProfileQueries,
+} from './repository-profile-benchmark/verification.ts';
 import { createRepositoryViewer } from './viewer.ts';
 import { resolveGitExecutable } from './git-source/process.ts';
 
@@ -147,16 +152,18 @@ try {
     repositoryId,
     revision,
   });
-  if (
-    session.commitId !== revision ||
-    !session.inventory.complete ||
-    session.files.length !== FILES ||
-    session.inventory.sourceBytes !== SOURCE_BYTES ||
-    !session.sourceCoverageComplete ||
-    !session.analysisComplete ||
-    !session.contextComplete
-  )
-    throw new Error('Repository profile benchmark did not complete its inputs');
+  assertRepositoryProfileInputs({
+    expectedCommitId: revision,
+    actualCommitId: session.commitId,
+    inventoryComplete: session.inventory.complete,
+    expectedSourceFiles: FILES,
+    actualSourceFiles: session.files.length,
+    expectedSourceBytes: SOURCE_BYTES,
+    actualSourceBytes: session.inventory.sourceBytes,
+    sourceCoverageComplete: session.sourceCoverageComplete,
+    analysisComplete: session.analysisComplete,
+    contextComplete: session.contextComplete,
+  });
   const project = session.projects.find(
     (item) => item.project.configPath === 'tsconfig.json',
   );
@@ -173,8 +180,7 @@ try {
       item.resolution.status === 'exact' &&
       item.resolution.targetId === target.id,
   );
-  if (!relation)
-    throw new Error('Benchmark direct call did not resolve exactly');
+  assertRepositoryProfileCall(relation);
 
   viewer = await createRepositoryViewer(session);
   const projectQuery = await post(viewer, '/api/projects', {}),
@@ -213,18 +219,22 @@ try {
       projectId: project.project.id,
       request: { snapshotId: snapshot.facts.snapshotId, symbolId: target.id },
     });
-  if (
-    projectQuery.value.mode !== 'repository' ||
-    fileQuery.value.total !== FILES ||
-    (catalogQuery.value.total ?? 0) < 1 ||
-    sessionQuery.value.result?.snapshotId !== snapshot.facts.snapshotId ||
-    symbolQuery.value.result?.total !== 1 ||
-    graphQuery.value.result?.graph?.relations?.length !== 1 ||
-    evidenceQuery.value.result?.items?.[0]?.status !== 'available' ||
-    followQuery.value.requiresChoice !== false
-  )
+  try {
+    assertRepositoryProfileQueries({
+      projectMode: projectQuery.value.mode,
+      fileTotal: fileQuery.value.total,
+      expectedFileTotal: FILES,
+      catalogTotal: catalogQuery.value.total,
+      expectedSnapshotId: snapshot.facts.snapshotId,
+      sessionSnapshotId: sessionQuery.value.result?.snapshotId,
+      symbolTotal: symbolQuery.value.result?.total,
+      graphRelationCount: graphQuery.value.result?.graph?.relations?.length,
+      evidenceStatus: evidenceQuery.value.result?.items?.[0]?.status,
+      followRequiresChoice: followQuery.value.requiresChoice,
+    });
+  } catch (error) {
     throw new Error(
-      'Repository profile query smoke returned incomplete results: ' +
+      `${error instanceof Error ? error.message : 'Repository profile query smoke failed'}: ` +
         JSON.stringify({
           mode: projectQuery.value.mode,
           fileTotal: fileQuery.value.total,
@@ -236,6 +246,7 @@ try {
           followRequiresChoice: followQuery.value.requiresChoice,
         }),
     );
+  }
   process.stdout.write(
     JSON.stringify({
       kind: 'repository_profile_benchmark',
