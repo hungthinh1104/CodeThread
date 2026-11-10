@@ -38,7 +38,7 @@ const selected: AnalysisResourceLimits = Object.freeze({
 });
 const repository: AnalysisResourceLimits = Object.freeze({
   maxFiles: 1000,
-  maxFileBytes: 1024 * 1024,
+  maxFileBytes: 32 * 1024 * 1024,
   maxTotalBytes: 32 * 1024 * 1024,
   maxDeclarations: 20000,
   maxCallSites: 50000,

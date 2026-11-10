@@ -93,6 +93,9 @@ export function createViewerDataset(input: ViewerInput) {
         ? {
             files: repository.files.length,
             bytes: repository.inventory.sourceBytes,
+            excludedTypeScriptFiles: repository.inventory.excluded.filter(
+              (item) => item.path.endsWith('.ts'),
+            ).length,
             inventoryComplete: repository.inventory.complete,
             sourceCoverageComplete: repository.sourceCoverageComplete,
             analysisComplete: repository.analysisComplete,
@@ -133,15 +136,27 @@ export function createViewerDataset(input: ViewerInput) {
     };
   }
   function files(offset: number) {
-    const files =
-      repository?.files ??
-      selected!.facts.files.map((file) => ({
-        path: file.path,
-        sha256: file.contentHash,
-        byteLength: file.byteLength,
-        status: 'analyzed',
-        projectIds: ['selected'],
-      }));
+    const files = repository
+      ? [
+          ...repository.files,
+          ...repository.inventory.excluded
+            .filter((item) => item.path.endsWith('.ts'))
+            .map((item) => ({
+              path: item.path,
+              sha256: null,
+              byteLength: null,
+              status: 'excluded',
+              analysisReason: `Git ${item.reason} entries are not regular source blobs.`,
+              projectIds: [] as string[],
+            })),
+        ].sort((a, b) => order(a.path, b.path))
+      : selected!.facts.files.map((file) => ({
+          path: file.path,
+          sha256: file.contentHash,
+          byteLength: file.byteLength,
+          status: 'analyzed',
+          projectIds: ['selected'],
+        }));
     const items = files.slice(offset, offset + 50),
       next = offset + items.length;
     return {

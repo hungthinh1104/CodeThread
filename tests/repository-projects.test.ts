@@ -115,6 +115,72 @@ describe('pinned monorepo project contexts', () => {
     ).toEqual(['loose.ts']);
   });
 
+  it('discovers configs only from tsconfig files and bounds config lists', () => {
+    const input = fixture();
+    const metadata = input.metadata.map((item) =>
+      item.path === 'packages/a/package.json'
+        ? file(
+            item.path,
+            JSON.stringify({
+              name: '@fixture/a',
+              extends: '../../not-a-config.json',
+              references: [{ path: '../../not-a-project' }],
+            }),
+          )
+        : item,
+    );
+    const plan = planRepositoryProjects({ ...input, metadata });
+    expect(plan.contextComplete).toBe(true);
+    expect(plan.projects.map((project) => project.configPath)).toEqual([
+      'packages/a/tsconfig.json',
+      'packages/b/tsconfig.json',
+      'tsconfig.json',
+    ]);
+
+    const excessiveGlobs = planRepositoryProjects({
+      ...input,
+      workspacePackages: [],
+      metadata: [
+        file(
+          'tsconfig.json',
+          JSON.stringify({
+            include: Array.from({ length: 129 }, () => 'src/**/*.ts'),
+          }),
+        ),
+      ],
+    });
+    expect(excessiveGlobs.projects[0]).toMatchObject({
+      status: 'invalid',
+      diagnostics: [expect.objectContaining({ code: 'PROJECT_CONFIG_LIMIT' })],
+    });
+
+    const excessiveReferences = planRepositoryProjects({
+      ...input,
+      workspacePackages: [],
+      metadata: [
+        file(
+          'tsconfig.json',
+          JSON.stringify({
+            references: Array.from({ length: 33 }, () => ({
+              path: 'packages/a',
+            })),
+          }),
+        ),
+        ...input.metadata.filter((item) =>
+          item.path.endsWith('/tsconfig.json'),
+        ),
+      ],
+    });
+    expect(
+      excessiveReferences.projects.find(
+        (project) => project.configPath === 'tsconfig.json',
+      ),
+    ).toMatchObject({
+      status: 'invalid',
+      diagnostics: [expect.objectContaining({ code: 'PROJECT_CONFIG_LIMIT' })],
+    });
+  });
+
   it('resolves a declared workspace project to original source without built outputs', async () => {
     const input = fixture();
     const snapshot = await analyzeProject({
@@ -159,6 +225,23 @@ describe('pinned monorepo project contexts', () => {
         symbolId: entry.id,
       }),
     ).toThrowError(expect.objectContaining({ code: 'SNAPSHOT_NOT_FOUND' }));
+  }, 30000);
+
+  it('cancels an active project worker without publishing a snapshot', async () => {
+    const input = fixture(),
+      controller = new AbortController();
+    const pending = analyzeProject({
+      ...input,
+      repositoryId,
+      configPath: 'packages/a/tsconfig.json',
+      signal: controller.signal,
+    });
+    const timer = setTimeout(() => controller.abort(), 0);
+    try {
+      await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' });
+    } finally {
+      clearTimeout(timer);
+    }
   }, 30000);
 
   it('keeps resolution deterministic when source and metadata order change', async () => {

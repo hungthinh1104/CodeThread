@@ -49,7 +49,7 @@ export async function verifyRepositoryCliBrowser(browser: Browser) {
     const page = await openPage(browser, origin, url, 'project-select');
     assert.match(
       await page.locator('#repository-summary').innerText(),
-      /21 .ts files/,
+      /21 regular \.ts files/,
     );
     const search = page.getByLabel('Name or source path');
     await search.fill('withQuery');

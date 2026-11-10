@@ -201,6 +201,8 @@ export async function analyzeInput(
     files: prepared,
     ...(project === undefined ? {} : { project }),
   };
+  const inputPreparationMs = Date.now() - started;
+  const workerStarted = Date.now();
   const { output, outputBytes } = await runWorker(
     workerInput,
     deadlineMs - (Date.now() - started),
@@ -227,7 +229,22 @@ export async function analyzeInput(
       output.sourcePath,
     );
   }
+  const workerElapsedMs = Date.now() - workerStarted;
+  const phaseTimings = output.phaseTimings;
+  if (
+    !phaseTimings ||
+    !Number.isFinite(phaseTimings.compilerMs) ||
+    phaseTimings.compilerMs < 0 ||
+    !Number.isFinite(phaseTimings.extractionMs) ||
+    phaseTimings.extractionMs < 0 ||
+    phaseTimings.compilerMs + phaseTimings.extractionMs > workerElapsedMs + 1000
+  )
+    throw new AnalysisError(
+      'ANALYSIS_FAILED',
+      'Analysis process returned invalid phase timings',
+    );
   const facts = output.facts;
+  const factValidationStarted = Date.now();
   try {
     verifyFacts(facts, workerInput, sources);
   } catch {
@@ -236,6 +253,7 @@ export async function analyzeInput(
       'Analysis facts failed source or identity verification',
     );
   }
+  const factValidationMs = Date.now() - factValidationStarted;
   if (input.signal?.aborted)
     throw new AnalysisError('CANCELLED', 'Analysis cancelled');
   if (Date.now() - started > deadlineMs)
@@ -301,6 +319,11 @@ export async function analyzeInput(
     execution: Object.freeze({
       ipcBytes: outputBytes,
       elapsedMs: Date.now() - started,
+      inputPreparationMs,
+      workerElapsedMs,
+      compilerMs: phaseTimings.compilerMs,
+      extractionMs: phaseTimings.extractionMs,
+      factValidationMs,
       workerPeakRssBytes:
         typeof output.workerPeakRssBytes === 'number' &&
         Number.isSafeInteger(output.workerPeakRssBytes) &&

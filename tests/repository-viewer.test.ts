@@ -45,6 +45,7 @@ describe('project-scoped repository viewer', () => {
     expect(metadata.mode).toBe('repository');
     expect(metadata.source).toMatchObject({
       files: 4,
+      excludedTypeScriptFiles: 1,
       inventoryComplete: true,
       sourceCoverageComplete: false,
       analysisComplete: false,
@@ -66,6 +67,19 @@ describe('project-scoped repository viewer', () => {
         (item: { path: string }) => item.path === 'src/broken.ts',
       ).status,
     ).toBe('not_analyzed');
+    expect(
+      files.items.find(
+        (item: { path: string }) => item.path === 'src/broken.ts',
+      ).analysisReason,
+    ).toContain('MALFORMED_SOURCE');
+    expect(
+      files.items.find(
+        (item: { path: string }) => item.path === 'src/linked.ts',
+      ),
+    ).toMatchObject({
+      status: 'excluded',
+      analysisReason: 'Git symlink entries are not regular source blobs.',
+    });
   });
   it('searches the entire catalog without collapsing contexts', async () => {
     const response = await post('/api/catalog', { query: 'target' }),

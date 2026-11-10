@@ -29,8 +29,11 @@ export function planRepositoryProjects(
     .map((file) => file.path);
   const parents = new Set<string>(),
     referenced = new Set<string>();
-  for (const file of prepared.metadata) {
-    if (!file.path.endsWith('.json')) continue;
+  for (const configPath of configPaths) {
+    const file = prepared.metadata.find(
+      (candidate) => candidate.path === configPath,
+    );
+    if (!file) continue;
     const raw = ts.parseConfigFileTextToJson(file.path, file.text).config as
       Record<string, unknown> | undefined;
     if (!raw || typeof raw !== 'object') continue;
@@ -43,19 +46,25 @@ export function planRepositoryProjects(
     for (const extension of extensions)
       if (typeof extension === 'string' && /^\.\.?\//.test(extension)) {
         const path = posix.resolve(prefix, posix.dirname(file.path), extension);
-        parents.add(
-          (path.endsWith('.json') ? path : path + '.json').slice(prefix.length),
-        );
+        if (path.startsWith(prefix))
+          parents.add(
+            (path.endsWith('.json') ? path : path + '.json').slice(
+              prefix.length,
+            ),
+          );
       }
     if (Array.isArray(raw.references))
       for (const reference of raw.references) {
         const path = (reference as { path?: unknown })?.path;
-        if (typeof path === 'string')
-          referenced.add(
-            projectConfigPath(
-              posix.resolve(prefix, posix.dirname(file.path), path),
-            ).slice(prefix.length),
+        if (typeof path === 'string') {
+          const resolved = posix.resolve(
+            prefix,
+            posix.dirname(file.path),
+            path,
           );
+          if (resolved.startsWith(prefix))
+            referenced.add(projectConfigPath(resolved).slice(prefix.length));
+        }
       }
   }
   for (const path of referenced)

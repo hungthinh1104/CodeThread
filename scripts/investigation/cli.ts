@@ -43,7 +43,7 @@ export async function runInvestigationCli(
         'Usage: pnpm investigate -- [--view] --manifest <manifest.json>',
         '       pnpm investigate -- [--view] --repo <root> --repository-id <uuid> --revision <revision> (--browse | --file <path> [--file=<path> ...])',
         '       pnpm investigate -- --repo <root> --revision <revision> --scope repository [--repository-id <uuid>] [--view]',
-        'Repository profile: 1,000 .ts files, 32 MiB total, 1 MiB/file, 32 contexts; 120 seconds per session.',
+        'Repository profile: 1,000 .ts files, 32 MiB total, 32 contexts; 120 seconds per session.',
         'Pinned examples: pnpm demo:investigation | pnpm demo:visual',
         `Manifest limit: ${MAX_MANIFEST_BYTES} bytes; source limits: ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes/file, ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
       ]);

@@ -9,6 +9,7 @@ import { buildCompilerProgram } from './project-program.js';
 import { PROJECT_SOURCE_ROOT } from './project-filesystem.js';
 
 const sourceRoot = PROJECT_SOURCE_ROOT + '/';
+const now = () => Number(process.hrtime.bigint()) / 1_000_000;
 
 function analyze(input: WorkerInput): WorkerOutput {
   const limits = analysisResourceLimits(input.resourceProfile);
@@ -21,6 +22,7 @@ function analyze(input: WorkerInput): WorkerOutput {
       code: 'RESOURCE_LIMIT',
       message: 'V8 heap exceeds the configured limit',
     };
+  const compilerStarted = now();
   const compiled = buildCompilerProgram(input);
   try {
     const program = compiled.program;
@@ -49,6 +51,7 @@ function analyze(input: WorkerInput): WorkerOutput {
     const programFiles = new Set(
       program.getSourceFiles().map((file) => file.fileName),
     );
+    const compilerMs = now() - compilerStarted;
     const admitted = input.project
       ? input.files.filter((file) => programFiles.has(sourceRoot + file.path))
       : input.files;
@@ -94,6 +97,7 @@ function analyze(input: WorkerInput): WorkerOutput {
       },
     };
 
+    const extractionStarted = now();
     const result = extractFacts(
       program,
       facts,
@@ -101,13 +105,22 @@ function analyze(input: WorkerInput): WorkerOutput {
       limits,
       !!input.project,
     );
-    if (result.ok && input.project)
+    if (result.ok)
       return {
         ...result,
-        contextDiagnostics: contextErrors.slice(0, 100).map((item) => ({
-          code: 'TS_' + item.code,
-          message: 'TypeScript project context diagnostic ' + item.code + '.',
-        })),
+        phaseTimings: {
+          compilerMs,
+          extractionMs: now() - extractionStarted,
+        },
+        ...(input.project
+          ? {
+              contextDiagnostics: contextErrors.slice(0, 100).map((item) => ({
+                code: 'TS_' + item.code,
+                message:
+                  'TypeScript project context diagnostic ' + item.code + '.',
+              })),
+            }
+          : {}),
       };
     return result;
   } finally {

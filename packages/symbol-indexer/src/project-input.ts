@@ -94,11 +94,13 @@ export function prepareProjectEnvironment(input: ProjectEnvironment) {
       if (
         !workspace ||
         typeof workspace.name !== 'string' ||
+        workspace.name.length > 256 ||
         !/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/i.test(workspace.name) ||
         workspace.name
           .split('/')
           .some((part) => part === '.' || part === '..') ||
         typeof workspace.path !== 'string' ||
+        workspace.path.length > 1024 ||
         (workspace.path !== '' && !isSnapshotPath(workspace.path)) ||
         names.has(workspace.name)
       )

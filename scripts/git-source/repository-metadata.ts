@@ -18,6 +18,9 @@ export type PinnedInput = ProjectEnvironment['files'][number] & {
   mode: '100644' | '100755';
 };
 
+const MAX_CONFIG_RELATIONS = 32;
+const MAX_CONFIG_PATH_LENGTH = 1024;
+
 export function materializePinnedInput(
   entry: PinnedEntry,
   bytes: Uint8Array,
@@ -57,8 +60,18 @@ function relatedConfigurations(
       : Array.isArray(raw.extends)
         ? raw.extends
         : [];
+  const references = Array.isArray(raw.references) ? raw.references : [];
+  if (
+    extensions.length > MAX_CONFIG_RELATIONS ||
+    references.length > MAX_CONFIG_RELATIONS
+  )
+    return [];
   for (const value of extensions)
-    if (typeof value === 'string' && /^\.\.?\//.test(value)) {
+    if (
+      typeof value === 'string' &&
+      value.length <= MAX_CONFIG_PATH_LENGTH &&
+      /^\.\.?\//.test(value)
+    ) {
       const path = posix.normalize(
         posix.join(posix.dirname(entry.path), value),
       );
@@ -69,7 +82,8 @@ function relatedConfigurations(
   if (Array.isArray(raw.references))
     for (const reference of raw.references) {
       const value = (reference as { path?: unknown })?.path;
-      if (typeof value !== 'string') continue;
+      if (typeof value !== 'string' || value.length > MAX_CONFIG_PATH_LENGTH)
+        continue;
       const path = posix.normalize(
         posix.join(posix.dirname(entry.path), value),
       );

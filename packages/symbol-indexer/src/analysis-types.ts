@@ -41,6 +41,11 @@ export interface AnalysisSnapshot {
   execution?: Readonly<{
     ipcBytes: number;
     elapsedMs: number;
+    inputPreparationMs: number;
+    workerElapsedMs: number;
+    compilerMs: number;
+    extractionMs: number;
+    factValidationMs: number;
     workerPeakRssBytes: number | null;
   }>;
 }

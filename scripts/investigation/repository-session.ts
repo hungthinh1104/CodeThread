@@ -27,25 +27,34 @@ export async function analyzeGitRepository(
 ) {
   const started = performance.now(),
     limits = analysisResourceLimits('repository');
-  const acquired = await acquireGitRepository(request);
-  const workspace = repositoryWorkspaces(acquired.metadata);
-  const environment = {
-    files: acquired.files,
-    metadata: acquired.metadata,
-    workspacePackages: workspace.packages,
-  };
-  const plan = planRepositoryProjects(environment);
-  const projects: RepositoryProjectState[] = [];
-  let resultBytes = 0,
-    memberships = 0,
-    contextSourceBytes = 0,
-    parentPeakRssBytes = process.memoryUsage().rss;
+  let parentPeakRssBytes = process.memoryUsage().rss;
   const interval = setInterval(() => {
     parentPeakRssBytes = Math.max(
       parentPeakRssBytes,
       process.memoryUsage().rss,
     );
   }, 100);
+  let acquired: Awaited<ReturnType<typeof acquireGitRepository>>;
+  let workspace: ReturnType<typeof repositoryWorkspaces>;
+  let plan: ReturnType<typeof planRepositoryProjects>;
+  let environment: Parameters<typeof planRepositoryProjects>[0];
+  try {
+    acquired = await acquireGitRepository(request);
+    workspace = repositoryWorkspaces(acquired.metadata);
+    environment = {
+      files: acquired.files,
+      metadata: acquired.metadata,
+      workspacePackages: workspace.packages,
+    };
+    plan = planRepositoryProjects(environment);
+  } catch (error) {
+    clearInterval(interval);
+    throw error;
+  }
+  const projects: RepositoryProjectState[] = [];
+  let resultBytes = 0,
+    memberships = 0,
+    contextSourceBytes = 0;
   try {
     for (const project of plan.projects) {
       if (request.signal?.aborted)
@@ -147,22 +156,37 @@ export async function analyzeGitRepository(
           ].includes(diagnostic.code),
         ),
     );
-  const files = acquired.files.map((file) =>
-    Object.freeze({
+  const files = acquired.files.map((file) => {
+    const owners = projects.filter((project) =>
+      project.project.rootPaths.includes(file.path),
+    );
+    const status = analyzed.has(file.path) ? 'analyzed' : 'not_analyzed';
+    const reasons = owners.map((project) => {
+      const label = project.project.configPath ?? 'default context';
+      const diagnostic =
+        project.error?.code ??
+        project.project.diagnostics[0]?.code ??
+        project.snapshot?.contextDiagnostics?.[0]?.code ??
+        (project.snapshot
+          ? 'SOURCE_NOT_EMITTED'
+          : project.status.toUpperCase());
+      return `${label}: ${diagnostic}`;
+    });
+    return Object.freeze({
       path: file.path,
       sha256: file.sha256,
       blobId: file.blobId,
       byteLength: file.bytes.length,
-      status: analyzed.has(file.path)
-        ? ('analyzed' as const)
-        : ('not_analyzed' as const),
-      projectIds: Object.freeze(
-        projects
-          .filter((project) => project.project.rootPaths.includes(file.path))
-          .map((project) => project.project.id),
-      ),
-    }),
-  );
+      status,
+      ...(status === 'not_analyzed'
+        ? {
+            analysisReason:
+              reasons.join('; ') || 'No compiler project claimed this source.',
+          }
+        : {}),
+      projectIds: Object.freeze(owners.map((project) => project.project.id)),
+    });
+  });
   return Object.freeze({
     repositoryId: acquired.repositoryId,
     commitId: acquired.commitId,

@@ -7,7 +7,7 @@ export function renderProjects(metadata) {
   if (!repository) return;
   const source = metadata.source;
   byId('repository-summary').textContent = visibleText(
-    `Pinned commit ${metadata.commitId}; ${source.files} .ts files, ${source.bytes} bytes. Inventory complete=${source.inventoryComplete}; source analyzed=${source.sourceCoverageComplete}; projects finished=${source.analysisComplete}; compiler/type context complete=${source.contextComplete}. Semantic coverage and query truncation are separate below.`,
+    `Pinned commit ${metadata.commitId}; ${source.files} regular .ts files, ${source.bytes} bytes; ${source.excludedTypeScriptFiles} nonregular .ts entries excluded. Inventory complete=${source.inventoryComplete}; source analyzed=${source.sourceCoverageComplete}; projects finished=${source.analysisComplete}; compiler/type context complete=${source.contextComplete}. Semantic coverage and query truncation are separate below.`,
   );
   const select = byId('project-select'),
     diagnostics = byId('project-diagnostics');
@@ -59,13 +59,21 @@ export function renderSourceFiles(page, metadata) {
   const list = byId('source-files');
   list.replaceChildren();
   for (const file of page.items) {
+    if (file.status === 'excluded') {
+      appendText(
+        list,
+        'li',
+        `${file.path}: excluded; reason: ${file.analysisReason}`,
+      );
+      continue;
+    }
     const labels = file.projectIds.map(
       (id) => metadata.items.find((item) => item.id === id)?.label ?? id,
     );
     appendText(
       list,
       'li',
-      `${file.path}: ${file.status}, ${file.byteLength} bytes, SHA-256 ${file.sha256}; root contexts: ${labels.join(', ') || 'none (inspect project failures)'}`,
+      `${file.path}: ${file.status}, ${file.byteLength} bytes, SHA-256 ${file.sha256}; root contexts: ${labels.join(', ') || 'none'}${file.analysisReason ? `; reason: ${file.analysisReason}` : ''}`,
     );
   }
   if (page.total > page.items.length)

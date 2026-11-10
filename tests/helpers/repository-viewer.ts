@@ -1,5 +1,5 @@
 import { analyzeGitRepository } from '../../scripts/investigation/repository-session.ts';
-import { createGitRepository } from './git-fixture.ts';
+import { createGitRepository, runGitFixture } from './git-fixture.ts';
 
 export async function repositoryViewerFixture(directories: string[]) {
   const options = {
@@ -52,9 +52,34 @@ export async function repositoryViewerFixture(directories: string[]) {
     ],
     directories,
   );
+  const symlinkBlob = (
+    await runGitFixture(
+      repository.directory,
+      ['hash-object', '-w', '--stdin'],
+      '../outside.ts',
+    )
+  ).trim();
+  await runGitFixture(repository.directory, [
+    'update-index',
+    '--add',
+    '--cacheinfo',
+    '120000',
+    symlinkBlob,
+    'src/linked.ts',
+  ]);
+  await runGitFixture(repository.directory, [
+    '-c',
+    'user.name=CodeThread Test',
+    '-c',
+    'user.email=codethread-test@example.invalid',
+    'commit',
+    '--quiet',
+    '-m',
+    'add a pinned nonregular source candidate',
+  ]);
   const session = await analyzeGitRepository({
     repositoryPath: repository.directory,
-    revision: repository.revision,
+    revision: 'HEAD',
     repositoryId: '00000000-0000-4000-8000-000000000078',
   });
   return { session, repository };

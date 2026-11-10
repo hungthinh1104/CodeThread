@@ -66,6 +66,14 @@ export async function verifyRepositoryNavigation(browser: Browser) {
       .getByText(/src\/broken.ts: not_analyzed/)
       .waitFor();
     await page
+      .locator('#source-files')
+      .getByText(/src\/broken.ts: not_analyzed.*MALFORMED_SOURCE/)
+      .waitFor();
+    await page
+      .locator('#source-files')
+      .getByText(/src\/linked.ts: excluded.*Git symlink entries/)
+      .waitFor();
+    await page
       .getByText('Source inventory and project diagnostics', { exact: true })
       .click();
     await search(page, 'target');

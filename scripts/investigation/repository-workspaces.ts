@@ -6,6 +6,10 @@ import type {
 } from '@codethread/symbol-indexer';
 import type { PinnedInput } from '../git-source/repository-metadata.ts';
 
+const MAX_WORKSPACE_PATTERNS = 128;
+const MAX_WORKSPACE_PATH_LENGTH = 1024;
+const MAX_WORKSPACE_NAME_LENGTH = 256;
+
 /** Workspace declarations are data; package scripts and executable configuration are never loaded. */
 export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
   const diagnostics: ProjectDiagnostic[] = [],
@@ -31,9 +35,11 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
       if (
         Array.isArray(packages) &&
         packages.every((item) => typeof item === 'string')
-      )
-        patterns.push(...(packages as string[]));
-      else if (workspaces !== undefined) fail(root.path);
+      ) {
+        if (packages.length + patterns.length > MAX_WORKSPACE_PATTERNS)
+          fail(root.path, 'WORKSPACE_RESOURCE_LIMIT');
+        else patterns.push(...(packages as string[]));
+      } else if (workspaces !== undefined) fail(root.path);
     } catch {
       fail(root.path);
     }
@@ -53,16 +59,20 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
         !data.packages.every((item) => typeof item === 'string')
       )
         throw new Error('Invalid package patterns');
-      patterns.push(...(data.packages as string[]));
+      if (data.packages.length + patterns.length > MAX_WORKSPACE_PATTERNS)
+        fail(pnpm.path, 'WORKSPACE_RESOURCE_LIMIT');
+      else patterns.push(...(data.packages as string[]));
     } catch {
       fail(pnpm.path);
     }
   const valid = patterns.filter((pattern) => {
     if (
       !pattern ||
-      pattern.length > 1024 ||
+      pattern.length > MAX_WORKSPACE_PATH_LENGTH ||
       pattern.includes('\\') ||
       pattern.startsWith('/') ||
+      ['{', '}', '[', ']'].some((character) => pattern.includes(character)) ||
+      pattern.slice(1).includes('!') ||
       pattern.replace(/^!/, '').split('/').includes('..')
     ) {
       fail('package.json', 'UNSUPPORTED_WORKSPACE_PATTERN');
@@ -90,6 +100,7 @@ export function repositoryWorkspaces(metadata: readonly PinnedInput[]) {
       };
       if (
         typeof data.name !== 'string' ||
+        data.name.length > MAX_WORKSPACE_NAME_LENGTH ||
         !/^(?:@[a-z0-9_.-]+\/)?[a-z0-9_.-]+$/i.test(data.name)
       )
         throw new Error('Missing workspace name');

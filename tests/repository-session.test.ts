@@ -109,6 +109,7 @@ describe('repository project execution', () => {
       ['packages/bad/index.ts', 'not_analyzed'],
       ['packages/good/index.ts', 'analyzed'],
     ]);
+    expect(session.files[0]?.analysisReason).toContain('MALFORMED_SOURCE');
     expect(session.metrics.resultBytes).toBeGreaterThan(0);
     expect(session.metrics.parentPeakRssBytes).toBeGreaterThan(0);
   }, 30000);

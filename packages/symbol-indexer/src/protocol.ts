@@ -20,5 +20,6 @@ export type WorkerOutput =
       facts: AnalysisFacts;
       contextDiagnostics?: readonly ProjectDiagnostic[];
       workerPeakRssBytes?: number;
+      phaseTimings?: { compilerMs: number; extractionMs: number };
     }
   | { ok: false; code: string; message: string; sourcePath?: string };

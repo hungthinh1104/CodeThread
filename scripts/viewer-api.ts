@@ -30,7 +30,7 @@ export function queryViewer(
   }
   if (pathname === '/api/files') {
     const request = z
-      .strictObject({ offset: z.number().int().min(0).max(1000).default(0) })
+      .strictObject({ offset: z.number().int().min(0).max(2000).default(0) })
       .parse(body);
     return dataset.files(request.offset);
   }

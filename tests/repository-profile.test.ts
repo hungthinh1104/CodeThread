@@ -23,6 +23,16 @@ describe('repository resource profile through the semantic pipeline', () => {
       files,
       resourceProfile: 'repository',
     });
+    expect(snapshot.execution).toMatchObject({
+      compilerMs: expect.any(Number),
+      extractionMs: expect.any(Number),
+      factValidationMs: expect.any(Number),
+      inputPreparationMs: expect.any(Number),
+      workerElapsedMs: expect.any(Number),
+    });
+    expect(snapshot.execution?.compilerMs).toBeGreaterThanOrEqual(0);
+    expect(snapshot.execution?.extractionMs).toBeGreaterThanOrEqual(0);
+    expect(snapshot.execution?.factValidationMs).toBeGreaterThanOrEqual(0);
     expect(snapshot.facts.files).toHaveLength(21);
     expect(snapshot.facts.symbols.map((symbol) => symbol.name).sort()).toEqual(
       Array.from({ length: 21 }, (_, index) => `source${index}`).sort(),

@@ -131,6 +131,50 @@ describe('whole pinned Git repository intake', () => {
     ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
   }, 30000);
 
+  it('admits a single pinned source at the complete 32 MiB repository limit', async () => {
+    const maximum = 32 * 1024 * 1024;
+    const repository = await createGitRepository(
+      [
+        {
+          path: 'large.ts',
+          source: '//' + 'x'.repeat(maximum - 3) + '\n',
+        },
+      ],
+      temporaryDirectories,
+    );
+    const acquired = await acquireGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+    expect(acquired.inventory).toMatchObject({
+      complete: true,
+      sourceFiles: 1,
+      sourceBytes: maximum,
+    });
+    expect(acquired.files[0]?.bytes.length).toBe(maximum);
+  }, 60000);
+
+  it('rejects source bytes one over the 32 MiB repository limit', async () => {
+    const maximum = 32 * 1024 * 1024;
+    const repository = await createGitRepository(
+      [
+        {
+          path: 'large.ts',
+          source: '//' + 'x'.repeat(maximum - 2) + '\n',
+        },
+      ],
+      temporaryDirectories,
+    );
+    await expect(
+      acquireGitRepository({
+        repositoryPath: repository.directory,
+        repositoryId,
+        revision: repository.revision,
+      }),
+    ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
+  }, 60000);
+
   it('cancels before reading a repository', async () => {
     const controller = new AbortController();
     controller.abort();
