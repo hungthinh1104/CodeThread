@@ -89,14 +89,15 @@ tests, package scripts or dependencies.
 | [unjs/ufo](https://github.com/unjs/ufo)                           | `f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6` | 21 regular `.ts` files |       82,502 | `LICENSE` (1,078 bytes; SHA-256 is in `repository.json`)      |
 | [jridgewell/sourcemaps](https://github.com/jridgewell/sourcemaps) | `b7600158f4de012d246b7834a73c7c2190e75136` | 53 regular `.ts` files |      286,449 | Five package `LICENSE` files, all hashed in `repository.json` |
 
-`eval:external` prints semantic label counts separately from project-level
-occurrences and raw analyzer observations. Repository occurrences that have no
-source-authored label remain unscored; repeated occurrences in two TypeScript
-contexts are not silently deduplicated into one semantic observation. Inventory,
-source coverage, context completion and semantic coverage are independent
-fields. The expected source labels are Codex-authored; the sourcemaps corpus
-records one overload-related expectation corrected after prediction. No label
-set has independent human review.
+`eval:external` reports total labels, scored cases and raw project observations
+separately. Only labels fixed before predictions enter acceptance metrics. The
+sourcemaps overload-related correction remains in `postPredictionCorrections`
+for audit and is excluded from scored cases, exact denominators and the
+closed-owner gate. Repository occurrences without a pre-prediction label remain
+unscored; repeated occurrences in two TypeScript contexts are not silently
+deduplicated into one semantic observation. Inventory, source coverage, context
+completion and semantic coverage are independent fields. The expected source
+labels are Codex-authored; no label set has independent human review.
 
 `repository-workflows.json` pins five browser tasks on the ufo commit:
 repository symbol search, outgoing CALLS, occurrence and declaration evidence,
