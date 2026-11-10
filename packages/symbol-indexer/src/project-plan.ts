@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
-import { performance } from 'node:perf_hooks';
 import ts from 'typescript';
 import { AnalysisError } from './analysis-types.js';
 import {

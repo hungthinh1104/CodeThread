@@ -1,5 +1,4 @@
 import { AnalysisError, COMPILER_PROFILE } from './analysis-types.js';
-import { performance } from 'node:perf_hooks';
 import type { ProjectAnalysisInput } from './project-types.js';
 import { prepareProjectEnvironment } from './project-input.js';
 import { planRepositoryProjects } from './project-plan.js';
