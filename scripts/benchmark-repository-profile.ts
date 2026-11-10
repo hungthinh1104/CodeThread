@@ -245,6 +245,7 @@ try {
           evidenceStatus: evidenceQuery.value.result?.items?.[0]?.status,
           followRequiresChoice: followQuery.value.requiresChoice,
         }),
+      { cause: error },
     );
   }
   process.stdout.write(
