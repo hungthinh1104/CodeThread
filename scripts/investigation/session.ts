@@ -24,7 +24,9 @@ export async function startSession(
   input = createCliLineInput(),
   budget: SessionCommandBudget = { used: 0 },
 ): Promise<void> {
-  const investigation = createInvestigation(snapshot.facts, snapshot.source),
+  const investigation = createInvestigation(snapshot.facts, snapshot.source, {
+      resourceProfile: snapshot.resourceProfile ?? 'selected',
+    }),
     targets = new Map<string, CodeSymbol>(),
     terminal = input.terminal;
   let lastKinds: RelationKind[] = ['calls'],

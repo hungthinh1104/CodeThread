@@ -6,111 +6,23 @@ import {
 } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import {
-  coverageSchema,
-  diagnosticSchema,
-  idSchema,
-  summarizeCoverage,
-  snapshotIdentitySchema,
-  symbolSchema,
-} from '@codethread/code-model';
-import type { CodeSymbol } from '@codethread/code-model';
-import {
-  getSourceEvidenceRequestSchema,
-  graphNeighborsRequestSchema,
-  graphNeighborsResponseSchema,
-  parseGetSourceEvidenceResult,
-  parseGraphNeighborsResult,
-} from '@codethread/contracts';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
-import { createInvestigation, TraceError } from '@codethread/trace-engine';
+import type { RepositoryInvestigationSession } from './investigation/repository-session.ts';
+import { TraceError } from '@codethread/trace-engine';
 import { z, ZodError } from 'zod';
+import { createViewerDataset } from './viewer-dataset.ts';
+import type { ViewerInput } from './viewer-dataset.ts';
+import { queryViewer } from './viewer-api.ts';
+import { ViewerFailure } from './viewer-errors.ts';
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
-const MAX_SYMBOLS_PER_PAGE = 50;
-const MAX_GRAPH_DEPTH = 2;
-const MAX_GRAPH_NODES = 50;
-const MAX_UNKNOWN_ROWS = 50;
-const ORDER = (left: string, right: string): number =>
-  Buffer.compare(Buffer.from(left), Buffer.from(right));
-
-const analysisCountsSchema = z.strictObject({
-  files: z.number().int().nonnegative(),
-  declarations: z.number().int().nonnegative(),
-  callSites: z.number().int().nonnegative(),
-  exact: z.number().int().nonnegative(),
-  unresolved: z.number().int().nonnegative(),
-  ambiguous: z.number().int().nonnegative(),
-  unsupported: z.number().int().nonnegative(),
-  notAnalyzedInputs: z.number().int().nonnegative(),
-});
-const sessionResponseSchema = z.strictObject({
-  snapshotId: idSchema,
-  identity: snapshotIdentitySchema,
-  counts: analysisCountsSchema,
-  coverage: coverageSchema,
-  coverageByCapability: z.record(z.string(), coverageSchema),
-});
-const symbolSearchRequestSchema = z.strictObject({
-  query: z.string().max(256).default(''),
-  offset: z.number().int().min(0).max(2000).default(0),
-});
-const symbolSearchResponseSchema = z.strictObject({
-  snapshotId: idSchema,
-  query: z.string().max(256),
-  offset: z.number().int().min(0).max(2000),
-  limit: z.literal(MAX_SYMBOLS_PER_PAGE),
-  total: z.number().int().nonnegative(),
-  nextOffset: z.number().int().min(0).max(2000).nullable(),
-  items: z.array(symbolSchema).max(MAX_SYMBOLS_PER_PAGE),
-});
-const unsupportedObservationSchema = z.strictObject({
-  evidenceId: idSchema,
-  status: z.enum(['ambiguous', 'unresolved', 'unsupported']),
-  diagnostic: diagnosticSchema.nullable(),
-});
-const viewerGraphResponseSchema = z.strictObject({
-  graph: graphNeighborsResponseSchema,
-  unknowns: z.strictObject({
-    total: z.number().int().nonnegative(),
-    items: z.array(unsupportedObservationSchema).max(MAX_UNKNOWN_ROWS),
-  }),
-});
 const apiErrorSchema = z.strictObject({
   error: z.strictObject({
     code: z.string().regex(/^[A-Z][A-Z0-9_]{1,63}$/),
     message: z.string().min(1).max(256),
   }),
 });
-
-type ViewerFailureCode =
-  | 'INVALID_FACTS'
-  | 'SOURCE_UNAVAILABLE'
-  | 'HASH_MISMATCH'
-  | 'SNAPSHOT_NOT_FOUND'
-  | 'ENTITY_NOT_FOUND'
-  | 'RESOURCE_LIMIT'
-  | 'INVALID_REQUEST'
-  | 'REQUEST_TOO_LARGE'
-  | 'RESPONSE_TOO_LARGE'
-  | 'NOT_FOUND'
-  | 'FORBIDDEN'
-  | 'METHOD_NOT_ALLOWED'
-  | 'UNSUPPORTED_MEDIA_TYPE'
-  | 'INTERNAL_ERROR';
-
-class ViewerFailure extends Error {
-  readonly code: ViewerFailureCode;
-  readonly status: number;
-
-  constructor(code: ViewerFailureCode, message: string, status: number) {
-    super(message);
-    this.name = 'ViewerFailure';
-    this.code = code;
-    this.status = status;
-  }
-}
 
 export interface ViewerHandle {
   readonly origin: string;
@@ -205,14 +117,6 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-function compareSymbols(left: CodeSymbol, right: CodeSymbol): number {
-  return (
-    ORDER(left.filePath, right.filePath) ||
-    left.range.start.offset - right.range.start.offset ||
-    ORDER(left.key, right.key)
-  );
-}
-
 function traceFailure(error: TraceError): ViewerFailure {
   if (error.code === 'RESOURCE_LIMIT')
     return new ViewerFailure(error.code, error.message, 413);
@@ -224,17 +128,45 @@ function traceFailure(error: TraceError): ViewerFailure {
 export async function createViewer(
   snapshot: AnalysisSnapshot,
 ): Promise<ViewerHandle> {
-  const investigation = createInvestigation(snapshot.facts, snapshot.source);
+  return createLocalViewer(snapshot);
+}
+
+export async function createRepositoryViewer(
+  session: RepositoryInvestigationSession,
+): Promise<ViewerHandle> {
+  return createLocalViewer(session);
+}
+
+async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
+  const dataset = createViewerDataset(input);
   const token = randomBytes(32).toString('hex');
-  const page = await readFile(
-    fileURLToPath(new URL('./viewer.html', import.meta.url)),
+  const assets = new Map<string, { bytes: Buffer; type: string }>();
+  const paths = [
+    '/',
+    '/viewer.js',
+    '/viewer.css',
+    '/viewer-client/dom.js',
+    '/viewer-client/projection.js',
+    '/viewer-client/history.js',
+    '/viewer-client/repository.js',
+  ];
+  const reads = await Promise.allSettled(
+    paths.map(async (path) => {
+      const file = path === '/' ? './viewer.html' : '.' + path;
+      const bytes = await readFile(
+        fileURLToPath(new URL(file, import.meta.url)),
+      );
+      const type =
+        path === '/'
+          ? 'text/html'
+          : path.endsWith('.css')
+            ? 'text/css'
+            : 'text/javascript';
+      assets.set(path, { bytes, type });
+    }),
   );
-  const script = await readFile(
-    fileURLToPath(new URL('./viewer.js', import.meta.url)),
-  );
-  const styles = await readFile(
-    fileURLToPath(new URL('./viewer.css', import.meta.url)),
-  );
+  for (const result of reads)
+    if (result.status === 'rejected') throw result.reason;
   let origin = '';
 
   const server = createServer((request, response) => {
@@ -290,31 +222,14 @@ export async function createViewer(
 
     const pathname = new URL(request.url ?? '/', `http://${expectedHost}`)
       .pathname;
-    if (request.method === 'GET' && pathname === '/') {
+    const asset = assets.get(pathname);
+    if (request.method === 'GET' && asset) {
       response.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Content-Length': page.byteLength,
+        'Content-Type': asset.type + '; charset=utf-8',
+        'Content-Length': asset.bytes.byteLength,
         'Cache-Control': 'no-store',
       });
-      response.end(page);
-      return;
-    }
-    if (request.method === 'GET' && pathname === '/viewer.js') {
-      response.writeHead(200, {
-        'Content-Type': 'text/javascript; charset=utf-8',
-        'Content-Length': script.byteLength,
-        'Cache-Control': 'no-store',
-      });
-      response.end(script);
-      return;
-    }
-    if (request.method === 'GET' && pathname === '/viewer.css') {
-      response.writeHead(200, {
-        'Content-Type': 'text/css; charset=utf-8',
-        'Content-Length': styles.byteLength,
-        'Cache-Control': 'no-store',
-      });
-      response.end(styles);
+      response.end(asset.bytes);
       return;
     }
     if (!pathname.startsWith('/api/'))
@@ -343,29 +258,6 @@ export async function createViewer(
         403,
       );
 
-    if (request.method === 'POST' && pathname === '/api/session') {
-      const body = await readJson(request);
-      if (
-        body === null ||
-        typeof body !== 'object' ||
-        Array.isArray(body) ||
-        Object.keys(body).length !== 0
-      )
-        throw new ViewerFailure(
-          'INVALID_REQUEST',
-          'Session requests take an empty JSON object.',
-          400,
-        );
-      const result = sessionResponseSchema.parse({
-        snapshotId: snapshot.facts.snapshotId,
-        identity: snapshot.facts.identity,
-        counts: snapshot.facts.counts,
-        coverage: summarizeCoverage(snapshot.facts.coverageByCapability),
-        coverageByCapability: snapshot.facts.coverageByCapability,
-      });
-      json(response, result);
-      return;
-    }
     if (request.method !== 'POST')
       throw new ViewerFailure(
         'METHOD_NOT_ALLOWED',
@@ -373,85 +265,7 @@ export async function createViewer(
         405,
       );
     const body = await readJson(request);
-    if (pathname === '/api/symbols') {
-      const query = symbolSearchRequestSchema.parse(body);
-      const normalized = query.query.toLowerCase();
-      const matches = [...snapshot.facts.symbols]
-        .sort(compareSymbols)
-        .filter(
-          (symbol) =>
-            normalized.length === 0 ||
-            symbol.name.toLowerCase().includes(normalized) ||
-            symbol.filePath.toLowerCase().includes(normalized),
-        );
-      const items = matches.slice(
-        query.offset,
-        query.offset + MAX_SYMBOLS_PER_PAGE,
-      );
-      const next = query.offset + items.length;
-      const result = symbolSearchResponseSchema.parse({
-        snapshotId: snapshot.facts.snapshotId,
-        query: query.query,
-        offset: query.offset,
-        limit: MAX_SYMBOLS_PER_PAGE,
-        total: matches.length,
-        nextOffset: next < matches.length ? next : null,
-        items,
-      });
-      json(response, result);
-      return;
-    }
-    if (pathname === '/api/neighbors') {
-      const request = graphNeighborsRequestSchema.parse(body);
-      if (
-        request.depth > MAX_GRAPH_DEPTH ||
-        request.nodeLimit > MAX_GRAPH_NODES ||
-        request.relationKinds.some(
-          (kind) => kind !== 'calls' && kind !== 'references',
-        )
-      )
-        throw new ViewerFailure(
-          'INVALID_REQUEST',
-          'Graph request exceeds the visual investigation profile.',
-          400,
-        );
-      const graph = parseGraphNeighborsResult(
-        request,
-        investigation.neighbors(request),
-      );
-      const owned = snapshot.facts.observations.filter(
-        (item) =>
-          item.ownerId === request.symbolId &&
-          item.status !== 'exact' &&
-          item.relationId === null,
-      );
-      const diagnostics = new Map(
-        snapshot.facts.diagnostics.map((item) => [item.id, item]),
-      );
-      const unknowns = {
-        total: owned.length,
-        items: owned.slice(0, MAX_UNKNOWN_ROWS).map((item) => ({
-          evidenceId: item.evidenceId,
-          status: item.status,
-          diagnostic: item.diagnosticId
-            ? (diagnostics.get(item.diagnosticId) ?? null)
-            : null,
-        })),
-      };
-      const result = viewerGraphResponseSchema.parse({ graph, unknowns });
-      json(response, result);
-      return;
-    }
-    if (pathname === '/api/evidence') {
-      const evidenceRequest = getSourceEvidenceRequestSchema.parse(body);
-      const result = parseGetSourceEvidenceResult(
-        evidenceRequest,
-        investigation.sourceEvidence(evidenceRequest),
-      );
-      json(response, result);
-      return;
-    }
-    throw new ViewerFailure('NOT_FOUND', 'Resource not found.', 404);
+    json(response, queryViewer(dataset, pathname, body));
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -470,12 +284,22 @@ export async function createViewer(
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
       }),
   };
 }
 
 export async function runViewer(snapshot: AnalysisSnapshot): Promise<void> {
-  const viewer = await createViewer(snapshot);
+  await waitForViewer(await createViewer(snapshot));
+}
+
+export async function runRepositoryViewer(
+  session: RepositoryInvestigationSession,
+): Promise<void> {
+  await waitForViewer(await createRepositoryViewer(session));
+}
+
+async function waitForViewer(viewer: ViewerHandle): Promise<void> {
   process.stdout.write(
     `CodeThread local visual investigation: ${viewer.url}\nPress Ctrl+C to stop.\n`,
   );

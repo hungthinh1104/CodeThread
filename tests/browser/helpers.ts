@@ -7,6 +7,7 @@ export async function openPage(
   browser: Browser,
   origin: string,
   url: string,
+  firstFocus = 'symbol-query',
 ): Promise<Page> {
   const outsideOrigin: string[] = [];
   const context = await browser.newContext({
@@ -48,7 +49,7 @@ export async function openPage(
   await page.keyboard.press('Tab');
   assert.equal(
     await page.evaluate(() => document.activeElement?.id),
-    'symbol-query',
+    firstFocus,
     'keyboard focus should reach symbol search before investigation controls',
   );
   assert.equal(

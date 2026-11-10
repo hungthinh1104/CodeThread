@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "author": "Codex",
+  "reviewStatus": "not_independently_reviewed",
+  "authoredBeforeBrowserRuns": true,
+  "analyzerPredictionsAlreadyObserved": true,
+  "interpretation": "Automated source investigation tasks; no human participants or comprehension outcomes.",
+  "repositories": [
+    {
+      "name": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "tasks": [
+        {
+          "id": "CTMVP-UFO-001",
+          "action": "Find withQuery in the whole repository symbol catalog",
+          "expected": "src/utils.ts:348"
+        },
+        {
+          "id": "CTMVP-UFO-002",
+          "action": "Inspect outgoing CALLS",
+          "expected": [
+            "parseURL",
+            "parseQuery",
+            "stringifyQuery",
+            "stringifyParsedURL"
+          ]
+        },
+        {
+          "id": "CTMVP-UFO-003",
+          "action": "Open the parseURL call occurrence and declaration evidence",
+          "expected": ["src/utils.ts:349", "src/parse.ts:51"]
+        },
+        {
+          "id": "CTMVP-UFO-004",
+          "action": "Follow parseURL then use Back and Forward",
+          "expected": "Separate bounded roots retain direction and selection"
+        },
+        {
+          "id": "CTMVP-UFO-005",
+          "action": "Inspect source and context status",
+          "expected": "21 source inputs; missing external type/module context remains disclosed"
+        }
+      ]
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import type { CliLineInput, SessionCommandBudget } from './input.ts';
 import { runViewer } from '../viewer.ts';
 import { startSourceSelectionSession } from './source-browser.ts';
 import { parseArguments } from './arguments.ts';
+import { runRepositoryCommand } from './repository-cli.ts';
 import {
   loadTodoDemo,
   parseManifest,
@@ -41,9 +42,15 @@ export async function runInvestigationCli(
         'CodeThread bounded textual source investigation.',
         'Usage: pnpm investigate -- [--view] --manifest <manifest.json>',
         '       pnpm investigate -- [--view] --repo <root> --repository-id <uuid> --revision <revision> (--browse | --file <path> [--file=<path> ...])',
+        '       pnpm investigate -- --repo <root> --revision <revision> --scope repository [--repository-id <uuid>] [--view]',
+        'Repository profile: 1,000 .ts files, 32 MiB total, 1 MiB/file, 32 contexts; 120 seconds per session.',
         'Pinned examples: pnpm demo:investigation | pnpm demo:visual',
         `Manifest limit: ${MAX_MANIFEST_BYTES} bytes; source limits: ${MAX_SOURCE_FILES} files, ${MAX_SOURCE_FILE_BYTES} bytes/file, ${MAX_TOTAL_SOURCE_BYTES} bytes total.`,
       ]);
+      return;
+    }
+    if (command.kind === 'repository') {
+      await runRepositoryCommand(command);
       return;
     }
     let input: AnalysisInput;
@@ -132,6 +139,9 @@ export async function runInvestigationCli(
     cliInput?.close();
     printError(error);
     process.exitCode =
-      error instanceof GitSourceError && error.code === 'CANCELLED' ? 130 : 2;
+      (error instanceof GitSourceError || error instanceof AnalysisError) &&
+      error.code === 'CANCELLED'
+        ? 130
+        : 2;
   }
 }
