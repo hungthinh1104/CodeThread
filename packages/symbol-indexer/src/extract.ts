@@ -19,6 +19,7 @@ export function extractFacts(
   base: AnalysisFacts,
   root: string,
   limits = analysisResourceLimits(),
+  projectContext = false,
 ): WorkerOutput {
   const checker = program.getTypeChecker();
   const files = new Map(base.files.map((file) => [root + file.path, file]));
@@ -490,7 +491,10 @@ export function extractFacts(
             binding &&
             ts.isImportSpecifier(binding) &&
             ts.isStringLiteral(binding.parent.parent.parent.moduleSpecifier) &&
-            !/^\.\.?\//.test(binding.parent.parent.parent.moduleSpecifier.text)
+            !/^\.\.?\//.test(
+              binding.parent.parent.parent.moduleSpecifier.text,
+            ) &&
+            !projectContext
           )
             unsupportedReason = 'EXTERNAL_MODULE';
           else if (binding && !ts.isImportSpecifier(binding))
@@ -501,7 +505,10 @@ export function extractFacts(
             !binding.isTypeOnly &&
             !binding.parent.parent.isTypeOnly &&
             ts.isStringLiteral(binding.parent.parent.parent.moduleSpecifier) &&
-            /^\.\.?\//.test(binding.parent.parent.parent.moduleSpecifier.text)
+            (projectContext ||
+              /^\.\.?\//.test(
+                binding.parent.parent.parent.moduleSpecifier.text,
+              ))
           ) {
             importedFile = checker
               .getSymbolAtLocation(binding.parent.parent.parent.moduleSpecifier)

@@ -9,7 +9,7 @@ export function runWorker(
   remaining: number,
   heapLimitMiB: number,
   signal?: AbortSignal,
-): Promise<WorkerOutput> {
+): Promise<{ output: WorkerOutput; outputBytes: number }> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new AnalysisError('CANCELLED', 'Analysis cancelled'));
@@ -108,9 +108,12 @@ export function runWorker(
         return;
       }
       try {
-        resolve(
-          JSON.parse(Buffer.concat(chunks).toString('utf8')) as WorkerOutput,
-        );
+        resolve({
+          output: JSON.parse(
+            Buffer.concat(chunks).toString('utf8'),
+          ) as WorkerOutput,
+          outputBytes,
+        });
       } catch {
         reject(
           new AnalysisError(

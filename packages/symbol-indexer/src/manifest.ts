@@ -13,7 +13,9 @@ import type {
   AnalysisErrorCode,
 } from './analysis-types.js';
 import { runWorker } from './run-worker.js';
-import type { WorkerInput, PreparedFile } from './protocol.js';
+import type { WorkerInput } from './protocol.js';
+import type { PreparedFile } from './analysis-types.js';
+import type { ProjectWorkerContext } from './project-types.js';
 import { verifyFacts } from './verify.js';
 
 function freeze(value: unknown): void {
@@ -25,6 +27,13 @@ function freeze(value: unknown): void {
 
 export async function analyzeManifest(
   input: AnalysisInput,
+): Promise<AnalysisSnapshot> {
+  return analyzeInput(input);
+}
+
+export async function analyzeInput(
+  input: AnalysisInput,
+  project?: ProjectWorkerContext,
 ): Promise<AnalysisSnapshot> {
   const started = Date.now();
   if (!input || typeof input !== 'object')
@@ -172,10 +181,27 @@ export async function analyzeManifest(
         })),
       }),
     ),
-    configurationHash: sha(JSON.stringify(COMPILER_PROFILE)),
+    configurationHash: sha(
+      JSON.stringify(
+        project
+          ? {
+              profile: 'ct-project-context-v1',
+              configPath: project.configPath,
+              rootPaths: project.rootPaths,
+              referencePaths: project.referencePaths,
+              metadata: project.metadata.map(({ path, sha256 }) => ({
+                path,
+                sha256,
+              })),
+              workspacePackages: project.workspacePackages,
+            }
+          : COMPILER_PROFILE,
+      ),
+    ),
     files: prepared,
+    ...(project === undefined ? {} : { project }),
   };
-  const output = await runWorker(
+  const { output, outputBytes } = await runWorker(
     workerInput,
     deadlineMs - (Date.now() - started),
     heapLimitMiB,
@@ -215,6 +241,9 @@ export async function analyzeManifest(
   if (Date.now() - started > deadlineMs)
     throw new AnalysisError('ANALYSIS_TIMEOUT', 'Analysis deadline exceeded');
   freeze(facts);
+  const retainedPaths = new Set(facts.files.map((file) => file.path));
+  for (const path of sources.keys())
+    if (!retainedPaths.has(path)) sources.delete(path);
   const byId = new Map(
     facts.evidenceRefs.map((evidence) => [evidence.id, evidence]),
   );
@@ -269,5 +298,18 @@ export async function analyzeManifest(
     facts,
     source,
     resourceProfile: input.resourceProfile ?? 'selected',
+    execution: Object.freeze({
+      ipcBytes: outputBytes,
+      elapsedMs: Date.now() - started,
+      workerPeakRssBytes:
+        typeof output.workerPeakRssBytes === 'number' &&
+        Number.isSafeInteger(output.workerPeakRssBytes) &&
+        output.workerPeakRssBytes > 0
+          ? output.workerPeakRssBytes
+          : null,
+    }),
+    ...(output.contextDiagnostics === undefined
+      ? {}
+      : { contextDiagnostics: Object.freeze([...output.contextDiagnostics]) }),
   });
 }

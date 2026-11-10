@@ -71,7 +71,12 @@ export function verifyFacts(
   const limits = analysisResourceLimits(request.resourceProfile);
   requireFact(withinAnalysisCollectionLimits(facts, limits));
   requireFact(
-    Array.isArray(facts.files) && facts.files.length === request.files.length,
+    Array.isArray(facts.files) &&
+      (request.project === undefined
+        ? facts.files.length === request.files.length
+        : request.project.rootPaths.every((path) =>
+            facts.files.some((file) => file.path === path),
+          )),
   );
   coverageByCapabilitySchema.parse(facts.coverageByCapability);
   unique(facts.files);

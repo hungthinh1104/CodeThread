@@ -37,6 +37,23 @@ export interface AnalysisSnapshot {
   facts: AnalysisFacts;
   source: VerifiedSourceReader;
   resourceProfile?: AnalysisResourceProfile;
+  contextDiagnostics?: readonly ProjectDiagnostic[];
+  execution?: Readonly<{
+    ipcBytes: number;
+    elapsedMs: number;
+    workerPeakRssBytes: number | null;
+  }>;
+}
+export interface PreparedFile {
+  path: string;
+  sha256: string;
+  byteLength: number;
+  base64: string;
+}
+export interface ProjectDiagnostic {
+  code: string;
+  message: string;
+  path?: string;
 }
 export type AnalysisErrorCode =
   | 'INVALID_MANIFEST'
