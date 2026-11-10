@@ -64,8 +64,9 @@ semantic_proof:
   input:
     Caller-supplied immutable UTF-8 manifests and explicit compiler profile.
   capabilities: >-
-    Named function declarations, supported direct calls, and source-backed
-    references for noncomputed method properties passed as call arguments.
+    Named function declarations, direct identifier calls owned by supported
+    named functions or class methods, and source-backed references for
+    noncomputed method properties passed as call arguments.
   exclusions:
     Re-exports, overloads, dynamic dispatch and external implementations.
   persistence:

@@ -184,7 +184,9 @@ export function verifyFacts(
         relation.snapshotId === snapshot &&
         (relation.kind === 'calls' || relation.kind === 'references') &&
         site.fileId === owner.fileId &&
-        (relation.kind === 'references' || owner.kind === 'function'),
+        (relation.kind === 'references' ||
+          owner.kind === 'function' ||
+          owner.kind === 'method'),
     );
     requireFact(
       sourceRangeSchema.safeParse({

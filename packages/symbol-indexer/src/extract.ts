@@ -654,17 +654,23 @@ export function extractFacts(
         }
       }
       if (ts.isFunctionLike(node)) {
-        const owner = ts.isFunctionDeclaration(node)
+        const functionOwner = ts.isFunctionDeclaration(node)
           ? declarations.get(node)
           : undefined;
-        const referenceOwner =
-          owner ??
-          (ts.isMethodDeclaration(node) ? methods.get(node) : undefined);
+        const methodOwner = ts.isMethodDeclaration(node)
+          ? methods.get(node)
+          : undefined;
+        const callOwner =
+          functionOwner ??
+          (ts.isMethodDeclaration(node) && ts.isClassLike(node.parent)
+            ? methodOwner
+            : undefined);
+        const referenceOwner = functionOwner ?? methodOwner;
         const body = 'body' in node ? node.body : undefined;
         ts.forEachChild(node, (child) => {
           visit(
             child,
-            child === body ? owner : undefined,
+            child === body ? callOwner : undefined,
             child === body ? referenceOwner : undefined,
           );
         });

@@ -70,6 +70,7 @@ export function evaluateSemantic(
       !symbol ||
       !expected ||
       !gold.files[anchor.file] ||
+      symbol.kind !== (expected.kind ?? 'function') ||
       anchorKey(symbolAnchor(symbol)) !== anchorKey(anchor) ||
       symbol.name !== expected.name ||
       symbol.snapshotId !== facts.snapshotId
@@ -242,24 +243,41 @@ export function evaluateSemantic(
   );
   const expectedDeclarations = new Set(
     gold.declarations.map((item) =>
-      JSON.stringify([item.file, item.name, item.start, item.end]),
+      JSON.stringify([
+        item.file,
+        item.name,
+        item.start,
+        item.end,
+        item.kind ?? 'function',
+      ]),
     ),
   );
   const functionSymbols = facts.symbols.filter(
     (item) => item.kind === 'function',
   );
-  const actualDeclarations = functionSymbols.map((item) =>
+  const annotatedMethodSymbols = facts.symbols.filter(
+    (item) =>
+      item.kind === 'method' &&
+      gold.declarations.some(
+        (expected) =>
+          expected.kind === 'method' &&
+          anchorKey(expected) === anchorKey(symbolAnchor(item)),
+      ),
+  );
+  const declarationSymbols = [...functionSymbols, ...annotatedMethodSymbols];
+  const actualDeclarations = declarationSymbols.map((item) =>
     JSON.stringify([
       item.filePath,
       item.name,
       [item.range.start.line, item.range.start.column],
       [item.range.end.line, item.range.end.column],
+      item.kind,
     ]),
   );
   const declarationMatch =
     goldDeclarations.size === gold.declarations.length &&
     expectedDeclarations.size === gold.declarations.length &&
-    functionSymbols.length === gold.declarations.length &&
+    declarationSymbols.length === gold.declarations.length &&
     new Set(actualDeclarations).size === gold.declarations.length &&
     actualDeclarations.every((item) => expectedDeclarations.has(item));
   const eligibleSupportedCallOccurrences = gold.calls.filter(
@@ -305,7 +323,7 @@ export function evaluateSemantic(
       goldCalls: gold.calls.length,
     },
     extracted: {
-      declarations: functionSymbols.length,
+      declarations: declarationSymbols.length,
       methods: facts.symbols.length - functionSymbols.length,
       relations: facts.relations.length,
       callSites: facts.observations.length,
