@@ -11,12 +11,15 @@ export async function measureRepository(
   base: string,
   shape: BenchmarkShape,
   entries: number,
-): Promise<BenchmarkResult> {
+): Promise<{
+  result: BenchmarkResult;
+  partialInventory: Awaited<ReturnType<typeof verifyInventoryLimits>>;
+}> {
   const context = await prepareInventory(base, shape, entries);
   const stages = await measureBrowseOperations(context);
   const analysis = await measureAcquisition(context);
   stages.acquireAndAnalyze = analysis.stage;
-  await verifyInventoryLimits(context);
+  const partialInventory = await verifyInventoryLimits(context);
   const stats = context.session.statistics();
   const result: BenchmarkResult = {
     shape,
@@ -59,5 +62,5 @@ export async function measureRepository(
     deterministicInventorySha256: inventoryDigest(context),
   };
   process.stderr.write(`Benchmark complete: ${shape}/${entries}.\n`);
-  return result;
+  return { result, partialInventory };
 }

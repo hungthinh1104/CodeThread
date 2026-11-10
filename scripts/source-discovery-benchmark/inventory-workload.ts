@@ -13,7 +13,10 @@ import {
   type BenchmarkShape,
   type StageMeasurement,
 } from './config.ts';
-import { assertInventoryIdentityStable } from './verification.ts';
+import {
+  assertInventoryIdentityStable,
+  assertPartialInventoryControlEvidence,
+} from './verification.ts';
 import { measure, median, pageAll } from './timing.ts';
 
 export async function prepareInventory(
@@ -296,7 +299,7 @@ export async function measureAcquisition(
 
 export async function verifyInventoryLimits(
   context: Awaited<ReturnType<typeof prepareInventory>>,
-): Promise<void> {
+): Promise<{ lowerTreeLimitReason: string; cancelledBeforeStartCode: string }> {
   const { inventory, repository } = context;
   const limited = await openGitInventory({
     repositoryPath: repository.root,
@@ -323,8 +326,10 @@ export async function verifyInventoryLimits(
     if (!(error instanceof GitSourceError)) throw error;
     cancelCode = error.code;
   }
-  if (cancelCode !== 'CANCELLED')
-    throw new Error('Cancellation status was not typed.');
+  return assertPartialInventoryControlEvidence({
+    lowerTreeLimitReason: limited.inventory.truncationReasons[0]!,
+    cancelledBeforeStartCode: cancelCode,
+  });
 }
 
 export function inventoryDigest(
