@@ -6,8 +6,28 @@ import { createRepositoryViewer } from '../../scripts/viewer.ts';
 import { openPage, assertLocalOnly } from './helpers.ts';
 
 async function search(page: Page, name: string) {
+  const resultResponse = page.waitForResponse((response) => {
+    const request = response.request();
+    if (
+      request.method() !== 'POST' ||
+      !['/api/catalog', '/api/symbols'].includes(
+        new URL(response.url()).pathname,
+      )
+    )
+      return false;
+    try {
+      const body = request.postDataJSON() as {
+        query?: unknown;
+        request?: { query?: unknown };
+      };
+      return (body.request?.query ?? body.query) === name;
+    } catch {
+      return false;
+    }
+  });
   await page.getByLabel('Name or source path').fill(name);
   await page.getByLabel('Name or source path').press('Enter');
+  await resultResponse;
   await page.waitForFunction((expected) => {
     const rows = [...document.querySelectorAll('#symbol-results button')];
     return (
@@ -15,6 +35,13 @@ async function search(page: Page, name: string) {
       rows.every((row) => row.textContent?.startsWith(expected + ' ·'))
     );
   }, name);
+}
+async function waitForProjectSnapshot(page: Page) {
+  await page.waitForFunction(() =>
+    document
+      .querySelector('#snapshot-summary')
+      ?.textContent?.startsWith('Snapshot '),
+  );
 }
 async function root(page: Page, name: string) {
   try {
@@ -246,6 +273,7 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     await page
       .getByRole('button', { name: 'Retry project', exact: true })
       .click();
+    await waitForProjectSnapshot(page);
     await search(page, 'entry');
     await page.locator('#symbol-results button').first().click();
     await root(page, 'entry');
