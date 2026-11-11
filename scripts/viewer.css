@@ -37,6 +37,10 @@ select {
   font: inherit;
 }
 
+select {
+  max-width: 100%;
+}
+
 button,
 select,
 input {
