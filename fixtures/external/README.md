@@ -99,11 +99,18 @@ deduplicated into one semantic observation. Inventory, source coverage, context
 completion and semantic coverage are independent fields. The expected source
 labels are Codex-authored; no label set has independent human review.
 
-`repository-workflows.json` pins five browser tasks on the ufo commit:
-repository symbol search, outgoing CALLS, occurrence and declaration evidence,
-target follow with Back/Forward, and source/context-status inspection. These
-tasks were authored after analyzer predictions were observed. Their five-task
-denominator is a workflow completion check, not a blind semantic gold set.
-Browser task completion, source labels and total project occurrences must be
-reported as separate counts. No human participant or comprehension outcome is
-measured.
+`repository-workflows.json` pins five browser tasks on ufo and six on
+sourcemaps. Together they exercise whole-repository symbol search, explicit
+project-context selection, outgoing CALLS, occurrence and declaration evidence,
+target follow with Back/Forward, source/context-status inspection, and paged
+inventory display for a monorepo. The sourcemaps task anchors (commit
+`b7600158f4de012d246b7834a73c7c2190e75136`) are specified from its pinned source
+path, lines and SHA-256, then checked against the verified corpus bytes and the
+browser projection.
+
+These tasks were authored after analyzer predictions were observed. Their
+eleven-task denominator is a workflow completion check, not a blind semantic
+gold set. Browser task completion, source labels and total project occurrences
+must be reported as separate counts. No human participant or comprehension
+outcome is measured; the Codex-authored labels have not received independent
+human review.
