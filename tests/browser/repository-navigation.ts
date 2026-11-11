@@ -277,14 +277,40 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     await search(page, 'entry');
     await page.locator('#symbol-results button').first().click();
     await root(page, 'entry');
+    const viewport = await page.evaluate(() => {
+      const clientWidth = document.documentElement.clientWidth;
+      const overflow = Array.from(document.body.querySelectorAll('*'))
+        .map((element) => {
+          const rect = element.getBoundingClientRect(),
+            style = getComputedStyle(element);
+          return {
+            tag: element.tagName.toLowerCase(),
+            id: element.id,
+            className: String(element.className),
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+            minWidth: style.minWidth,
+            maxWidth: style.maxWidth,
+          };
+        })
+        .filter(
+          (element) => element.left < -1 || element.right > clientWidth + 1,
+        )
+        .sort((left, right) => right.right - left.right)
+        .slice(0, 12);
+      return {
+        clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        overflow,
+      };
+    });
     assert.equal(
-      await page.evaluate(
-        () =>
-          document.documentElement.scrollWidth <=
-          document.documentElement.clientWidth,
-      ),
+      viewport.scrollWidth <= viewport.clientWidth,
       true,
-      'narrow viewport remains usable',
+      `narrow viewport remains usable: ${JSON.stringify(viewport)}`,
     );
     assertLocalOnly(page);
     await page.context().close();
