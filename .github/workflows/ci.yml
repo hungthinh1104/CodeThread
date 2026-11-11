@@ -26,8 +26,17 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Configure bounded APT retries for Chromium dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          printf '%s\n' \
+            'Acquire::Retries "3";' \
+            'Acquire::http::Timeout "20";' \
+            'Acquire::https::Timeout "20";' \
+            | sudo tee /etc/apt/apt.conf.d/99codethread-retries >/dev/null
       - name: Install Chromium for visual investigation tests (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: pnpm exec playwright install --with-deps chromium
       - name: Install Chromium for visual investigation tests (Windows)
         if: runner.os == 'Windows'
