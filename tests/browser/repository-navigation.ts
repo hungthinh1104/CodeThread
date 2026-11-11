@@ -279,7 +279,11 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     await root(page, 'entry');
     const viewport = await page.evaluate(() => {
       const clientWidth = document.documentElement.clientWidth;
-      const overflow = Array.from(document.body.querySelectorAll('*'))
+      const overflow = [
+        document.documentElement,
+        document.body,
+        ...document.body.querySelectorAll('*'),
+      ]
         .map((element) => {
           const rect = element.getBoundingClientRect(),
             style = getComputedStyle(element);
@@ -292,15 +296,25 @@ export async function verifyRepositoryNavigation(browser: Browser) {
             width: Math.round(rect.width),
             scrollWidth: element.scrollWidth,
             clientWidth: element.clientWidth,
+            overflowX: style.overflowX,
             minWidth: style.minWidth,
             maxWidth: style.maxWidth,
           };
         })
         .filter(
-          (element) => element.left < -1 || element.right > clientWidth + 1,
+          (element) =>
+            element.left < -1 ||
+            element.right > clientWidth + 1 ||
+            (element.overflowX === 'visible' &&
+              element.scrollWidth > element.clientWidth + 1),
         )
-        .sort((left, right) => right.right - left.right)
-        .slice(0, 12);
+        .sort(
+          (left, right) =>
+            right.scrollWidth -
+            right.clientWidth -
+            (left.scrollWidth - left.clientWidth),
+        )
+        .slice(0, 15);
       return {
         clientWidth,
         scrollWidth: document.documentElement.scrollWidth,
