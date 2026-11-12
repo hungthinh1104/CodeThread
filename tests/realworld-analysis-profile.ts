@@ -73,6 +73,7 @@ async function main(): Promise<void> {
       return {
         configPath: item.project.configPath,
         status: item.status,
+        errorMessage: item.error?.message ?? null,
         rootFiles: item.project.rootPaths.length,
         contextDiagnostics: item.project.diagnostics.map(
           (diagnostic) => diagnostic.code,
@@ -139,6 +140,14 @@ async function main(): Promise<void> {
       notAnalyzedFiles: session.files.filter(
         (file) => file.status !== 'analyzed',
       ).length,
+      notAnalyzedFileDetails: session.files
+        .filter((file) => file.status !== 'analyzed')
+        .map((file) => ({
+          path: file.path,
+          status: file.status,
+          analysisReason: file.analysisReason ?? null,
+          projectIds: [...file.projectIds],
+        })),
       contextObservationMemberships,
       observationStatusesByContext: aggregateStatuses,
       startedAt,
