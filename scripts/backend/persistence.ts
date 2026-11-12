@@ -51,7 +51,7 @@ async function batchInsert(
       await sql.unsafe(
         `INSERT INTO codethread.${table} (${columns.join(',')})
       VALUES ${chunk.map((_, j) => '(' + columns.map((__, k) => '$' + (j * columns.length + k + 1)).join(',') + ')').join(',')}`,
-        chunk.flatMap((r) => columns.map((c) => r[c])),
+        chunk.flatMap((r) => columns.map((c) => r[c])) as Parameters<Sql['unsafe']>[1],
       );
   }
 }
@@ -116,8 +116,9 @@ export async function persistScan(
           resourceProfile: 'repository',
         });
         const f = snapshot.facts;
+        const serializedFacts = JSON.stringify(f);
         const existing = (
-          await db`SELECT state, facts_json = ${db.json(f)}::jsonb AS same
+          await db`SELECT state, facts_json = ${serializedFacts}::jsonb AS same
           FROM codethread.repository_snapshot
           WHERE id = ${f.snapshotId} AND repository_id = ${repositoryId} FOR UPDATE`
         )[0];
@@ -129,7 +130,7 @@ export async function persistScan(
              configuration_hash, coverage, facts_json)
             VALUES (${f.snapshotId}, ${repositoryId}, ${f.identity.sourceFingerprint},
               ${f.identity.analyzerVersion}, ${f.identity.analyzerBuildHash},
-              ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${db.json(f)})`;
+              ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${serializedFacts})`;
           const fileRows: Record<string, unknown>[] = [];
           for (const file of f.files) {
             const bytes = snapshot.source.readFile(file.id);
