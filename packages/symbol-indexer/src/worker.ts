@@ -114,11 +114,14 @@ function analyze(input: WorkerInput): WorkerOutput {
         },
         ...(input.project
           ? {
-              contextDiagnostics: contextErrors.slice(0, 100).map((item) => ({
-                code: 'TS_' + item.code,
-                message:
-                  'TypeScript project context diagnostic ' + item.code + '.',
-              })),
+              contextDiagnostics: contextErrors
+                .slice(0, 100)
+                .map((item) => ({
+                  code: 'TS_' + item.code,
+                  message:
+                    'TypeScript project context diagnostic ' + item.code + '.',
+                }))
+                .concat(result.contextDiagnostics ?? []),
             }
           : {}),
       };

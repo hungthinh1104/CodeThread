@@ -36,7 +36,11 @@ describe('repository resource profile through the semantic pipeline', () => {
     };
 
     expect(analysisResourceLimits('selected').maxCallSites).toBe(5000);
+    expect(
+      analysisResourceLimits('selected').maxFullSemanticDiagnosticFiles,
+    ).toBe(20);
     expect(limits.maxCallSites).toBe(100_000);
+    expect(limits.maxFullSemanticDiagnosticFiles).toBe(64);
     expect(PROJECT_LIMITS.maxSessionResultBytes).toBe(384 * 1024 * 1024);
     expect(withinAnalysisCollectionLimits(facts, limits)).toBe(true);
     expect(
