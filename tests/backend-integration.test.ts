@@ -79,8 +79,8 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       const older = await service.job(first.id);
       expect(older.state).toBe('succeeded');
       expect(older.activation_result).toBe('stale');
-      expect(last.activation_result).toBe('activated');
-      expect(last.git_commit_oid).toBe(commit);
+      expect(last?.activation_result).toBe('activated');
+      expect(last?.git_commit_oid).toBe(commit);
       const active = await service.repository(repo.id);
       expect(active.active_job_id).toBe(second.id);
       const projects = await service.projects(second.id);

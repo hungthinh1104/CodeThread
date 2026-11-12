@@ -22,7 +22,7 @@ type SourceFile = {
 type Project = {
   project: {
     id: string;
-    configPath?: string;
+    configPath?: string | null;
     status: string;
     diagnostics: readonly { code: string; message: string }[];
   };
@@ -117,9 +117,9 @@ export async function persistScan(
           resourceProfile: 'repository',
         });
         const f = snapshot.facts;
-        const serializedFacts = JSON.stringify(f);
+        const serializedFacts = db.json(f as unknown as Parameters<Sql['json']>[0]);
         const existing = (
-          await db`SELECT state, facts_json = ${serializedFacts}::jsonb AS same
+          await db`SELECT state, facts_json = ${serializedFacts} AS same
           FROM codethread.repository_snapshot
           WHERE id = ${f.snapshotId} AND repository_id = ${repositoryId} FOR UPDATE`
         )[0];
