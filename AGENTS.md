@@ -9,6 +9,11 @@ task status; GitHub Issues/Projects own execution tracking.
   not claim the broader CT-INDEX-001 capability is complete. Migrations, full
   backend, general frontend and AI retain their explicit gates. The bounded
   ephemeral viewer is authorized only by CT-VIEW-001 and ADR-0005.
+- The user explicitly authorized DB + backend implementation on 2026-11-13.
+  This approval applies to a reviewable DB-02 candidate on a feature branch;
+  it does **not** authorize production database access, destructive migrations,
+  deployment, bypassing CI, or merging. A PostgreSQL integration test on
+  an isolated disposable database is required before any DB-02 completion claim.
 - Code investigations may start from files, modules or symbols. Tests are
   optional supporting evidence; preserve reusable test projections without
   requiring them in core code relationships. See ADR-0003 for the revised

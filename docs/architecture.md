@@ -2,8 +2,8 @@
 
 This document defines the Foundation and proposed database design for the local,
 single-developer V0. It is a logical design, not evidence that PostgreSQL
-enforces these rules. Production migrations and persistence behavior start only
-after DB-01 approval. Requirement lifecycle is not execution status.
+enforces these rules. DB-02 migrations and persistence are now authorized for a reviewable local candidate
+(2026-11-13), not production deployment. DB-01 invariants still govern publication. Requirement lifecycle is not execution status.
 
 ## 1. Product and ownership
 
@@ -151,9 +151,10 @@ contextual hooks. Its phase and syntax ordinal do not establish runtime order.
 RepositorySnapshot, SourceFile, CodeSymbol, CodeRelation, SourceEvidence and
 Diagnostic form the code-comprehension core. TestCase/TestStep/TestCodeLink are
 an optional extension. Existing test-oriented read projections remain reusable;
-they are not the sole future investigation API. The logical database proposal
-remains unimplemented and must be reviewed against the semantic proof before
-DB-02.
+they are not the sole future investigation API. The logical database proposal remains the DB-01 baseline. The DB-02 candidate
+introduces a separate opt-in local PostgreSQL backend on a feature branch;
+the candidate must pass PostgreSQL integration, migration, integrity and
+recovery checks before it can be described as delivered.
 
 The database/API readiness review and operation inventory are linked from the
 [README](../README.md). They distinguish logical proposals, executable in-memory

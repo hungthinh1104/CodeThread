@@ -20,6 +20,16 @@ same investigation projections. It contains no database implementation,
 persistent frontend, public API or Gemini integration. See `product.yaml` and
 `docs/architecture.md` for scope, ownership and gates.
 
+## PostgreSQL backend candidate (DB-02)
+
+The opt-in local backend and PostgreSQL persistence implementation is being
+developed on a separate feature branch. This is **not** a deployed service or
+verified production database. It preserves the existing semantic engine,
+project-scoped analysis, and exact source evidence rather than replacing them.
+
+See [backend setup, API and verification boundaries](docs/backend.md).
+Use a disposable PostgreSQL database and never commit credentials.
+
 ## Developer setup
 
 Use Node **24.22.2** and pnpm **12.16.1**. The compiler is TypeScript **6.0.3**;
