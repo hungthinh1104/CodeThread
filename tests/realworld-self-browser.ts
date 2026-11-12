@@ -302,6 +302,18 @@ async function main(): Promise<void> {
     const rows = page.locator(
       '#relationships .relationship-item[data-relation-id]',
     );
+    const expectedProjectCall = rows
+      .filter({
+        hasText: `Source: ${analyzeProject.symbol} (${analyzeProject.path}@${analyzeProject.line}:`,
+      })
+      .filter({ hasText: `Target: ${planRepositoryProjects.symbol} (` })
+      .filter({
+        hasText: `${planRepositoryProjects.path}@${planRepositoryProjects.line}:`,
+      });
+    await expectedProjectCall.first().waitFor({
+      state: 'visible',
+      timeout: 10000,
+    });
     const matches: Locator[] = [];
     for (const row of await rows.all()) {
       const text = await row.innerText();
