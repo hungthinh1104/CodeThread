@@ -154,12 +154,13 @@ export function extractFacts(
       maxEnds: ranges.map((range) => (maximum = Math.max(maximum, range.end))),
     });
   }
-  function hasErrors(node: ts.Node): boolean {
-    const file = node.getSourceFile(),
-      ranges = errors.get(file.fileName);
+  function hasErrorsInRange(
+    file: ts.SourceFile,
+    start: number,
+    end: number,
+  ): boolean {
+    const ranges = errors.get(file.fileName);
     if (!ranges) return false;
-    const start = node.getStart(file),
-      end = node.end;
     let low = 0,
       high = ranges.starts.length;
     while (low < high) {
@@ -168,6 +169,18 @@ export function extractFacts(
       else high = middle;
     }
     return low > 0 && ranges.maxEnds[low - 1]! > start;
+  }
+  function hasErrors(node: ts.Node): boolean {
+    const file = node.getSourceFile();
+    return hasErrorsInRange(file, node.getStart(file), node.end);
+  }
+  function hasBindingErrors(declaration: ts.FunctionDeclaration): boolean {
+    const file = declaration.getSourceFile();
+    return hasErrorsInRange(
+      file,
+      declaration.getStart(file),
+      declaration.body?.getStart(file) ?? declaration.end,
+    );
   }
   const written = new Set<ts.Symbol>();
   function markWritten(node: ts.Node): void {
@@ -568,7 +581,7 @@ export function extractFacts(
             ? 'MUTATED_BINDING'
             : target &&
                 (hasErrors(node) ||
-                  (declaration && hasErrors(declaration)) ||
+                  (declaration && hasBindingErrors(declaration)) ||
                   (importBinding && hasErrors(importBinding)))
               ? 'INVALID_BINDING'
               : undefined;
