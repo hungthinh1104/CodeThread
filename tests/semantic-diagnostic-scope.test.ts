@@ -36,12 +36,12 @@ function fixture() {
     aliasSymbol = {
       flags: ts.SymbolFlags.Alias,
       declarations: [importSpecifier],
-    } as ts.Symbol,
+    } as unknown as ts.Symbol,
     moduleSymbol = { flags: 0, declarations: [target] } as unknown as ts.Symbol,
     targetSymbol = {
       flags: ts.SymbolFlags.Function | ts.SymbolFlags.Value,
       declarations: [targetDeclaration],
-    } as ts.Symbol,
+    } as unknown as ts.Symbol,
     queried: string[] = [],
     checker = {
       getSymbolAtLocation(node: ts.Node) {
@@ -110,7 +110,7 @@ function fixture() {
     base: {
       snapshotId: '00000000-0000-4000-8000-000000000001',
       files,
-    } as Parameters<typeof extractFacts>[1],
+    } as unknown as Parameters<typeof extractFacts>[1],
   };
 }
 
