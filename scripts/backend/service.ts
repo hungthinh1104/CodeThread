@@ -22,6 +22,7 @@ const configurationHash = digest(JSON.stringify({ compiler: COMPILER_PROFILE,
 export class ScanService {
   private stopped = false;
   private currentController: AbortController | null = null;
+  private currentJobId: string | null = null;
   constructor(private readonly db: Database, private readonly config: BackendConfig) {}
 
   async register(locator: string) {
@@ -104,7 +105,7 @@ export class ScanService {
     const rows=await this.db`UPDATE codethread.scan_job SET state='cancelled',updated_at=now()
       WHERE id=${id} AND state IN ('queued','running') RETURNING id`;
     if (!rows.length) throw new ServiceError(409,'NOT_CANCELLABLE','Scan is missing or terminal');
-    this.currentController?.abort();
+    if (this.currentJobId === id) this.currentController?.abort();
     return {id,state:'cancelled'};
   }
   async recover() {
@@ -128,6 +129,7 @@ export class ScanService {
     if (!job) return false;
     const controller=new AbortController();
     this.currentController=controller;
+    this.currentJobId=job.id as string;
     try {
       const locator=await allowedRepository(job.local_locator as string,this.config.root);
       const request={repositoryPath:locator,repositoryId:job.repository_id as string,
@@ -146,6 +148,7 @@ export class ScanService {
         WHERE id=${job.id} AND state='running'`;
     } finally {
       this.currentController=null;
+      this.currentJobId=null;
     }
     return true;
   }

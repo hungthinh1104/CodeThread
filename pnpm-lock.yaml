@@ -4,6 +4,10 @@ lockfileVersion: '9.0'
 importers:
 
   .:
+    dependencies:
+      postgres:
+        specifier: 3.4.7
+        version: 3.4.7
     configDependencies: {}
     packageManagerDependencies:
       pnpm:
@@ -95,6 +99,8 @@ packages:
     hasBin: true
 
 snapshots:
+
+  postgres@3.4.7: {}
 
   '@pnpm/exe.android-arm64@12.16.1':
     optional: true
@@ -259,6 +265,10 @@ importers:
         version: 24.19.2
 
 packages:
+
+  postgres@3.4.7:
+    resolution: {integrity: sha512-Jtc2612XINuBjIl/QTWsV5UvE8UHuNblcO3vVADSrKsrc6RqGX6lOW1cEo3CM2v0XG4Nat8nI+YM7/f26VxXLw==}
+    engines: {node: '>=12'}
 
   '@cacheable/memory@2.2.0':
     resolution: {integrity: sha512-CTLKqLItRCEixEAewD3/j9DB3/o96gpTPD4eJ1v+DGOlxZRZncRQkGYqqnAGCscYd6RNeXfGeiuCphsPtqyIfQ==}

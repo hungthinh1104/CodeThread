@@ -1,4 +1,3 @@
-import { createServer } from 'node:http';
 import { serviceConfig } from './config.ts';
 import { connect, acquireServiceLock, assertMigrations } from './database.ts';
 import { ScanService } from './service.ts';
@@ -18,9 +17,10 @@ try{
     server.listen(config.port,'127.0.0.1',resolve);
   });
   console.log('CodeThread persistent API listening on 127.0.0.1:'+config.port);
-  void service.run();
+  const runPromise=service.run();
   const shutdown=async()=>{
     service.stop();
+    await runPromise;
     await new Promise<void>(resolve=>server.close(()=>resolve()));
     await unlock?.();
     await db.end({timeout:5});

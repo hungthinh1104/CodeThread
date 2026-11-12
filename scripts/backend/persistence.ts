@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AnalysisFacts, VerifiedSourceReader } from '@codethread/code-model';
-import { createSourcePositionIndex } from '@codethread/code-model';
+import { createSourcePositionIndex, summarizeCoverage } from '@codethread/code-model';
 import { createInvestigation } from '@codethread/trace-engine';
 import type { Database } from './database.ts';
 
@@ -50,10 +50,10 @@ export async function persistScan(sql: Sql, jobId: string, repositoryId: string,
         // The analyzer has already verified facts against immutable source bytes.
         createInvestigation(snapshot.facts, snapshot.source, { resourceProfile: 'repository' });
         const f = snapshot.facts;
-        const existing = (await db`SELECT state, facts_json FROM codethread.repository_snapshot
+        const existing = (await db`SELECT state, facts_json = ${db.json(f)}::jsonb AS same
+          FROM codethread.repository_snapshot
           WHERE id = ${f.snapshotId} AND repository_id = ${repositoryId} FOR UPDATE`)[0];
-        if (existing && (existing.state !== 'published' ||
-          JSON.stringify(existing.facts_json) !== JSON.stringify(f)))
+        if (existing && (existing.state !== 'published' || !existing.same))
           throw new Error('Snapshot identity collision or incomplete staging');
         if (!existing) {
           await db`INSERT INTO codethread.repository_snapshot
@@ -61,7 +61,7 @@ export async function persistScan(sql: Sql, jobId: string, repositoryId: string,
              configuration_hash, coverage, facts_json)
             VALUES (${f.snapshotId}, ${repositoryId}, ${f.identity.sourceFingerprint},
               ${f.identity.analyzerVersion}, ${f.identity.analyzerBuildHash},
-              ${f.identity.configurationHash}, 'partial', ${db.json(f)})`;
+              ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${db.json(f)})`;
           const fileRows: Record<string, unknown>[] = [];
           for (const file of f.files) {
             const bytes = snapshot.source.readFile(file.id);

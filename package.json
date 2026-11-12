@@ -35,7 +35,9 @@
     "req:list": "node scripts/requirements.ts list",
     "req:show": "node scripts/requirements.ts show",
     "req:context": "node scripts/requirements.ts context",
-    "check": "pnpm format:check && pnpm lint && pnpm req:validate && pnpm arch:check && pnpm build && pnpm study:validate && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm lint && pnpm req:validate && pnpm arch:check && pnpm build && pnpm study:validate && pnpm typecheck && pnpm test",
+    "backend:start": "node scripts/backend/main.ts",
+    "backend:migrate": "node scripts/backend/migrate.ts"
   },
   "devDependencies": {
     "@codethread/code-model": "workspace:*",
@@ -53,5 +55,8 @@
     "vitest": "5.0.5",
     "yaml": "2.9.1",
     "zod": "4.6.7"
+  },
+  "dependencies": {
+    "postgres": "3.4.7"
   }
 }
