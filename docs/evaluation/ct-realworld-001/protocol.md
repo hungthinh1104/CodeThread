@@ -14,6 +14,13 @@ contexts and are excluded from the external semantic score. The labels were
 authored by AI after reading pinned Git blobs and are awaiting independent human
 review. They are not suitable as independently reviewed research gold.
 
+Use the answer-blind worksheet in
+[`independent-review.md`](./independent-review.md) for source-based review. The
+reviewer must not have authored the labels and must finish an independent answer
+record before viewing the label JSON or CodeThread outputs. The worksheet does
+not itself establish review status; record that only after the completed review
+and any adjudication are preserved.
+
 The 2026-11-12 result record is [run-2026-11-12.md](./run-2026-11-12.md), tied
 to code candidate `ab41baa42b755b845b744445d0089b70635df08c`.
 
