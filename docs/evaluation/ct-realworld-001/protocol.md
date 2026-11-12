@@ -194,14 +194,14 @@ unchanged frozen task bank at a new candidate SHA.
 ## Human-study authorization and privacy
 
 This engineering protocol does not by itself authorize recruitment or
-human-scored comprehension. On 2026-11-12, the user reported that
-institutional/academic approval covers CT-REALWORLD-001 as written and will
-coordinate introductions. That statement conflicts with this protocol's stated
-scope: the purpose excludes human comprehension, and no human-study procedure
-is included. No approved human-study amendment or approval reference is
-recorded in this repository. Do not recruit, score human results, or collect
-participant data until the approved scope is identified and reconciled with
-this protocol. No outreach or data collection has occurred from this workspace.
+human-scored comprehension. On 2026-11-12, the user confirmed that a separate
+approved human-study amendment exists and will coordinate introductions. The
+amendment version/reference, approved cohort, consent, and data-handling terms
+have not been provided to this workspace. The current protocol's purpose
+excludes human comprehension and contains no human-study procedure. Do not
+recruit, score human results, or collect participant data until the approved
+amendment is identified and its terms are reconciled with this protocol. No
+outreach or data collection has occurred from this workspace.
 
 Keep approval documents and participant identities/contact details outside the
 repository. Follow the approved cohort, consent, and data-handling terms. Use
