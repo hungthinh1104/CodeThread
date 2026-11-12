@@ -193,15 +193,21 @@ unchanged frozen task bank at a new candidate SHA.
 
 ## Human-study authorization and privacy
 
-On 2026-11-12, the user reported that institutional/academic approval covers
-CT-REALWORLD-001 as written and will coordinate participant introductions.
-This is a user-reported authorization status; approval documents and participant
-identities/contact details do not belong in this repository. No outreach or data
-collection has occurred from this workspace. Follow the approved cohort,
-consent, and data-handling terms. Use the blind worksheet only with a reviewer
-who did not author the labels and has not seen CodeThread predictions.
-Participant scoring remains blocked until independent answer-key review is
-completed and preserved.
+This engineering protocol does not by itself authorize recruitment or
+human-scored comprehension. On 2026-11-12, the user reported that
+institutional/academic approval covers CT-REALWORLD-001 as written and will
+coordinate introductions. That statement conflicts with this protocol's stated
+scope: the purpose excludes human comprehension, and no human-study procedure
+is included. No approved human-study amendment or approval reference is
+recorded in this repository. Do not recruit, score human results, or collect
+participant data until the approved scope is identified and reconciled with
+this protocol. No outreach or data collection has occurred from this workspace.
+
+Keep approval documents and participant identities/contact details outside the
+repository. Follow the approved cohort, consent, and data-handling terms. Use
+the blind worksheet only with a reviewer who did not author the labels and has
+not seen CodeThread predictions. Participant scoring remains blocked until
+independent answer-key review is completed and preserved.
 
 Do not claim human benefit, independent gold review, universal TypeScript
 support, execution semantics, or research effectiveness. The appropriate
