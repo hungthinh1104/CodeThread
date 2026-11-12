@@ -46,7 +46,6 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
     const commit = git('rev-parse', 'HEAD').trim();
     const db = connect(dbUrl!);
     let service: ScanService | undefined;
-    let stop: undefined | (() => Promise<void>);
     let server: ReturnType<typeof makeApi> | undefined;
     try {
       await assertMigrations(db);
@@ -70,7 +69,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       expect(second.id).not.toBe(first.id);
       const running = service.run();
       const deadline = Date.now() + 90_000;
-      let last: any;
+      let last: Awaited<ReturnType<ScanService['job']>> | undefined;
       while (Date.now() < deadline) {
         last = await service.job(second.id);
         if (['succeeded', 'failed', 'cancelled'].includes(last.state)) break;
@@ -85,7 +84,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       const active = await service.repository(repo.id);
       expect(active.active_job_id).toBe(second.id);
       const projects = await service.projects(second.id);
-      const usable = projects.find((p: any) => p.status === 'ready');
+      const usable = projects.find((p) => p.status === 'ready');
       expect(usable).toBeDefined();
       const snapshot = await loadSnapshot(db, usable!.snapshot_id as string);
       expect(snapshot.facts.files.some((f) => f.path === 'index.ts')).toBe(
