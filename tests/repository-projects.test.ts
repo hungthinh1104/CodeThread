@@ -227,6 +227,63 @@ describe('pinned monorepo project contexts', () => {
     ).toThrowError(expect.objectContaining({ code: 'SNAPSHOT_NOT_FOUND' }));
   }, 30000);
 
+  it('resolves direct calls when target bodies contain unrelated type errors', async () => {
+    const snapshot = await analyzeProject({
+      repositoryId,
+      files: [
+        file(
+          'src/index.ts',
+          [
+            'function createSetupStore() { const broken: string = 1; }',
+            'function createOptionsStore() { createSetupStore(); const broken: string = 2; }',
+            'export function defineStore() { function useStore() { createSetupStore(); createOptionsStore(); } }',
+          ].join('\n'),
+        ),
+      ],
+      metadata: [
+        file(
+          'tsconfig.json',
+          JSON.stringify({
+            compilerOptions: {
+              target: 'ES2023',
+              module: 'ESNext',
+              moduleResolution: 'Bundler',
+              types: [],
+              strict: true,
+              lib: ['ES2023'],
+            },
+            files: ['src/index.ts'],
+          }),
+        ),
+      ],
+      workspacePackages: [],
+      configPath: 'tsconfig.json',
+    });
+
+    expect(
+      snapshot.facts.diagnostics.filter((item) => item.code === 'TS_2322'),
+    ).toHaveLength(2);
+    expect(snapshot.facts.relations).toHaveLength(3);
+    expect(
+      snapshot.facts.relations.map((relation) => {
+        const owner = snapshot.facts.symbols.find(
+          (symbol) => symbol.id === relation.sourceSymbolId,
+        )?.name;
+        const target =
+          relation.resolution.status === 'exact'
+            ? snapshot.facts.symbols.find(
+                (symbol) => symbol.id === relation.resolution.targetId,
+              )?.name
+            : relation.resolution.status;
+        return [owner, target];
+      }),
+    ).toEqual([
+      ['createOptionsStore', 'createSetupStore'],
+      ['useStore', 'createSetupStore'],
+      ['useStore', 'createOptionsStore'],
+    ]);
+  }, 30000);
+
   it('cancels an active project worker without publishing a snapshot', async () => {
     const input = fixture(),
       controller = new AbortController();

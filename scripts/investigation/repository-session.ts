@@ -28,6 +28,7 @@ export async function analyzeGitRepository(
 ) {
   const limits = analysisResourceLimits('repository'),
     budget = createSessionBudget(request.signal, limits.maxDeadlineMs);
+  let deadlineExceeded = false;
   let parentPeakRssBytes = process.memoryUsage().rss;
   const interval = setInterval(() => {
     parentPeakRssBytes = Math.max(
@@ -60,8 +61,53 @@ export async function analyzeGitRepository(
     let resultBytes = 0,
       memberships = 0,
       contextSourceBytes = 0;
-    for (const project of plan.projects) {
-      budget.throwIfStopped();
+    const throwIfCallerCancelled = () => {
+      if (request.signal?.aborted)
+        throw new AnalysisError('CANCELLED', 'Repository analysis cancelled.');
+    };
+    const markRemainingProjects = (startIndex: number) => {
+      deadlineExceeded = true;
+      for (const project of plan.projects.slice(startIndex))
+        projects.push(
+          project.status === 'ready'
+            ? {
+                project,
+                status: 'not_analyzed',
+                error: {
+                  code: 'ANALYSIS_TIMEOUT',
+                  message:
+                    'Project analysis did not complete before the repository session deadline.',
+                },
+              }
+            : { project, status: project.status },
+        );
+    };
+    const recordTimeout = (error: unknown, projectIndex: number) => {
+      if (!(
+        error instanceof AnalysisError && error.code === 'ANALYSIS_TIMEOUT'
+      ))
+        return false;
+      throwIfCallerCancelled();
+      markRemainingProjects(projectIndex);
+      return true;
+    };
+    const checkProjectBudget = (projectIndex: number) => {
+      try {
+        throwIfCallerCancelled();
+        budget.throwIfStopped();
+        return true;
+      } catch (error) {
+        if (recordTimeout(error, projectIndex)) return false;
+        throw error;
+      }
+    };
+    for (
+      let projectIndex = 0;
+      projectIndex < plan.projects.length;
+      projectIndex++
+    ) {
+      const project = plan.projects[projectIndex]!;
+      if (!checkProjectBudget(projectIndex)) break;
       if (project.status !== 'ready') {
         projects.push({ project, status: project.status });
         continue;
@@ -77,6 +123,7 @@ export async function analyzeGitRepository(
           deadlineAt: budget.deadlineAt,
           signal: budget.signal,
         });
+        throwIfCallerCancelled();
         budget.throwIfStopped();
         const bytes = snapshot.execution?.ipcBytes ?? 0;
         const sourceBytes = snapshot.facts.files.reduce(
@@ -99,14 +146,12 @@ export async function analyzeGitRepository(
         contextSourceBytes += sourceBytes;
         projects.push({ project, status: 'ready', snapshot });
       } catch (error) {
-        if (
-          error instanceof AnalysisError &&
-          ['CANCELLED', 'ANALYSIS_TIMEOUT'].includes(error.code)
-        ) {
-          budget.throwIfStopped();
+        if (error instanceof AnalysisError && error.code === 'CANCELLED') {
+          throwIfCallerCancelled();
           throw error;
         }
-        budget.throwIfStopped();
+        if (recordTimeout(error, projectIndex)) break;
+        if (!checkProjectBudget(projectIndex)) break;
         projects.push({
           project,
           status: 'failed',
@@ -125,10 +170,10 @@ export async function analyzeGitRepository(
         process.memoryUsage().rss,
       );
     }
-    budget.throwIfStopped();
+    throwIfCallerCancelled();
     const analyzed = new Set<string>();
     for (const project of projects) {
-      budget.throwIfStopped();
+      throwIfCallerCancelled();
       for (const file of project.snapshot?.facts.files ?? [])
         analyzed.add(file.path);
     }
@@ -136,10 +181,11 @@ export async function analyzeGitRepository(
       ...workspace.diagnostics,
     ]);
     const contextComplete =
+      !deadlineExceeded &&
       plan.contextComplete &&
       !diagnostics.length &&
       projects.every((project) => {
-        budget.throwIfStopped();
+        throwIfCallerCancelled();
         return (
           (project.status === 'ready' || project.status === 'solution') &&
           !project.snapshot?.contextDiagnostics?.length &&
@@ -156,9 +202,9 @@ export async function analyzeGitRepository(
         );
       });
     const files = acquired.files.map((file) => {
-      budget.throwIfStopped();
+      throwIfCallerCancelled();
       const owners = projects.filter((project) => {
-        budget.throwIfStopped();
+        throwIfCallerCancelled();
         return project.project.rootPaths.includes(file.path);
       });
       const status = analyzed.has(file.path) ? 'analyzed' : 'not_analyzed';
@@ -189,7 +235,7 @@ export async function analyzeGitRepository(
         projectIds: Object.freeze(owners.map((project) => project.project.id)),
       });
     });
-    budget.throwIfStopped();
+    throwIfCallerCancelled();
     const session = Object.freeze({
       repositoryId: acquired.repositoryId,
       commitId: acquired.commitId,
@@ -198,17 +244,19 @@ export async function analyzeGitRepository(
       files: Object.freeze(files),
       projects: Object.freeze(
         projects.map((project) => {
-          budget.throwIfStopped();
+          throwIfCallerCancelled();
           return Object.freeze(project);
         }),
       ),
       diagnostics,
       sourceCoverageComplete: files.every((file) => file.status === 'analyzed'),
       contextComplete,
-      analysisComplete: projects.every(
-        (project) =>
-          project.status === 'ready' || project.status === 'solution',
-      ),
+      analysisComplete:
+        !deadlineExceeded &&
+        projects.every(
+          (project) =>
+            project.status === 'ready' || project.status === 'solution',
+        ),
       metrics: Object.freeze({
         acquisitionMs: acquired.durationMs,
         totalMs: performance.now() - budget.startedAt,
@@ -219,10 +267,12 @@ export async function analyzeGitRepository(
         git: acquired.statistics,
       }),
     });
-    budget.throwIfStopped();
+    throwIfCallerCancelled();
     return session;
   } catch (error) {
-    budget.throwIfStopped();
+    if (request.signal?.aborted)
+      throw new AnalysisError('CANCELLED', 'Repository analysis cancelled.');
+    if (!deadlineExceeded) budget.throwIfStopped();
     throw error;
   } finally {
     clearInterval(interval);

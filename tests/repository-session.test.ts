@@ -1,5 +1,8 @@
 import { rm } from 'node:fs/promises';
-import { afterEach, describe, expect, it } from 'vitest';
+import * as codeModel from '@codethread/code-model';
+import * as symbolIndexer from '@codethread/symbol-indexer';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AnalysisError } from '@codethread/symbol-indexer';
 import { analyzeGitRepository } from '../scripts/investigation/repository-session.ts';
 import { repositoryWorkspaces } from '../scripts/investigation/repository-workspaces.ts';
 import { createGitRepository } from './helpers/git-fixture.ts';
@@ -9,6 +12,7 @@ const temporaryDirectories: string[] = [];
 afterEach(async () => {
   for (const path of temporaryDirectories.splice(0))
     await rm(path, { recursive: true, force: true });
+  vi.restoreAllMocks();
 });
 const repositoryId = '00000000-0000-4000-8000-000000000074';
 
@@ -51,14 +55,133 @@ describe('repository project execution', () => {
       temporaryDirectories,
     );
     const controller = new AbortController();
+    let resolveStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    vi.spyOn(symbolIndexer, 'analyzeProject').mockImplementation((input) => {
+      resolveStarted();
+      return new Promise<
+        Awaited<ReturnType<typeof symbolIndexer.analyzeProject>>
+      >((_resolve, reject) => {
+        const signal = input.signal;
+        const onAbort = () =>
+          reject(
+            new AnalysisError('CANCELLED', 'Repository analysis cancelled.'),
+          );
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort, { once: true });
+      });
+    });
     const pending = analyzeGitRepository({
       repositoryPath: repository.directory,
       repositoryId,
       revision: repository.revision,
       signal: controller.signal,
     });
+    await started;
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: 'CANCELLED' });
+  }, 30000);
+
+  it('returns completed contexts and marks remaining contexts when the session deadline expires', async () => {
+    const repository = await createGitRepository(
+      [
+        { path: 'package.json', source: '{"workspaces":["packages/*"]}' },
+        {
+          path: 'tsconfig.json',
+          source:
+            '{"files":[],"references":[{"path":"packages/a-fast"},{"path":"packages/b-slow"},{"path":"packages/c-later"}]}',
+        },
+        ...['a-fast', 'b-slow', 'c-later'].flatMap((name) => [
+          {
+            path: `packages/${name}/package.json`,
+            source: JSON.stringify({ name: `@fixture/${name}` }),
+          },
+          {
+            path: `packages/${name}/tsconfig.json`,
+            source:
+              '{"compilerOptions":{"types":[],"target":"ES2023"},"files":["index.ts"]}',
+          },
+          {
+            path: `packages/${name}/index.ts`,
+            source: `export function ${name.replace('-', '')}() {}`,
+          },
+        ]),
+      ],
+      temporaryDirectories,
+    );
+    const originalLimits = codeModel.analysisResourceLimits;
+    const originalAnalyzeProject = symbolIndexer.analyzeProject;
+    const slowProjectStarted = vi.fn();
+    vi.spyOn(codeModel, 'analysisResourceLimits').mockImplementation(
+      (profile = 'selected') =>
+        profile === 'repository'
+          ? { ...originalLimits(profile), maxDeadlineMs: 8000 }
+          : originalLimits(profile),
+    );
+    vi.spyOn(symbolIndexer, 'analyzeProject').mockImplementation(
+      async (input) => {
+        if (input.configPath === 'packages/b-slow/tsconfig.json') {
+          slowProjectStarted();
+          await new Promise<never>((_resolve, reject) => {
+            const signal = input.signal;
+            const onAbort = () =>
+              reject(
+                new AnalysisError(
+                  'ANALYSIS_TIMEOUT',
+                  'Repository analysis deadline exceeded.',
+                ),
+              );
+            if (signal?.aborted) onAbort();
+            else signal?.addEventListener('abort', onAbort, { once: true });
+          });
+        }
+        return originalAnalyzeProject(input);
+      },
+    );
+
+    const session = await analyzeGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+
+    expect(slowProjectStarted).toHaveBeenCalledOnce();
+    expect(session.inventory.complete).toBe(true);
+    expect(session.projects).toContainEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          configPath: 'packages/a-fast/tsconfig.json',
+        }),
+        status: 'ready',
+        snapshot: expect.any(Object),
+      }),
+    );
+    for (const name of ['b-slow', 'c-later']) {
+      const project = session.projects.find(
+        (entry) =>
+          entry.project.configPath === `packages/${name}/tsconfig.json`,
+      );
+      expect(project).toMatchObject({
+        status: 'not_analyzed',
+        error: { code: 'ANALYSIS_TIMEOUT' },
+      });
+      expect(project?.snapshot).toBeUndefined();
+    }
+    expect(session.files.map((file) => [file.path, file.status])).toEqual([
+      ['packages/a-fast/index.ts', 'analyzed'],
+      ['packages/b-slow/index.ts', 'not_analyzed'],
+      ['packages/c-later/index.ts', 'not_analyzed'],
+    ]);
+    expect(
+      session.files
+        .filter((file) => file.status === 'not_analyzed')
+        .every((file) => file.analysisReason?.includes('ANALYSIS_TIMEOUT')),
+    ).toBe(true);
+    expect(session.sourceCoverageComplete).toBe(false);
+    expect(session.analysisComplete).toBe(false);
+    expect(session.contextComplete).toBe(false);
   }, 30000);
 
   it('retains a usable project when another project contains malformed source', async () => {

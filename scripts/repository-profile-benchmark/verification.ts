@@ -9,11 +9,19 @@ export interface RepositoryProfileInputEvidence {
   sourceCoverageComplete: boolean;
   analysisComplete: boolean;
   contextComplete: boolean;
+  contextDiagnosticCodes: readonly string[];
 }
 
 export function assertRepositoryProfileInputs(
   evidence: RepositoryProfileInputEvidence,
 ): void {
+  const contextDiagnosticCodes = [
+    ...new Set(evidence.contextDiagnosticCodes),
+  ].sort();
+  const contextDiagnosticsAreExpected = evidence.contextComplete
+    ? contextDiagnosticCodes.length === 0
+    : contextDiagnosticCodes.length === 1 &&
+      contextDiagnosticCodes[0] === 'SEMANTIC_DIAGNOSTICS_SCOPED';
   if (
     evidence.actualCommitId !== evidence.expectedCommitId ||
     !evidence.inventoryComplete ||
@@ -21,9 +29,25 @@ export function assertRepositoryProfileInputs(
     evidence.actualSourceBytes !== evidence.expectedSourceBytes ||
     !evidence.sourceCoverageComplete ||
     !evidence.analysisComplete ||
-    !evidence.contextComplete
+    !contextDiagnosticsAreExpected
   )
-    throw new Error('Repository profile benchmark did not complete its inputs');
+    throw new Error(
+      `Repository profile benchmark did not complete its inputs: ${JSON.stringify(
+        {
+          actualCommitId: evidence.actualCommitId,
+          expectedCommitId: evidence.expectedCommitId,
+          inventoryComplete: evidence.inventoryComplete,
+          actualSourceFiles: evidence.actualSourceFiles,
+          expectedSourceFiles: evidence.expectedSourceFiles,
+          actualSourceBytes: evidence.actualSourceBytes,
+          expectedSourceBytes: evidence.expectedSourceBytes,
+          sourceCoverageComplete: evidence.sourceCoverageComplete,
+          analysisComplete: evidence.analysisComplete,
+          contextComplete: evidence.contextComplete,
+          contextDiagnosticCodes,
+        },
+      )}`,
+    );
 }
 
 export function assertRepositoryProfileCall<T>(

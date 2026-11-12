@@ -55,5 +55,5 @@ export const PROJECT_LIMITS = Object.freeze({
   maxMetadataFiles: 256,
   maxMetadataBytes: 4 * 1024 * 1024,
   maxContextSourceBytes: 128 * 1024 * 1024,
-  maxSessionResultBytes: 128 * 1024 * 1024,
+  maxSessionResultBytes: 384 * 1024 * 1024,
 });

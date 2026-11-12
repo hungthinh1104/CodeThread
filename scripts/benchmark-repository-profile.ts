@@ -152,6 +152,20 @@ try {
     repositoryId,
     revision,
   });
+  const contextDiagnosticCodes = [
+    ...new Set([
+      ...session.diagnostics.map((diagnostic) => diagnostic.code),
+      ...session.projects.flatMap((item) => [
+        ...item.project.diagnostics.map((diagnostic) => diagnostic.code),
+        ...(item.snapshot?.contextDiagnostics ?? []).map(
+          (diagnostic) => diagnostic.code,
+        ),
+        ...(item.snapshot?.facts.diagnostics ?? []).map(
+          (diagnostic) => diagnostic.code,
+        ),
+      ]),
+    ]),
+  ].sort();
   assertRepositoryProfileInputs({
     expectedCommitId: revision,
     actualCommitId: session.commitId,
@@ -163,6 +177,7 @@ try {
     sourceCoverageComplete: session.sourceCoverageComplete,
     analysisComplete: session.analysisComplete,
     contextComplete: session.contextComplete,
+    contextDiagnosticCodes,
   });
   const project = session.projects.find(
     (item) => item.project.configPath === 'tsconfig.json',
@@ -261,6 +276,7 @@ try {
         contextsFinished: session.analysisComplete,
         sourceCoverageComplete: session.sourceCoverageComplete,
         compilerContextComplete: session.contextComplete,
+        contextDiagnosticCodes,
         maximumFileBytes: Math.max(
           ...session.files.map((file) => file.byteLength),
         ),

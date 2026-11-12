@@ -32,6 +32,10 @@ export function extractFacts(
         Buffer.from(files.get(b.fileName)!.path),
       ),
     );
+  const semanticDiagnosticFiles =
+    projectContext && sourceFiles.length > limits.maxFullSemanticDiagnosticFiles
+      ? collectSemanticDiagnosticFiles(sourceFiles, checker, projectContext)
+      : sourceFiles;
   let declarationCount = 0,
     callCount = 0,
     referenceCandidateCount = 0,
@@ -99,7 +103,7 @@ export function extractFacts(
     methods = new Map<ts.MethodDeclaration, CodeSymbol>();
   const evidences = new Map<string, SourceEvidence>();
   const errors = new Map<string, { starts: number[]; maxEnds: number[] }>();
-  for (const file of sourceFiles) {
+  for (const file of semanticDiagnosticFiles) {
     const source = files.get(file.fileName)!;
     const index = positions.get(file.fileName)!;
     const ranges: { start: number; end: number }[] = [];
@@ -154,12 +158,22 @@ export function extractFacts(
       maxEnds: ranges.map((range) => (maximum = Math.max(maximum, range.end))),
     });
   }
-  function hasErrors(node: ts.Node): boolean {
-    const file = node.getSourceFile(),
-      ranges = errors.get(file.fileName);
+  const contextDiagnostics =
+    semanticDiagnosticFiles.length < sourceFiles.length
+      ? [
+          {
+            code: 'SEMANTIC_DIAGNOSTICS_SCOPED',
+            message: `Semantic diagnostics were checked for ${semanticDiagnosticFiles.length} of ${sourceFiles.length} source files involved in supported relationships.`,
+          },
+        ]
+      : undefined;
+  function hasErrorsInRange(
+    file: ts.SourceFile,
+    start: number,
+    end: number,
+  ): boolean {
+    const ranges = errors.get(file.fileName);
     if (!ranges) return false;
-    const start = node.getStart(file),
-      end = node.end;
     let low = 0,
       high = ranges.starts.length;
     while (low < high) {
@@ -168,6 +182,18 @@ export function extractFacts(
       else high = middle;
     }
     return low > 0 && ranges.maxEnds[low - 1]! > start;
+  }
+  function hasErrors(node: ts.Node): boolean {
+    const file = node.getSourceFile();
+    return hasErrorsInRange(file, node.getStart(file), node.end);
+  }
+  function hasBindingErrors(declaration: ts.FunctionDeclaration): boolean {
+    const file = declaration.getSourceFile();
+    return hasErrorsInRange(
+      file,
+      declaration.getStart(file),
+      declaration.body?.getStart(file) ?? declaration.end,
+    );
   }
   const written = new Set<ts.Symbol>();
   function markWritten(node: ts.Node): void {
@@ -568,7 +594,7 @@ export function extractFacts(
             ? 'MUTATED_BINDING'
             : target &&
                 (hasErrors(node) ||
-                  (declaration && hasErrors(declaration)) ||
+                  (declaration && hasBindingErrors(declaration)) ||
                   (importBinding && hasErrors(importBinding)))
               ? 'INVALID_BINDING'
               : undefined;
@@ -776,5 +802,116 @@ export function extractFacts(
         'constructors.v1': 'not_analyzed',
       },
     },
+    ...(contextDiagnostics === undefined ? {} : { contextDiagnostics }),
   };
+}
+
+function collectSemanticDiagnosticFiles(
+  sourceFiles: readonly ts.SourceFile[],
+  checker: ts.TypeChecker,
+  projectContext: boolean,
+): ts.SourceFile[] {
+  const sourceSet = new Set(sourceFiles),
+    selected = new Set<ts.SourceFile>();
+  const add = (file: ts.SourceFile) => {
+    if (sourceSet.has(file)) selected.add(file);
+  };
+  function addDirectTarget(file: ts.SourceFile, expression: ts.Expression) {
+    if (!ts.isIdentifier(expression)) return;
+    let symbol = checker.getSymbolAtLocation(expression),
+      importedFile: ts.SourceFile | undefined;
+    if (symbol && symbol.flags & ts.SymbolFlags.Alias) {
+      const binding = symbol.declarations?.[0];
+      if (
+        binding &&
+        ts.isImportSpecifier(binding) &&
+        !binding.isTypeOnly &&
+        !binding.parent.parent.isTypeOnly &&
+        ts.isStringLiteral(binding.parent.parent.parent.moduleSpecifier) &&
+        (projectContext ||
+          /^\.\.?\//.test(binding.parent.parent.parent.moduleSpecifier.text))
+      ) {
+        importedFile = checker
+          .getSymbolAtLocation(binding.parent.parent.parent.moduleSpecifier)
+          ?.declarations?.find(ts.isSourceFile);
+        symbol = importedFile ? checker.getAliasedSymbol(symbol) : undefined;
+      } else symbol = undefined;
+    }
+    const declarations = symbol?.declarations ?? [],
+      functions = declarations.filter(ts.isFunctionDeclaration);
+    if (
+      declarations.length === 1 &&
+      functions.length === 1 &&
+      functions[0]!.body &&
+      (!importedFile || functions[0]!.getSourceFile() === importedFile)
+    ) {
+      add(file);
+      add(functions[0]!.getSourceFile());
+    }
+  }
+  function addReferenceTarget(file: ts.SourceFile, expression: ts.Expression) {
+    if (
+      !ts.isPropertyAccessExpression(expression) ||
+      expression.questionDotToken
+    )
+      return;
+    const declarations =
+      checker.getSymbolAtLocation(expression.name)?.declarations ?? [];
+    const methods = declarations.filter(ts.isMethodDeclaration);
+    if (
+      declarations.length === 1 &&
+      methods.length === 1 &&
+      methods[0]!.body &&
+      ts.isIdentifier(methods[0]!.name)
+    ) {
+      add(file);
+      add(methods[0]!.getSourceFile());
+    }
+  }
+  for (const file of sourceFiles) {
+    function visit(
+      node: ts.Node,
+      callOwner = false,
+      referenceOwner = false,
+    ): void {
+      if (ts.isCallExpression(node)) {
+        if (callOwner) addDirectTarget(file, node.expression);
+        if (referenceOwner)
+          for (const argument of node.arguments)
+            if (
+              ts.isPropertyAccessExpression(argument) ||
+              ts.isElementAccessExpression(argument)
+            ) {
+              add(file);
+              addReferenceTarget(file, argument);
+            }
+      }
+      if (ts.isFunctionLike(node)) {
+        const functionOwner =
+            ts.isFunctionDeclaration(node) && node.name && node.body,
+          methodOwner =
+            ts.isMethodDeclaration(node) &&
+            ts.isIdentifier(node.name) &&
+            node.body,
+          body = 'body' in node ? node.body : undefined,
+          ownsCalls =
+            functionOwner ||
+            (methodOwner &&
+              ts.isMethodDeclaration(node) &&
+              ts.isClassLike(node.parent));
+        ts.forEachChild(node, (child) => {
+          visit(
+            child,
+            child === body && !!ownsCalls,
+            child === body && !!(functionOwner || methodOwner),
+          );
+        });
+      } else
+        ts.forEachChild(node, (child) =>
+          visit(child, callOwner, referenceOwner),
+        );
+    }
+    visit(file);
+  }
+  return sourceFiles.filter((file) => selected.has(file));
 }

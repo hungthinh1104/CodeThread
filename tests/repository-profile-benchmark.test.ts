@@ -16,6 +16,7 @@ const validInputs = {
   sourceCoverageComplete: true,
   analysisComplete: true,
   contextComplete: true,
+  contextDiagnosticCodes: [],
 };
 
 const validQueries = {
@@ -35,6 +36,40 @@ describe('repository profile benchmark integrity gate', () => {
   it('accepts complete, pinned workload evidence and query results', () => {
     expect(() => assertRepositoryProfileInputs(validInputs)).not.toThrow();
     expect(() => assertRepositoryProfileQueries(validQueries)).not.toThrow();
+  });
+
+  it('accepts explicitly scoped diagnostics without claiming a complete context', () => {
+    const scopedInputs = {
+      ...validInputs,
+      contextComplete: false,
+      contextDiagnosticCodes: ['SEMANTIC_DIAGNOSTICS_SCOPED'],
+    };
+    expect(() => assertRepositoryProfileInputs(scopedInputs)).not.toThrow();
+  });
+
+  it('rejects incomplete context evidence without an explicit reason', () => {
+    expect(() =>
+      assertRepositoryProfileInputs({ ...validInputs, contextComplete: false }),
+    ).toThrow(/did not complete its inputs/);
+  });
+
+  it('rejects incomplete context evidence with unrelated diagnostics', () => {
+    expect(() =>
+      assertRepositoryProfileInputs({
+        ...validInputs,
+        contextComplete: false,
+        contextDiagnosticCodes: ['TS_2307', 'SEMANTIC_DIAGNOSTICS_SCOPED'],
+      }),
+    ).toThrow(/did not complete its inputs/);
+  });
+
+  it('rejects labeling scoped diagnostics as a complete context', () => {
+    expect(() =>
+      assertRepositoryProfileInputs({
+        ...validInputs,
+        contextDiagnosticCodes: ['SEMANTIC_DIAGNOSTICS_SCOPED'],
+      }),
+    ).toThrow(/did not complete its inputs/);
   });
 
   it('rejects a mutated source count instead of reporting a passing workload', () => {

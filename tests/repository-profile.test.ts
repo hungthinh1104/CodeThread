@@ -1,6 +1,14 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
+import {
+  analysisResourceLimits,
+  withinAnalysisCollectionLimits,
+} from '@codethread/code-model';
+import {
+  analyzeManifest,
+  COMPILER_PROFILE,
+  PROJECT_LIMITS,
+} from '@codethread/symbol-indexer';
 import { createInvestigation } from '@codethread/trace-engine';
 
 const repositoryId = '00000000-0000-4000-8000-000000000071';
@@ -16,6 +24,64 @@ const files = Array.from({ length: 21 }, (_, index) => {
 });
 
 describe('repository resource profile through the semantic pipeline', () => {
+  it('keeps the expanded repository limits finite and validates their boundary', () => {
+    const limits = analysisResourceLimits('repository');
+    const facts = {
+      files: [],
+      symbols: [],
+      relations: [],
+      evidenceRefs: [],
+      diagnostics: [],
+      observations: new Array(100_000),
+    };
+
+    expect(analysisResourceLimits('selected').maxCallSites).toBe(5000);
+    expect(
+      analysisResourceLimits('selected').maxFullSemanticDiagnosticFiles,
+    ).toBe(20);
+    expect(limits.maxCallSites).toBe(100_000);
+    expect(limits.maxFullSemanticDiagnosticFiles).toBe(64);
+    expect(PROJECT_LIMITS.maxSessionResultBytes).toBe(384 * 1024 * 1024);
+    expect(withinAnalysisCollectionLimits(facts, limits)).toBe(true);
+    expect(
+      withinAnalysisCollectionLimits(
+        { ...facts, observations: new Array(100_001) },
+        limits,
+      ),
+    ).toBe(false);
+  });
+
+  it('preserves exact call occurrences above the previous repository limit', async () => {
+    const callCount = 50_001;
+    const source = `function target() {}\nexport function caller() {\n${'  target();\n'.repeat(callCount)}}\n`;
+    const bytes = new TextEncoder().encode(source);
+    const snapshot = await analyzeManifest({
+      repositoryId,
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'many-calls.ts',
+          bytes,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+      resourceProfile: 'repository',
+    });
+
+    expect(snapshot.facts.observations).toHaveLength(callCount);
+    expect(snapshot.facts.relations).toHaveLength(callCount);
+    expect(
+      new Set(
+        snapshot.facts.relations.map((relation) => relation.siteEvidenceId),
+      ).size,
+    ).toBe(callCount);
+    expect(
+      snapshot.facts.relations.every(
+        (relation) => relation.resolution.status === 'exact',
+      ),
+    ).toBe(true);
+  }, 60000);
+
   it('admits more than twenty files consistently through verified graph queries', async () => {
     const snapshot = await analyzeManifest({
       repositoryId,

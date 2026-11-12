@@ -56,7 +56,7 @@ describe('CT-INDEX-001A semantic extraction', () => {
       result.facts.diagnostics.some((item) => item.code === 'TS_2688'),
     ).toBe(true);
   }, 15000);
-  it('scopes compiler-error uncertainty to the candidate declaration', async () => {
+  it('keeps call-site and signature errors unresolved without tainting body calls', async () => {
     const missingSignatureType = await analyzeManifest({
       repositoryId,
       compilerOptions: COMPILER_PROFILE,
@@ -84,10 +84,10 @@ describe('CT-INDEX-001A semantic extraction', () => {
         ),
       ],
     });
-    expect(targetBodyError.facts.observations[0]?.status).toBe('unresolved');
-    expect(targetBodyError.facts.diagnostics.map((item) => item.code)).toEqual(
-      expect.arrayContaining(['TS_2322', 'INVALID_BINDING']),
-    );
+    expect(targetBodyError.facts.observations[0]?.status).toBe('exact');
+    expect(targetBodyError.facts.diagnostics.map((item) => item.code)).toEqual([
+      'TS_2322',
+    ]);
 
     const unrelatedError = await analyzeManifest({
       repositoryId,
@@ -268,7 +268,7 @@ describe('CT-INDEX-001A semantic extraction', () => {
     },
     15000,
   );
-  it('withholds exact targets affected by a compiler error and exposes the error', async () => {
+  it('keeps target body type errors visible while resolving direct call bindings', async () => {
     const source =
       "function target() { const value: number = 'wrong'; } function caller() { target(); }";
     const result = await analyzeManifest({
@@ -276,8 +276,15 @@ describe('CT-INDEX-001A semantic extraction', () => {
       compilerOptions: COMPILER_PROFILE,
       files: [sourceFile('source.ts', source)],
     });
-    expect(result.facts.observations[0]?.status).toBe('unresolved');
-    expect(result.facts.relations[0]?.resolution.targetId).toBeNull();
+    expect(result.facts.observations[0]?.status).toBe('exact');
+    expect(result.facts.relations[0]?.resolution.status).toBe('exact');
+    expect(
+      result.facts.symbols.find((symbol) => symbol.name === 'target')?.id,
+    ).toBe(
+      result.facts.relations[0]?.resolution.status === 'exact'
+        ? result.facts.relations[0].resolution.targetId
+        : null,
+    );
     expect(result.facts.diagnostics.map((item) => item.code)).toContain(
       'TS_2322',
     );

@@ -1,0 +1,641 @@
+{
+  "format": "codethread-ct-realworld-001-task-bank-v1",
+  "authorship": "AI-authored from pinned Git source before any CodeThread prediction on these three external repositories; awaiting independent human review.",
+  "predictionSeparation": "Commit this complete task bank before running CodeThread against any external repository. The supplementary CodeThread case is self-repository integration evidence and is excluded from the external semantic score.",
+  "scoringBoundary": "Static source relationships only. Exact labels require source-backed direct occurrences. Non-exact labels mean no exact relationship is justified; they do not assert runtime behavior.",
+  "tasks": [
+    {
+      "id": "hono-01-header-language-path",
+      "repository": "hono",
+      "workflow": [
+        "global-symbol-search",
+        "follow-call",
+        "open-source-evidence"
+      ],
+      "prompt": "Trace detectFromHeader in src/middleware/language/language.ts. Identify its direct call to the named header parser and report whether the later normalizeLanguage call has an indexed exact function target. Include both call-site and declaration evidence; do not infer execution.",
+      "labels": [
+        {
+          "id": "hono-01-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/middleware/language/language.ts",
+            "symbol": "detectFromHeader",
+            "declarationLine": 153
+          },
+          "target": {
+            "path": "src/middleware/language/language.ts",
+            "symbol": "parseAcceptLanguage",
+            "declarationLine": 74
+          },
+          "siteLine": 160
+        },
+        {
+          "id": "hono-01-b",
+          "family": "CALLS",
+          "expected": "non_exact",
+          "source": {
+            "path": "src/middleware/language/language.ts",
+            "symbol": "detectFromHeader",
+            "declarationLine": 153
+          },
+          "targetName": "normalizeLanguage",
+          "targetDeclaration": {
+            "path": "src/middleware/language/language.ts",
+            "line": 84,
+            "form": "const arrow function"
+          },
+          "siteLine": 167,
+          "reason": "The supported symbol inventory does not index variable-bound arrow functions; do not emit an exact CALLS target."
+        }
+      ]
+    },
+    {
+      "id": "hono-02-accept-parser-form",
+      "repository": "hono",
+      "workflow": [
+        "open-caller",
+        "inspect-callee-form",
+        "preserve-uncertainty"
+      ],
+      "prompt": "From parseAcceptLanguage, follow the call that parses the header. Find the declaration form of parseAccept and report whether a named-function CALLS edge can be exact.",
+      "labels": [
+        {
+          "id": "hono-02-a",
+          "family": "CALLS",
+          "expected": "non_exact",
+          "source": {
+            "path": "src/middleware/language/language.ts",
+            "symbol": "parseAcceptLanguage",
+            "declarationLine": 74
+          },
+          "targetName": "parseAccept",
+          "targetDeclaration": {
+            "path": "src/utils/accept.ts",
+            "line": 211,
+            "form": "export const arrow function"
+          },
+          "siteLine": 75,
+          "reason": "The call crosses a module boundary, but its target is a variable-bound arrow function outside the indexed declaration forms."
+        }
+      ]
+    },
+    {
+      "id": "hono-03-color-fallback",
+      "repository": "hono",
+      "workflow": [
+        "global-symbol-search",
+        "follow-call",
+        "open-source-evidence"
+      ],
+      "prompt": "Trace the non-Cloudflare fallback in getColorEnabledAsync. Report the direct named function it calls and show the occurrence and declaration evidence. Keep the dynamic import distinct from a static CALLS edge.",
+      "labels": [
+        {
+          "id": "hono-03-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/utils/color.ts",
+            "symbol": "getColorEnabledAsync",
+            "declarationLine": 36
+          },
+          "target": {
+            "path": "src/utils/color.ts",
+            "symbol": "getColorEnabled",
+            "declarationLine": 14
+          },
+          "siteLine": 53
+        }
+      ]
+    },
+    {
+      "id": "hono-04-jwt-signing",
+      "repository": "hono",
+      "workflow": ["symbol-search", "follow-direct-calls", "inspect-evidence"],
+      "prompt": "For signing in src/utils/jwt/jws.ts, identify the direct helper calls that select the algorithm and prepare the private key. Give one exact occurrence and declaration location per helper.",
+      "labels": [
+        {
+          "id": "hono-04-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "signing",
+            "declarationLine": 29
+          },
+          "target": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "getKeyAlgorithm",
+            "declarationLine": 122
+          },
+          "siteLine": 34
+        },
+        {
+          "id": "hono-04-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "signing",
+            "declarationLine": 29
+          },
+          "target": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "importPrivateKey",
+            "declarationLine": 54
+          },
+          "siteLine": 35
+        }
+      ]
+    },
+    {
+      "id": "hono-05-jwt-public-key-occurrences",
+      "repository": "hono",
+      "workflow": [
+        "global-symbol-search",
+        "follow-call",
+        "compare-occurrences"
+      ],
+      "prompt": "In importPublicKey, locate each direct conversion through exportPublicJwkFrom. Preserve the two source occurrences separately even though both resolve to the same declaration.",
+      "labels": [
+        {
+          "id": "hono-05-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "importPublicKey",
+            "declarationLine": 78
+          },
+          "target": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "exportPublicJwkFrom",
+            "declarationLine": 108
+          },
+          "siteLine": 86
+        },
+        {
+          "id": "hono-05-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "importPublicKey",
+            "declarationLine": 78
+          },
+          "target": {
+            "path": "src/utils/jwt/jws.ts",
+            "symbol": "exportPublicJwkFrom",
+            "declarationLine": 108
+          },
+          "siteLine": 93
+        }
+      ]
+    },
+    {
+      "id": "zod-01-local-reference-decoding",
+      "repository": "zod",
+      "workflow": ["package-context-search", "follow-call", "open-declaration"],
+      "prompt": "Within Zod v4 JSON Schema conversion, follow resolveRef to the helper that decodes a local JSON Pointer segment. Report the exact direct relationship with pinned source evidence.",
+      "labels": [
+        {
+          "id": "zod-01-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "resolveRef",
+            "declarationLine": 132
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "decodeJSONPointerSegment",
+            "declarationLine": 128
+          },
+          "siteLine": 147
+        }
+      ]
+    },
+    {
+      "id": "zod-02-canonical-key-recursion",
+      "repository": "zod",
+      "workflow": [
+        "package-context-search",
+        "follow-recursion",
+        "preserve-occurrences"
+      ],
+      "prompt": "Trace the recursive canonicalization in canonicalKey. Report both direct self-call sites as separate occurrences with the same exact target declaration.",
+      "labels": [
+        {
+          "id": "zod-02-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "canonicalKey",
+            "declarationLine": 223
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "canonicalKey",
+            "declarationLine": 223
+          },
+          "siteLine": 237
+        },
+        {
+          "id": "zod-02-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "canonicalKey",
+            "declarationLine": 223
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "canonicalKey",
+            "declarationLine": 223
+          },
+          "siteLine": 246
+        }
+      ]
+    },
+    {
+      "id": "zod-03-local-ref-conversion-branch",
+      "repository": "zod",
+      "workflow": ["package-context-search", "trace-branch", "open-evidence"],
+      "prompt": "Follow the local $ref branch in convertBaseSchema. Identify the direct helper that resolves the ref and the direct helper that converts the resolved schema, keeping their call sites distinct.",
+      "labels": [
+        {
+          "id": "zod-03-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "convertBaseSchema",
+            "declarationLine": 390
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "resolveRef",
+            "declarationLine": 132
+          },
+          "siteLine": 430
+        },
+        {
+          "id": "zod-03-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "convertBaseSchema",
+            "declarationLine": 390
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "convertSchema",
+            "declarationLine": 808
+          },
+          "siteLine": 431
+        }
+      ]
+    },
+    {
+      "id": "zod-04-public-json-schema-entrypoint",
+      "repository": "zod",
+      "workflow": [
+        "global-symbol-search",
+        "follow-call",
+        "open-declaration-and-evidence"
+      ],
+      "prompt": "From the public fromJSONSchema entrypoint, identify the direct version detector and conversion helper. Show both call sites and declaration locations in the selected Zod v4 project context.",
+      "labels": [
+        {
+          "id": "zod-04-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "fromJSONSchema",
+            "declarationLine": 917
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "detectVersion",
+            "declarationLine": 105
+          },
+          "siteLine": 931
+        },
+        {
+          "id": "zod-04-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "fromJSONSchema",
+            "declarationLine": 917
+          },
+          "target": {
+            "path": "packages/zod/src/v4/classic/from-json-schema.ts",
+            "symbol": "convertSchema",
+            "declarationLine": 808
+          },
+          "siteLine": 943
+        }
+      ]
+    },
+    {
+      "id": "zod-05-object-extension-helper",
+      "repository": "zod",
+      "workflow": ["package-context-search", "compare-callers", "follow-call"],
+      "prompt": "Compare extend and safeExtend in Zod v4 core utilities. Report the direct helper call each makes to build the combined shape, preserving each call occurrence.",
+      "labels": [
+        {
+          "id": "zod-05-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/core/util.ts",
+            "symbol": "extend",
+            "declarationLine": 809
+          },
+          "target": {
+            "path": "packages/zod/src/v4/core/util.ts",
+            "symbol": "extended",
+            "declarationLine": 830
+          },
+          "siteLine": 826
+        },
+        {
+          "id": "zod-05-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/zod/src/v4/core/util.ts",
+            "symbol": "safeExtend",
+            "declarationLine": 837
+          },
+          "target": {
+            "path": "packages/zod/src/v4/core/util.ts",
+            "symbol": "extended",
+            "declarationLine": 830
+          },
+          "siteLine": 841
+        }
+      ]
+    },
+    {
+      "id": "pinia-01-recursive-hydration-merge",
+      "repository": "pinia",
+      "workflow": [
+        "package-context-search",
+        "follow-recursion",
+        "inspect-reference"
+      ],
+      "prompt": "Trace mergeReactiveObjects during nested state hydration. Report its direct recursive call, then identify whether target.add passed to forEach has an exact repository source method target. Do not treat a built-in method reference as an execution claim.",
+      "labels": [
+        {
+          "id": "pinia-01-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "mergeReactiveObjects",
+            "declarationLine": 81
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "mergeReactiveObjects",
+            "declarationLine": 81
+          },
+          "siteLine": 107
+        },
+        {
+          "id": "pinia-01-b",
+          "family": "REFERENCES",
+          "expected": "non_exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "mergeReactiveObjects",
+            "declarationLine": 81
+          },
+          "memberExpression": "target.add",
+          "siteLine": 89,
+          "reason": "The selected member is a library method signature, not one body-bearing source method declaration in the analyzed repository."
+        }
+      ]
+    },
+    {
+      "id": "pinia-02-options-store-setup",
+      "repository": "pinia",
+      "workflow": ["package-context-search", "follow-call", "open-declaration"],
+      "prompt": "Follow options-store construction from createOptionsStore into its setup-store helper. Report the exact direct call and both source locations.",
+      "labels": [
+        {
+          "id": "pinia-02-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createOptionsStore",
+            "declarationLine": 153
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createSetupStore",
+            "declarationLine": 218
+          },
+          "siteLine": 213
+        }
+      ]
+    },
+    {
+      "id": "pinia-03-store-creation-occurrences",
+      "repository": "pinia",
+      "workflow": [
+        "global-symbol-search",
+        "select-package-context",
+        "compare-occurrences"
+      ],
+      "prompt": "Inside the useStore function declared by defineStore, distinguish normal creation from hot-reload creation. Report both createSetupStore and both createOptionsStore call occurrences separately.",
+      "labels": [
+        {
+          "id": "pinia-03-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "useStore",
+            "declarationLine": 930
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createSetupStore",
+            "declarationLine": 218
+          },
+          "siteLine": 952
+        },
+        {
+          "id": "pinia-03-b",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "useStore",
+            "declarationLine": 930
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createOptionsStore",
+            "declarationLine": 153
+          },
+          "siteLine": 954
+        },
+        {
+          "id": "pinia-03-c",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "useStore",
+            "declarationLine": 930
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createSetupStore",
+            "declarationLine": 218
+          },
+          "siteLine": 969
+        },
+        {
+          "id": "pinia-03-d",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "useStore",
+            "declarationLine": 930
+          },
+          "target": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "createOptionsStore",
+            "declarationLine": 153
+          },
+          "siteLine": 970
+        }
+      ]
+    },
+    {
+      "id": "pinia-04-patch-subscription-boundary",
+      "repository": "pinia",
+      "workflow": [
+        "follow-call-across-file",
+        "open-evidence",
+        "preserve-dynamic-target"
+      ],
+      "prompt": "Trace the subscription notification from the named $patch implementation into triggerSubscriptions. Then inspect the callback invocation inside triggerSubscriptions and report the boundary of what the static source establishes.",
+      "labels": [
+        {
+          "id": "pinia-04-a",
+          "family": "CALLS",
+          "expected": "exact",
+          "source": {
+            "path": "packages/pinia/src/store.ts",
+            "symbol": "$patch",
+            "declarationLine": 291
+          },
+          "target": {
+            "path": "packages/pinia/src/subscriptions.ts",
+            "symbol": "triggerSubscriptions",
+            "declarationLine": 26
+          },
+          "siteLine": 327
+        },
+        {
+          "id": "pinia-04-b",
+          "family": "CALLS",
+          "expected": "non_exact",
+          "sourceCandidate": {
+            "path": "packages/pinia/src/subscriptions.ts",
+            "symbol": "triggerSubscriptions",
+            "declarationLine": 26
+          },
+          "targetName": "callback",
+          "siteLine": 31,
+          "reason": "The invocation is inside a nested arrow callback and the callback parameter does not identify one exact source target or an execution outcome."
+        }
+      ]
+    },
+    {
+      "id": "pinia-05-object-literal-install-owner",
+      "repository": "pinia",
+      "workflow": [
+        "global-symbol-search",
+        "inspect-nested-owner",
+        "preserve-unknown"
+      ],
+      "prompt": "In createPinia, inspect the install method returned on the Pinia object. Report whether its devtools calls can be attributed directly to createPinia or to an indexed class-method owner; do not reparent them to the enclosing function.",
+      "labels": [
+        {
+          "id": "pinia-05-a",
+          "family": "CALLS",
+          "expected": "no_exact_relation",
+          "sourceCandidate": {
+            "path": "packages/pinia/src/createPinia.ts",
+            "symbol": "install",
+            "declarationLine": 23,
+            "form": "object-literal method"
+          },
+          "outerFunction": {
+            "path": "packages/pinia/src/createPinia.ts",
+            "symbol": "createPinia",
+            "declarationLine": 10
+          },
+          "targetCandidate": {
+            "path": "packages/pinia/src/devtools/plugin.ts",
+            "symbol": "registerPiniaDevtools",
+            "declarationLine": 62
+          },
+          "siteLine": 32,
+          "reason": "The occurrence is owned by a nested object-literal method, not createPinia; the current call-owner slice does not assign it an exact caller."
+        },
+        {
+          "id": "pinia-05-b",
+          "family": "CALLS",
+          "expected": "no_exact_relation",
+          "sourceCandidate": {
+            "path": "packages/pinia/src/createPinia.ts",
+            "symbol": "install",
+            "declarationLine": 23,
+            "form": "object-literal method"
+          },
+          "outerFunction": {
+            "path": "packages/pinia/src/createPinia.ts",
+            "symbol": "createPinia",
+            "declarationLine": 10
+          },
+          "targetName": "setActivePinia",
+          "targetDeclaration": {
+            "path": "packages/pinia/src/rootStore.ts",
+            "line": 36,
+            "form": "const arrow function"
+          },
+          "siteLine": 26,
+          "reason": "The occurrence has no supported call owner and the target is a variable-bound arrow function; do not claim createPinia calls it exactly."
+        }
+      ]
+    }
+  ],
+  "supplementaryMonorepoWorkflows": [
+    {
+      "id": "codethread-01-repository-entrypoint",
+      "repository": "codethread",
+      "prompt": "In repository scope, locate the analyzeManifest entrypoint, its implementation path, public export, and focused tests. Open source evidence for each result. Do not modify files."
+    },
+    {
+      "id": "codethread-02-project-context-navigation",
+      "repository": "codethread",
+      "prompt": "Use repository-wide symbol search to locate project planning and project-reference handling. Select the matching package context, follow one direct call or reference, and open declaration evidence. Do not merge contexts."
+    }
+  ]
+}
