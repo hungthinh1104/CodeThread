@@ -22,12 +22,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: |
           pnpm exec prettier --write \
-            .github/workflows/ci.yml AGENTS.md docs/architecture.md \
+            AGENTS.md docs/architecture.md \
             docs/backend.md README.md scripts/backend/config.ts \
             scripts/backend/database.ts scripts/backend/http.ts \
             scripts/backend/main.ts scripts/backend/migrate.ts \
             scripts/backend/persistence.ts scripts/backend/service.ts \
             tests/backend-integration.test.ts
+      - run: git diff -- .github/workflows/ci.yml
       - run: |
           git add -- .github/workflows/ci.yml AGENTS.md docs/architecture.md \
             docs/backend.md README.md scripts/backend/config.ts \
