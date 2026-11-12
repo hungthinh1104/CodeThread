@@ -437,3 +437,11 @@ export interface VerifiedSourceReader {
   readFile(fileId: string): Uint8Array | null;
   readEvidence(evidenceId: string): SourceReadResult;
 }
+export {
+  analysisResourceLimits,
+  withinAnalysisCollectionLimits,
+} from './resources.js';
+export type {
+  AnalysisResourceProfile,
+  AnalysisResourceLimits,
+} from './resources.js';

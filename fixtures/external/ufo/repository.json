@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "repository": "https://github.com/unjs/ufo",
+  "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+  "objectFormat": "sha1",
+  "rootTreeId": "081a356d65f403ba182430965216543b3fe302d4",
+  "scope": "all_regular_tracked_ts",
+  "reviewStatus": "not_independently_reviewed",
+  "files": [
+    {
+      "path": "src/encoding.ts",
+      "blobId": "0708453bcaa02aec7123947740530c872a024a56",
+      "mode": "100644",
+      "byteLength": 4475,
+      "sha256": "8700a80814edd5ecfa19bc19d61b8ad0be0dfc60dfde5ddd86ab399fda5503dc"
+    },
+    {
+      "path": "src/index.ts",
+      "blobId": "ede636a31ed280da73ff605506b1b494537eb0c7",
+      "mode": "100644",
+      "byteLength": 126,
+      "sha256": "42486fac22b82f8b6be79c8941e3b1827dde1a8103e9772f6ccddf2d7fdd50d3"
+    },
+    {
+      "path": "src/parse.ts",
+      "blobId": "b2a2e7e03e14976f33e999eca25c04939b2f91aa",
+      "mode": "100644",
+      "byteLength": 5988,
+      "sha256": "c8b4224297787a599669cc7e41242113a927c1f5fd9b2d1c835440f247d716ea"
+    },
+    {
+      "path": "src/punycode.ts",
+      "blobId": "019126a463311526e045efd884fa9617e86830d0",
+      "mode": "100644",
+      "byteLength": 3003,
+      "sha256": "e389c56c10d46e33804ca595f0ece4adce3f4f16526c1f7556aeecdb53509c7b"
+    },
+    {
+      "path": "src/query.ts",
+      "blobId": "6fbcaaa10ba8cca86c95ce42df60aa16fcc6641b",
+      "mode": "100644",
+      "byteLength": 3352,
+      "sha256": "be4106f9d10b9ac90da3893c0046956375d7c67ff1430ddc8a77de899e19db49"
+    },
+    {
+      "path": "src/url.ts",
+      "blobId": "2cf9ffdf85aa8dc901f00dfea1f3a7e14d690dbb",
+      "mode": "100644",
+      "byteLength": 3367,
+      "sha256": "ddf9f468f1f1c169ea6fd6bc72b746c9fc4d928ee59bb08968f894452e64feca"
+    },
+    {
+      "path": "src/utils.ts",
+      "blobId": "ea98aba4e7261c2199eeb69e1d5dede3b15a1130",
+      "mode": "100644",
+      "byteLength": 18078,
+      "sha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933"
+    },
+    {
+      "path": "test/base.test.ts",
+      "blobId": "a862ad534b037d3ed24025d8b925dc64b072f643",
+      "mode": "100644",
+      "byteLength": 2928,
+      "sha256": "1711d7a71c2a51b8caf744f53cd23fc4620a62b6f62573981efce8d807ad4716"
+    },
+    {
+      "path": "test/double-slash.test.ts",
+      "blobId": "6824666e246f68e5f45f57bdf4fc0df95306965e",
+      "mode": "100644",
+      "byteLength": 619,
+      "sha256": "0d74a005885353f2f7c495e8038a547be8b23e4e17b23c7fac37e9d87ea7cd91"
+    },
+    {
+      "path": "test/encoding.test.ts",
+      "blobId": "c110b23399321d4219d40a4ccc4e1b2d4d64842c",
+      "mode": "100644",
+      "byteLength": 6099,
+      "sha256": "4466ea91db001d790acd41601b0d9f8bed9398a3a0af6763315e8cef5769bb37"
+    },
+    {
+      "path": "test/is-same.test.ts",
+      "blobId": "d4aaae58431a30dad36eef4630b1bb9668b47c55",
+      "mode": "100644",
+      "byteLength": 567,
+      "sha256": "d2521317f27eb5262027aad0e0d9c7bee60e78b88f10ae0cea8de13d9e1552fa"
+    },
+    {
+      "path": "test/join.test.ts",
+      "blobId": "39bdb2e09e245f6bb21b73a50f89767e4bf3f248",
+      "mode": "100644",
+      "byteLength": 2160,
+      "sha256": "e7ee8f97e478bffe238118341010a783a571f0407a4c4b3d277187d046ad843c"
+    },
+    {
+      "path": "test/normalize.test.ts",
+      "blobId": "ff0cecf5d89054dd0ae9c3224ca0ef4e309f4ab8",
+      "mode": "100644",
+      "byteLength": 3703,
+      "sha256": "435455abd729f4c1392ac560d32e4aed179af2c359019ddfba32073fcb6ff5a4"
+    },
+    {
+      "path": "test/parse.test.ts",
+      "blobId": "ba72667aed1f9f6c6b54ab0c55ed93aa43b6a102",
+      "mode": "100644",
+      "byteLength": 7634,
+      "sha256": "8f3f48909dea5c04524029acb07657b46451970ced70e40dab368c111577cb8b"
+    },
+    {
+      "path": "test/punycode.test.ts",
+      "blobId": "b79a7e36fe331cd1143f6415511f59bff63feaad",
+      "mode": "100644",
+      "byteLength": 495,
+      "sha256": "f235b4b0b5351026e677a3e9ca74898043098b18f2f9a828b37163d978b2fe5e"
+    },
+    {
+      "path": "test/query.test.ts",
+      "blobId": "8ef15e44f0fb7e4099e00787dcb490a467979baa",
+      "mode": "100644",
+      "byteLength": 3593,
+      "sha256": "11d753759a4f2613f3d1b76d49929e00bac84f548e4566ebca06d7766ba101a0"
+    },
+    {
+      "path": "test/resolve.test.ts",
+      "blobId": "42dba2c8b1e0d8580b4ba288d4df428eac35d55a",
+      "mode": "100644",
+      "byteLength": 1044,
+      "sha256": "c956a716ca301e1f6ac16114f5764387e433ba1a55aa5985e55d6a8666bab7a3"
+    },
+    {
+      "path": "test/trailing-slash.test.ts",
+      "blobId": "af141d0aa864eb45d42697d342b9c3d7dee873a7",
+      "mode": "100644",
+      "byteLength": 2300,
+      "sha256": "536c5d4ecd12afd0018d044abaf9acea22187c918ef4f588333555444ea1dc46"
+    },
+    {
+      "path": "test/types.test-d.ts",
+      "blobId": "e28c503eaa0456b72e8177b9e0a4f3ed5e536916",
+      "mode": "100644",
+      "byteLength": 510,
+      "sha256": "5a78ae712f6bc87a38c31fb03d33ef3dc6f70e0291bc514e5f9e7915072aa3f2"
+    },
+    {
+      "path": "test/url.test.ts",
+      "blobId": "076146e12fde31212b57fa4d367e3f3d50dafe3a",
+      "mode": "100644",
+      "byteLength": 2148,
+      "sha256": "a0268089fbda2b524b2b1dc0bf1156aaad27f10d310560bb9203a6043ac671a7"
+    },
+    {
+      "path": "test/utilities.test.ts",
+      "blobId": "16c3f12d0e03a918f4566c3759906a71796e6a28",
+      "mode": "100644",
+      "byteLength": 10313,
+      "sha256": "0d7f595f6caa7a76ca2acde2f272b1af2161cd97d3360a7e82b52ab6cc079500"
+    }
+  ],
+  "metadata": [
+    {
+      "path": "package.json",
+      "blobId": "cf84ff3719b36654b852ca72ad1f718761ffc2a9",
+      "mode": "100644",
+      "byteLength": 1250,
+      "sha256": "4ef029b2bde70c3007f3520d3d4ba14b754e4e8c4defa8d58a8e53434ebdf028"
+    },
+    {
+      "path": "tsconfig.json",
+      "blobId": "5654dbe3fb7e87c6cbe64f43beee8e870e519e80",
+      "mode": "100644",
+      "byteLength": 137,
+      "sha256": "51e23340e47b98a0cc4c48560e48f546d6f3c41235538317fb244145a22e6755"
+    }
+  ],
+  "licenses": [
+    {
+      "path": "LICENSE",
+      "blobId": "e739abce461d8b2899aaec6529a4af24a417e0fc",
+      "mode": "100644",
+      "byteLength": 1078,
+      "sha256": "46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082"
+    }
+  ],
+  "commit": {
+    "oid": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+    "base64": "dHJlZSAwODFhMzU2ZDY1ZjQwM2JhMTgyNDMwOTY1MjE2NTQzYjNmZTMwMmQ0CnBhcmVudCA1Y2Q5ZTY3NjcxMWFmM2Y0ZTRiNTM5OGRkZjZjYThkNTJjMWM3ZTFmCmF1dGhvciBQb295YSBQYXJzYSA8cG9veWFAcGkwLmlvPiAxNzc3NDU5OTA1ICswMjAwCmNvbW1pdHRlciBQb295YSBQYXJzYSA8cG9veWFAcGkwLmlvPiAxNzc3NDU5OTA1ICswMjAwCgpjaG9yZShyZWxlYXNlKTogdjEuNi40Cg=="
+  },
+  "trees": [
+    {
+      "oid": "081a356d65f403ba182430965216543b3fe302d4",
+      "base64": "MTAwNjQ0IC5lZGl0b3Jjb25maWcAT01lLHjA8GKFlrf//PmjjVNUfiA0MDAwMCAuZ2l0aHViAAjAj7DS5JnsE1mQtL2QNZ89xWljMTAwNjQ0IC5naXRpZ25vcmUAgqZfwEiSRwRz7hjhtgTu1h8Zg60xMDA2NDQgLnByZXR0aWVycmMACWfvQkvOZ5GJPppXu5UvgP1TbpMxMDA2NDQgQ0hBTkdFTE9HLm1kAJ3Tx+bSkiTCOtgKu4n9urkxvVXLMTAwNjQ0IExJQ0VOU0UA5zmrzkYdiyiZquxlKaSvJKQX4PwxMDA2NDQgUkVBRE1FLm1kAEomBz+AUu5nBKv29/2XoGje9Q6lMTAwNjQ0IFNFQ1VSSVRZLm1kANUnRq/v3N1d9BuK1nHECaJn+CNSMTAwNjQ0IGVzbGludC5jb25maWcubWpzAOS7vUGPMzqcP/w0Q6tcyw/yU5LCMTAwNjQ0IHBhY2thZ2UuanNvbgDPhP83GbNmVLhSynKtH3GHYf/CqTEwMDY0NCBwbnBtLWxvY2sueWFtbADqRddkfYZYahlrHR/7o3zZVm/RsjEwMDY0NCByZW5vdmF0ZS5qc29uAKmXHIDWBIPgG00BkcpMld4MVGuFNDAwMDAgc3JjANEj1NbWuX9dteNjtRDCCW5kokQxNDAwMDAgdGVzdACPGP7WyGwKm41CeAlaS4r4NYhNxjEwMDY0NCB0c2NvbmZpZy5qc29uAFZU2+P7fofGy+ZPQ77ujocOUZ6A"
+    },
+    {
+      "oid": "08c08fb0d2e499ec135990b4bd90359f3dc56963",
+      "base64": "MTAwNjQ0IGJhbm5lci5zdmcAzHqYNUxHvri/MPwtKl2ZRZ3rUlU0MDAwMCB3b3JrZmxvd3MAnVZ1vzFJ2MeiNGMHoDvVxbFRzRk="
+    },
+    {
+      "oid": "6b0d3c1b0a4fb74696628e440a6691464940a1b2",
+      "base64": "MTAwNjQ0IFJFQURNRS5tZAAMNkWkAwDo/cj0iWnjVBWRPmgm9DEwMDY0NCB0b2FzY2lpLmpzb24AH7V2c4FuQ3d2xXA7HGMy5WJQr9YxMDA2NDQgdXJsdGVzdGRhdGEuanNvbgD1WkAzijDd+6xH+ERX3Iny22KKzA=="
+    },
+    {
+      "oid": "8f18fed6c86c0a9b8d4278095a4b8af835884dc6",
+      "base64": "MTAwNjQ0IGJhc2UudGVzdC50cwCoYq1TSwN9PtJAJdi5JdxksHL2QzEwMDY0NCBkb3VibGUtc2xhc2gudGVzdC50cwBoJGZuJG9o5fRfV730/A35UwaWXjEwMDY0NCBlbmNvZGluZy50ZXN0LnRzAMEQsjOZMh1CGdQKTMxOGy1NZIQsNDAwMDAgZml4dHVyZQBrDTwbCk+3RpZijkQKZpFGSUChsjEwMDY0NCBpcy1zYW1lLnRlc3QudHMA1KquWEMaMNrTbu9GMLG7lmi0fFUxMDA2NDQgam9pbi50ZXN0LnRzADm9suCeJF9rshtzpQ+Jdn5L8/JIMTAwNjQ0IG5vcm1hbGl6ZS50ZXN0LnRzAP8M7PXYkFTdCunDIkyg704wn0q4MTAwNjQ0IHBhcnNlLnRlc3QudHMAunJmeu0fn2xrVKsMVe2TqkO2oQIxMDA2NDQgcHVueWNvZGUudGVzdC50cwC3mn42/jMc0RQ/ZBVRH1m/9j/qrTEwMDY0NCBxdWVyeS50ZXN0LnRzAI7xXkTw+35AmeAHh9y0kKRnl5uqMTAwNjQ0IHJlc29sdmUudGVzdC50cwBC26LIseDYWAtLoojU30KOrDXVWjEwMDY0NCB0cmFpbGluZy1zbGFzaC50ZXN0LnRzAK8UHQqoZOtF1CaX00K5w9fe6HOnMTAwNjQ0IHR5cGVzLnRlc3QtZC50cwDijFA+qgRWty6Bd7ngpPPtXlNpFjEwMDY0NCB1cmwudGVzdC50cwAHYUbhL94xIStX+k02fj89UNr+OjEwMDY0NCB1dGlsaXRpZXMudGVzdC50cwAWw/EtDgOpGPRWbDdZkGpxeW5qKA=="
+    },
+    {
+      "oid": "9d5675bf3149d8c7a2346307a03bd5c5b151cd19",
+      "base64": "MTAwNjQ0IGF1dG9maXgueW1sAHJ09na9WO+AwYq4L56klqn7iQ5dMTAwNjQ0IGNpLnltbACcKzWoxzZtG3cSByL9H87v5IlL2w=="
+    },
+    {
+      "oid": "d123d4d6d6b97f5db5e363b510c2096e64a24431",
+      "base64": "MTAwNjQ0IGVuY29kaW5nLnRzAAcIRTvKoCrscSOUd0BTDIcqAkpWMTAwNjQ0IGluZGV4LnRzAO3mNqMe0oDac/9gVQaxtJRTfrDHMTAwNjQ0IHBhcnNlLnRzALKi5+A+FJdvM+mZ7KJcBJObL5GqMTAwNjQ0IHB1bnljb2RlLnRzAAGRJqRjMRUm4EXv2IT6lhfoaDDQMTAwNjQ0IHF1ZXJ5LnRzAG+8qqELqMyobJXOQt9gqhb8xmQbMTAwNjQ0IHVybC50cwAs+f/fhaqNyQHwDf6h86fhTWkNuzEwMDY0NCB1dGlscy50cwDqmKuk5yYcIZnutp4dXe3jsVoRMA=="
+    }
+  ]
+}

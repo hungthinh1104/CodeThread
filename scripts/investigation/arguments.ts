@@ -1,9 +1,17 @@
 import { CliError } from './commands.ts';
+import { randomUUID } from 'node:crypto';
 import { quoted } from './terminal.ts';
 
 export type InvestigationCommand =
   | { kind: 'manifest'; path: string; view: boolean }
   | { kind: 'demo'; view: boolean }
+  | {
+      kind: 'repository';
+      repositoryPath: string;
+      repositoryId: string;
+      revision: string;
+      view: boolean;
+    }
   | {
       kind: 'git';
       repositoryPath: string;
@@ -45,6 +53,7 @@ export function parseArguments(args: readonly string[]): InvestigationCommand {
     let repositoryPath: string | undefined,
       repositoryId: string | undefined,
       revision: string | undefined,
+      scope: string | undefined,
       browse = false;
     const selectedPaths: string[] = [];
     const setValue = (option: string, value: string): void => {
@@ -69,6 +78,13 @@ export function parseArguments(args: readonly string[]): InvestigationCommand {
             '--revision may be specified once.',
           );
         revision = value;
+      } else if (option === '--scope') {
+        if (scope !== undefined || value !== 'repository')
+          throw new CliError(
+            'INVALID_ARGUMENT',
+            'Use --scope repository once.',
+          );
+        scope = value;
       } else selectedPaths.push(value);
     };
     for (let index = 0; index < sourceArgs.length; index++) {
@@ -82,9 +98,10 @@ export function parseArguments(args: readonly string[]): InvestigationCommand {
         browse = true;
         continue;
       }
-      const equals = /^(--repo|--repository-id|--revision|--file)=(.*)$/.exec(
-        argument,
-      );
+      const equals =
+        /^(--repo|--repository-id|--revision|--file|--scope)=(.*)$/.exec(
+          argument,
+        );
       if (equals) {
         const value = equals[2]!;
         setValue(equals[1]!, value);
@@ -94,7 +111,8 @@ export function parseArguments(args: readonly string[]): InvestigationCommand {
         argument === '--repo' ||
         argument === '--repository-id' ||
         argument === '--revision' ||
-        argument === '--file'
+        argument === '--file' ||
+        argument === '--scope'
       ) {
         const value = sourceArgs[++index];
         if (value === undefined || value.length === 0)
@@ -109,6 +127,26 @@ export function parseArguments(args: readonly string[]): InvestigationCommand {
         'INVALID_ARGUMENT',
         `Unknown Git source option ${quoted(argument)}.`,
       );
+    }
+    if (scope === 'repository') {
+      if (
+        !repositoryPath ||
+        !revision ||
+        browse ||
+        selectedPaths.length ||
+        repositoryId === ''
+      )
+        throw new CliError(
+          'INVALID_ARGUMENT',
+          'Repository scope requires --repo and --revision, without --browse or --file.',
+        );
+      return {
+        kind: 'repository',
+        repositoryPath,
+        repositoryId: repositoryId ?? randomUUID(),
+        revision,
+        view,
+      };
     }
     if (
       !repositoryPath ||

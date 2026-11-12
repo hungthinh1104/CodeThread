@@ -33,6 +33,7 @@ interface ReaderContext {
   run: GitRun;
   checkpoint(): void;
   metadataLimit: number;
+  blobLimit?: number;
   selection: readonly GitSelectionStatus[];
   counts: GitOperationCounts;
 }
@@ -133,6 +134,16 @@ function checkBatchBudget(
     (total, object) => total + object.size,
     0,
   );
+  if (
+    batch.expectedType === 'blob' &&
+    context.blobLimit !== undefined &&
+    context.counts.blobBytes + bytes > context.blobLimit
+  )
+    throw failure(
+      'RESOURCE_LIMIT',
+      'Pinned blobs exceed the acquisition byte limit.',
+      context.selection,
+    );
   if (
     batch.expectedType !== 'blob' &&
     phaseMetadataBytes + bytes > context.metadataLimit

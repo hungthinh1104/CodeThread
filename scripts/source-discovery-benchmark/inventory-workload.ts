@@ -13,6 +13,10 @@ import {
   type BenchmarkShape,
   type StageMeasurement,
 } from './config.ts';
+import {
+  assertInventoryIdentityStable,
+  assertPartialInventoryControlEvidence,
+} from './verification.ts';
 import { measure, median, pageAll } from './timing.ts';
 
 export async function prepareInventory(
@@ -23,8 +27,8 @@ export async function prepareInventory(
   process.stderr.write(`Benchmark start: ${shape}/${entries} tree entries.\n`);
   const repository = await createRepository(base, shape, entries);
   const openTimes: number[] = [];
+  const inventoryIdentitySamples: string[] = [];
   let session: GitInventorySession | undefined;
-  let inventoryIdForSamples: string | undefined;
   const openStage = await measure(1, async () => {
     const started = performance.now();
     session = await openGitInventory({
@@ -32,15 +36,13 @@ export async function prepareInventory(
       repositoryId,
       revision: 'HEAD',
     });
-    if (
-      inventoryIdForSamples !== undefined &&
-      session.inventory.inventoryId !== inventoryIdForSamples
-    )
-      throw new Error('Repeated inventory discovery changed its identity.');
-    inventoryIdForSamples = session.inventory.inventoryId;
+    inventoryIdentitySamples.push(session.inventory.inventoryId);
     openTimes.push(Number((performance.now() - started).toFixed(3)));
   });
   if (!session) throw new Error('Inventory did not open.');
+  const identityStableAcrossSamples = assertInventoryIdentityStable(
+    inventoryIdentitySamples,
+  );
   process.stderr.write(`Benchmark inventory opened: ${shape}/${entries}.\n`);
   const inventory = session.inventory;
   const statsBeforeSources = session.statistics();
@@ -96,6 +98,7 @@ export async function prepareInventory(
     inventory,
     openStage,
     openTimes,
+    identityStableAcrossSamples,
     statsBeforeSources,
     verifiedLookupPaths,
     omittedPathLookup,
@@ -296,7 +299,7 @@ export async function measureAcquisition(
 
 export async function verifyInventoryLimits(
   context: Awaited<ReturnType<typeof prepareInventory>>,
-): Promise<void> {
+): Promise<{ lowerTreeLimitReason: string; cancelledBeforeStartCode: string }> {
   const { inventory, repository } = context;
   const limited = await openGitInventory({
     repositoryPath: repository.root,
@@ -323,8 +326,10 @@ export async function verifyInventoryLimits(
     if (!(error instanceof GitSourceError)) throw error;
     cancelCode = error.code;
   }
-  if (cancelCode !== 'CANCELLED')
-    throw new Error('Cancellation status was not typed.');
+  return assertPartialInventoryControlEvidence({
+    lowerTreeLimitReason: limited.inventory.truncationReasons[0]!,
+    cancelledBeforeStartCode: cancelCode,
+  });
 }
 
 export function inventoryDigest(

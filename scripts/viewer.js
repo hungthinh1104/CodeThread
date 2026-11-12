@@ -1,9 +1,27 @@
 /* global document, Element, fetch, location */
+import {
+  byId,
+  visibleText,
+  symbolAnchor,
+  appendText,
+  actionButton,
+} from './viewer-client/dom.js';
+import {
+  renderGraph,
+  renderRelationships,
+  renderUnknowns,
+} from './viewer-client/projection.js';
 
-const MAX_HISTORY = 20;
+import { createNavigationHistory } from './viewer-client/history.js';
+import {
+  renderProjects,
+  renderProjectStatus,
+  renderSourceFiles,
+  renderContextChoices,
+} from './viewer-client/repository.js';
 const token = location.hash.slice(1);
-const byId = (id) => document.getElementById(id);
 const state = {
+  projectId: null,
   snapshotId: null,
   rootSymbolId: null,
   relationKinds: ['calls'],
@@ -12,31 +30,19 @@ const state = {
   selectedGraphSymbolId: null,
   evidenceId: null,
 };
-const historyStack = [];
+const navigation = createNavigationHistory(20);
+let repositoryMode = false,
+  projectMetadata = null,
+  projectQuerySequence = 0,
+  followQuerySequence = 0;
+let symbolChoices = [],
+  pendingContextChoices = [],
+  filePage = { offset: 0, nextOffset: null };
 let symbolPage = { query: '', offset: 0, nextOffset: null, total: 0 };
 let graphResult = null;
 let symbolSearchSequence = 0;
 let graphQuerySequence = 0;
 let evidenceQuerySequence = 0;
-
-function visibleText(value) {
-  let result = '';
-  for (const character of String(value)) {
-    const point = character.codePointAt(0);
-    if (
-      (point < 0x20 && point !== 0x09 && point !== 0x0a && point !== 0x0d) ||
-      (point >= 0x7f && point <= 0x9f) ||
-      point === 0x2028 ||
-      point === 0x2029 ||
-      /\p{Cf}/u.test(character)
-    ) {
-      result += `\\u{${point.toString(16)}}`;
-    } else {
-      result += character;
-    }
-  }
-  return result;
-}
 
 function showError(message) {
   const error = byId('error');
@@ -51,13 +57,25 @@ function clearError() {
 }
 
 async function api(path, method, body) {
+  const projectId = state.projectId,
+    snapshotId = state.snapshotId;
+  const scoped =
+    repositoryMode &&
+    [
+      '/api/session',
+      '/api/symbols',
+      '/api/neighbors',
+      '/api/evidence',
+      '/api/follow-context',
+    ].includes(path);
+  const payload = scoped ? { projectId, request: body } : body;
   const response = await fetch(path, {
     method,
     headers: {
       'X-CodeThread-Token': token,
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    ...(body === undefined ? {} : { body: JSON.stringify(payload) }),
     cache: 'no-store',
     credentials: 'same-origin',
     referrerPolicy: 'no-referrer',
@@ -73,40 +91,37 @@ async function api(path, method, body) {
     const message = value?.error?.message ?? 'The local request failed.';
     throw new Error(`${code}: ${message}`);
   }
+  if (scoped) {
+    if (value.projectId !== projectId)
+      throw new Error('The response belongs to another project context.');
+    if (path === '/api/follow-context') return value;
+    const responseSnapshotId =
+      value.result?.snapshotId ??
+      value.result?.graph?.meta?.snapshotId ??
+      value.result?.meta?.snapshotId;
+    if (path !== '/api/session' && responseSnapshotId !== snapshotId)
+      throw new Error('The response belongs to another analysis snapshot.');
+    return value.result;
+  }
   return value;
 }
 
-function appendText(parent, tag, text, className) {
-  const item = document.createElement(tag);
-  if (className) item.className = className;
-  item.textContent = visibleText(text);
-  parent.append(item);
-  return item;
-}
-
-function actionButton(parent, label, action, data = {}) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.textContent = visibleText(label);
-  button.dataset.action = action;
-  for (const [key, value] of Object.entries(data)) button.dataset[key] = value;
-  parent.append(button);
-  return button;
-}
-
-function symbolAnchor(symbol) {
-  return `${symbol.filePath}@${symbol.range.start.line}:${symbol.range.start.column}`;
-}
-
 function cloneState() {
-  return { ...state, relationKinds: [...state.relationKinds] };
+  return {
+    ...state,
+    relationKinds: [...state.relationKinds],
+    symbolPage: { ...symbolPage },
+    globalSymbols: byId('global-symbols').checked,
+  };
 }
 
 function applyQueryState(
   next,
   { remember = true, restore = null, focusRoot = false } = {},
 ) {
-  const rootSymbolId = next.rootSymbolId ?? state.rootSymbolId;
+  const rootSymbolId = Object.hasOwn(next, 'rootSymbolId')
+    ? next.rootSymbolId
+    : state.rootSymbolId;
   const relationKinds = next.relationKinds ?? state.relationKinds;
   const direction = next.direction ?? state.direction;
   const queryChanged =
@@ -116,8 +131,7 @@ function applyQueryState(
     relationKinds.some((kind) => !state.relationKinds.includes(kind));
   if (!queryChanged) return false;
   if (remember && state.rootSymbolId !== null) {
-    historyStack.push(cloneState());
-    if (historyStack.length > MAX_HISTORY) historyStack.shift();
+    navigation.remember(cloneState());
   }
   Object.assign(state, {
     rootSymbolId,
@@ -127,6 +141,9 @@ function applyQueryState(
     selectedGraphSymbolId: null,
     evidenceId: null,
   });
+  followQuerySequence++;
+  pendingContextChoices = [];
+  byId('context-choices').hidden = true;
   renderHistoryButton();
   renderFilters();
   void loadGraph(restore, focusRoot);
@@ -134,7 +151,9 @@ function applyQueryState(
 }
 
 function renderHistoryButton() {
-  byId('back').disabled = historyStack.length === 0;
+  const projectLoading = repositoryMode && state.snapshotId === null;
+  byId('back').disabled = projectLoading || !navigation.canBack;
+  byId('forward').disabled = projectLoading || !navigation.canForward;
 }
 
 function renderFilters() {
@@ -147,7 +166,11 @@ async function loadSymbolPage(query = symbolPage.query, offset = 0) {
   const sequence = ++symbolSearchSequence;
   clearError();
   try {
-    const result = await api('/api/symbols', 'POST', { query, offset });
+    const global = repositoryMode && byId('global-symbols').checked;
+    const result = await api(global ? '/api/catalog' : '/api/symbols', 'POST', {
+      query,
+      offset,
+    });
     if (sequence !== symbolSearchSequence) return;
     symbolPage = {
       query: result.query,
@@ -157,13 +180,28 @@ async function loadSymbolPage(query = symbolPage.query, offset = 0) {
     };
     const list = byId('symbol-results');
     list.replaceChildren();
-    for (const symbol of result.items) {
+    symbolChoices = result.items.map((item) =>
+      item.symbol
+        ? item
+        : {
+            projectId: state.projectId,
+            snapshotId: state.snapshotId,
+            symbol: item,
+          },
+    );
+    for (const choice of symbolChoices) {
+      const symbol = choice.symbol;
       const row = document.createElement('li');
       const button = actionButton(
         row,
-        `${symbol.name} · ${symbol.kind} · ${symbolAnchor(symbol)}`,
+        `${symbol.name} · ${symbol.kind} · ${symbolAnchor(symbol)}${global ? ' · ' + choice.projectLabel : ''}`,
         'select-root',
-        { symbolId: symbol.id },
+        {
+          symbolId: symbol.id,
+          ...(choice.projectId
+            ? { projectId: choice.projectId, snapshotId: choice.snapshotId }
+            : {}),
+        },
       );
       button.className = 'symbol-choice';
       button.setAttribute(
@@ -421,14 +459,50 @@ function selectGraphSymbol(symbolId) {
   return selectEvidence(symbol.declarationEvidenceId, { symbolId });
 }
 
-function followGraphSymbol(symbolId) {
+async function followGraphSymbol(symbolId) {
   if (!graphResult?.graph.symbols.some((item) => item.id === symbolId)) {
     showError(
       'Only a symbol in the current validated projection can be followed.',
     );
     return false;
   }
-  return applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
+  if (!repositoryMode)
+    return applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
+  const sequence = ++followQuerySequence,
+    graphSequence = graphQuerySequence;
+  try {
+    const result = await api('/api/follow-context', 'POST', {
+      snapshotId: state.snapshotId,
+      symbolId,
+    });
+    if (
+      sequence !== followQuerySequence ||
+      graphSequence !== graphQuerySequence
+    )
+      return false;
+    pendingContextChoices = result.candidates;
+    if (result.requiresChoice) {
+      renderContextChoices(result.candidates);
+      return true;
+    }
+    const candidate = result.candidates[0];
+    if (candidate)
+      await navigateToSymbol(
+        candidate.symbolId,
+        candidate.projectId,
+        candidate.snapshotId,
+      );
+    return true;
+  } catch (error) {
+    if (
+      sequence === followQuerySequence &&
+      graphSequence === graphQuerySequence
+    )
+      showError(
+        error instanceof Error ? error.message : 'Declaration handoff failed.',
+      );
+    return false;
+  }
 }
 
 function renderInvestigation() {
@@ -460,337 +534,11 @@ function renderInvestigation() {
     `${truncation} Depth ${graph.meta.appliedLimits.depth}, node limit ${graph.meta.appliedLimits.nodes}. ` +
     'Coverage may be partial; an empty result does not prove no relationship exists.';
 
-  renderGraph(graph);
-  renderRelationships(graph);
+  renderGraph(graph, state);
+  renderRelationships(graph, state);
   renderUnknowns(result.unknowns);
   renderSelection();
   if (state.evidenceId) void showEvidence(state.evidenceId);
-}
-
-function renderGraph(graph) {
-  const svg = byId('graph');
-  svg.replaceChildren();
-  svg.setAttribute('role', 'group');
-  svg.setAttribute(
-    'aria-label',
-    'Bounded static source relationship graph. Activate a node for declaration evidence or an edge for occurrence evidence.',
-  );
-  const symbols = [...graph.symbols];
-  const symbolMap = new Map(symbols.map((symbol) => [symbol.id, symbol]));
-  const positions = new Map();
-  const cellWidth = 210;
-  const rowHeight = 105;
-  const width = 660;
-  const height = Math.max(150, Math.ceil(symbols.length / 3) * rowHeight + 30);
-  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  const marker = document.createElementNS(
-    'http://www.w3.org/2000/svg',
-    'marker',
-  );
-  marker.setAttribute('id', 'arrow');
-  marker.setAttribute('viewBox', '0 0 10 10');
-  marker.setAttribute('refX', '8');
-  marker.setAttribute('refY', '5');
-  marker.setAttribute('markerWidth', '6');
-  marker.setAttribute('markerHeight', '6');
-  marker.setAttribute('orient', 'auto-start-reverse');
-  const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  arrow.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
-  arrow.setAttribute('fill', 'currentColor');
-  marker.append(arrow);
-  defs.append(marker);
-  svg.append(defs);
-
-  symbols.forEach((symbol, index) => {
-    positions.set(symbol.id, {
-      x: 100 + (index % 3) * cellWidth,
-      y: 48 + Math.floor(index / 3) * rowHeight,
-    });
-  });
-  const exactRelations = graph.relations.filter(
-    (relation) => relation.resolution.status === 'exact',
-  );
-  const edgeTotals = new Map();
-  for (const relation of exactRelations) {
-    const key = `${relation.sourceSymbolId}:${relation.resolution.targetId}`;
-    edgeTotals.set(key, (edgeTotals.get(key) ?? 0) + 1);
-  }
-  const edgeSeen = new Map();
-  for (const relation of exactRelations) {
-    const source = positions.get(relation.sourceSymbolId);
-    const target = positions.get(relation.resolution.targetId);
-    if (!source || !target) continue;
-    const edgeKey = `${relation.sourceSymbolId}:${relation.resolution.targetId}`;
-    const edgeIndex = edgeSeen.get(edgeKey) ?? 0;
-    edgeSeen.set(edgeKey, edgeIndex + 1);
-    const edgeCount = edgeTotals.get(edgeKey);
-    const offset = (edgeIndex - (edgeCount - 1) / 2) * 22;
-    const deltaX = target.x - source.x;
-    const deltaY = target.y - source.y;
-    const distance = Math.hypot(deltaX, deltaY) || 1;
-    const normalX = -deltaY / distance;
-    const normalY = deltaX / distance;
-    const edge = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      source.x === target.x && source.y === target.y ? 'path' : 'line',
-    );
-    edge.classList.add('graph-edge', relation.kind);
-    if (edge.tagName.toLowerCase() === 'line') {
-      edge.setAttribute('x1', String(source.x + 75 + normalX * offset));
-      edge.setAttribute('y1', String(source.y + 24 + normalY * offset));
-      edge.setAttribute('x2', String(target.x + 75 + normalX * offset));
-      edge.setAttribute('y2', String(target.y + 24 + normalY * offset));
-    } else {
-      const lift = 30 + edgeIndex * 24;
-      edge.setAttribute(
-        'd',
-        `M ${source.x + 48} ${source.y + 12} C ${source.x + 45} ${source.y - lift}, ${source.x + 105} ${source.y - lift}, ${source.x + 102} ${source.y + 12}`,
-      );
-    }
-    const sourceSymbol = symbolMap.get(relation.sourceSymbolId);
-    const targetSymbol = symbolMap.get(relation.resolution.targetId);
-    const siteEvidence = graph.evidenceRefs.find(
-      (item) => item.id === relation.siteEvidenceId,
-    );
-    if (!sourceSymbol || !targetSymbol || !siteEvidence) continue;
-    edge.dataset.relationId = relation.id;
-    edge.setAttribute('aria-hidden', 'true');
-    const hitTarget = edge.cloneNode(false);
-    hitTarget.classList.remove('graph-edge', relation.kind);
-    hitTarget.classList.add('graph-edge-hit');
-    if (hitTarget.tagName.toLowerCase() === 'line') {
-      const x1 = hitTarget.getAttribute('x1');
-      const x2 = hitTarget.getAttribute('x2');
-      const y1 = hitTarget.getAttribute('y1');
-      const y2 = hitTarget.getAttribute('y2');
-      if (y1 === y2 && y2 !== null)
-        hitTarget.setAttribute('y2', String(Number(y2) + 1));
-      else if (x1 === x2 && x2 !== null)
-        hitTarget.setAttribute('x2', String(Number(x2) + 1));
-    }
-    hitTarget.removeAttribute('aria-hidden');
-    hitTarget.dataset.relationId = relation.id;
-    hitTarget.dataset.action = 'select-relation';
-    hitTarget.setAttribute('role', 'button');
-    hitTarget.setAttribute('tabindex', '0');
-    hitTarget.setAttribute('focusable', 'true');
-    hitTarget.setAttribute('aria-pressed', 'false');
-    hitTarget.setAttribute(
-      'aria-label',
-      visibleText(
-        `${relation.kind.toUpperCase()} occurrence at ${sourceSymbol.filePath}:${siteEvidence.range.start.line}:${siteEvidence.range.start.column}, from ${sourceSymbol.name} to ${targetSymbol.name}; select and inspect verified occurrence evidence`,
-      ),
-    );
-    svg.append(hitTarget, edge);
-    const label = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'text',
-    );
-    label.classList.add('graph-edge-label');
-    label.textContent = relation.kind.toUpperCase();
-    label.setAttribute(
-      'x',
-      String((source.x + target.x) / 2 + 75 + normalX * offset),
-    );
-    label.setAttribute(
-      'y',
-      String((source.y + target.y) / 2 + normalY * offset - 8),
-    );
-    svg.append(label);
-  }
-  symbols.forEach((symbol) => {
-    const position = positions.get(symbol.id);
-    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    group.classList.add('graph-node-control');
-    if (symbol.id === state.rootSymbolId)
-      group.classList.add('graph-node-root');
-    group.dataset.symbolId = symbol.id;
-    group.dataset.action = 'select-node';
-    group.setAttribute('role', 'button');
-    group.setAttribute('tabindex', '0');
-    group.setAttribute('focusable', 'true');
-    group.setAttribute(
-      'aria-label',
-      visibleText(
-        `${symbol.kind} ${symbol.name} at ${symbolAnchor(symbol)}${symbol.id === state.rootSymbolId ? ', current investigation root' : ', select symbol and inspect declaration evidence'}`,
-      ),
-    );
-    group.setAttribute(
-      'aria-pressed',
-      String(
-        symbol.id === state.rootSymbolId ||
-          symbol.id === state.selectedGraphSymbolId,
-      ),
-    );
-    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect.classList.add('graph-node');
-    rect.setAttribute('x', String(position.x));
-    rect.setAttribute('y', String(position.y));
-    rect.setAttribute('width', '150');
-    rect.setAttribute('height', '48');
-    rect.setAttribute('rx', '6');
-    const label = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'text',
-    );
-    label.classList.add('graph-node-text');
-    label.setAttribute('x', String(position.x + 8));
-    label.setAttribute('y', String(position.y + 19));
-    const name = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'tspan',
-    );
-    name.textContent = visibleText(symbol.name.slice(0, 19));
-    label.append(name);
-    const location = document.createElementNS(
-      'http://www.w3.org/2000/svg',
-      'tspan',
-    );
-    location.setAttribute('x', String(position.x + 8));
-    location.setAttribute('dy', '16');
-    location.textContent = visibleText(
-      `${symbol.filePath}:${symbol.range.start.line}`.slice(0, 24),
-    );
-    label.append(location);
-    group.append(rect, label);
-    svg.append(group);
-  });
-}
-
-function renderRelationships(graph) {
-  const list = byId('relationships');
-  list.replaceChildren();
-  if (graph.relations.length === 0) {
-    appendText(
-      list,
-      'li',
-      `No ${state.relationKinds.join(' or ').toUpperCase()} rows were returned for this direction. Coverage and query bounds remain in effect.`,
-    );
-  }
-  const symbolMap = new Map(graph.symbols.map((symbol) => [symbol.id, symbol]));
-  for (const relation of graph.relations) {
-    const row = document.createElement('li');
-    row.className = 'relationship-item';
-    row.dataset.relationId = relation.id;
-    if (relation.id === state.selectedRelationId) row.classList.add('selected');
-    const source = symbolMap.get(relation.sourceSymbolId);
-    const target =
-      relation.resolution.status === 'exact'
-        ? symbolMap.get(relation.resolution.targetId)
-        : undefined;
-    const sourceIsRoot = relation.sourceSymbolId === state.rootSymbolId;
-    const targetIsRoot = target?.id === state.rootSymbolId;
-    const relativeDirection = sourceIsRoot
-      ? 'outgoing from selected symbol'
-      : targetIsRoot
-        ? 'incoming to selected symbol'
-        : 'within selected neighborhood';
-    const status = relation.resolution.status;
-    const heading = document.createElement('p');
-    const badge = document.createElement('span');
-    badge.className = `relation-label ${relation.kind}`;
-    badge.textContent = relation.kind.toUpperCase();
-    heading.append(badge);
-    heading.append(
-      document.createTextNode(` ${status} · ${relativeDirection}`),
-    );
-    row.append(heading);
-    appendText(row, 'p', `Relation identity: ${relation.id}`);
-    appendText(
-      row,
-      'p',
-      `Source: ${source ? `${source.name} (${symbolAnchor(source)}) · ${source.id}` : relation.sourceSymbolId}`,
-    );
-    if (target)
-      appendText(
-        row,
-        'p',
-        `Target: ${target.name} (${target.kind}) · ${symbolAnchor(target)} · ${target.id}`,
-      );
-    else
-      appendText(
-        row,
-        'p',
-        'Target: unknown; no exact declaration is available to follow.',
-      );
-    if (status !== 'exact') {
-      const diagnosticIds = relation.resolution.diagnosticIds ?? [];
-      for (const id of diagnosticIds) {
-        const diagnostic = graph.diagnostics.find((item) => item.id === id);
-        if (diagnostic)
-          appendText(row, 'p', `${diagnostic.code}: ${diagnostic.message}`);
-      }
-    }
-    const actions = document.createElement('div');
-    actions.className = 'row-actions';
-    actionButton(actions, 'Select relationship', 'select-relation', {
-      relationId: relation.id,
-    });
-    actionButton(actions, 'View occurrence evidence', 'evidence', {
-      evidenceId: relation.siteEvidenceId,
-      relationId: relation.id,
-    });
-    if (status === 'exact') {
-      const followable = [source, target].filter(
-        (symbol) => symbol && symbol.id !== state.rootSymbolId,
-      );
-      for (const symbol of followable) {
-        actionButton(
-          actions,
-          `View ${symbol.name} declaration evidence`,
-          'evidence',
-          {
-            evidenceId: symbol.declarationEvidenceId,
-            relationId: relation.id,
-            symbolId: symbol.id,
-          },
-        );
-        actionButton(actions, `Follow ${symbol.name}`, 'follow', {
-          symbolId: symbol.id,
-        });
-      }
-    }
-    row.append(actions);
-    list.append(row);
-  }
-}
-
-function renderUnknowns(unknowns) {
-  const list = byId('unknowns');
-  list.replaceChildren();
-  if (unknowns.total === 0) {
-    appendText(
-      list,
-      'li',
-      'No unrepresented uncertain observations were returned for this symbol.',
-    );
-    return;
-  }
-  for (const observation of unknowns.items) {
-    const row = document.createElement('li');
-    row.className = 'relationship-item';
-    appendText(row, 'p', `Observation status: ${observation.status}`);
-    if (observation.diagnostic)
-      appendText(
-        row,
-        'p',
-        `${observation.diagnostic.code}: ${observation.diagnostic.message}`,
-      );
-    const actions = document.createElement('div');
-    actions.className = 'row-actions';
-    actionButton(actions, 'View uncertain site evidence', 'evidence', {
-      evidenceId: observation.evidenceId,
-    });
-    row.append(actions);
-    list.append(row);
-  }
-  if (unknowns.total > unknowns.items.length)
-    appendText(
-      list,
-      'li',
-      `${unknowns.total - unknowns.items.length} additional uncertain observations are omitted by the viewer display bound.`,
-    );
 }
 
 async function showEvidence(evidenceId) {
@@ -837,22 +585,35 @@ async function showEvidence(evidenceId) {
   }
 }
 
-function restorePrevious() {
-  const previous = historyStack.pop();
+async function restoreNavigation(direction) {
+  if (repositoryMode && state.snapshotId === null) return;
+  const previous = navigation.move(direction, cloneState());
   if (!previous) return;
-  const changed = applyQueryState(
-    {
+  byId('global-symbols').checked = previous.globalSymbols;
+  byId('symbol-query').value = previous.symbolPage.query;
+  if (repositoryMode && previous.projectId !== state.projectId) {
+    await changeProject(previous.projectId, {
+      remember: false,
       rootSymbolId: previous.rootSymbolId,
-      relationKinds: previous.relationKinds,
-      direction: previous.direction,
-    },
-    { remember: false, restore: previous },
-  );
-  if (!changed && graphResult) {
-    restoreEligibleSelection(previous);
-    renderSelection();
-    if (state.evidenceId) void showEvidence(state.evidenceId);
+      restore: previous,
+    });
+  } else {
+    const changed = applyQueryState(
+      {
+        rootSymbolId: previous.rootSymbolId,
+        relationKinds: previous.relationKinds,
+        direction: previous.direction,
+      },
+      { remember: false, restore: previous },
+    );
+    if (!changed && graphResult) {
+      restoreEligibleSelection(previous);
+      renderSelection();
+      if (state.evidenceId) void showEvidence(state.evidenceId);
+    }
+    await loadSymbolPage(previous.symbolPage.query, previous.symbolPage.offset);
   }
+  renderHistoryButton();
 }
 
 function activateGraphControl(target) {
@@ -894,6 +655,10 @@ document.addEventListener('change', (event) => {
       return;
     }
     applyQueryState({ relationKinds: selected });
+  } else if (event.target.id === 'project-select') {
+    void changeProject(event.target.value);
+  } else if (event.target.id === 'global-symbols') {
+    void loadSymbolPage(byId('symbol-query').value, 0);
   } else if (event.target.id === 'direction') {
     applyQueryState({ direction: event.target.value });
   }
@@ -906,8 +671,30 @@ document.addEventListener('click', (event) => {
   if (action === 'select-root') {
     const symbolId = button.dataset.symbolId;
     if (!symbolId) return;
-    applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
-    void loadSymbolPage(symbolPage.query, symbolPage.offset);
+    const choice = symbolChoices.find(
+      (item) =>
+        item.symbol.id === symbolId &&
+        (!repositoryMode ||
+          (item.projectId === button.dataset.projectId &&
+            item.snapshotId === button.dataset.snapshotId)),
+    );
+    if (!choice) {
+      showError('Choose a declaration from the current search page.');
+      return;
+    }
+    void navigateToSymbol(symbolId, choice.projectId, choice.snapshotId);
+  } else if (action === 'choose-context') {
+    const choice = pendingContextChoices.find(
+      (item) =>
+        item.symbolId === button.dataset.symbolId &&
+        item.projectId === button.dataset.projectId &&
+        item.snapshotId === button.dataset.snapshotId,
+    );
+    if (!choice) {
+      showError('Choose a current verified declaration context.');
+      return;
+    }
+    void navigateToSymbol(choice.symbolId, choice.projectId, choice.snapshotId);
   } else if (action === 'follow') {
     const symbolId = button.dataset.symbolId;
     if (!symbolId) return;
@@ -926,7 +713,22 @@ document.addEventListener('click', (event) => {
   }
 });
 
-byId('back').addEventListener('click', restorePrevious);
+byId('back').addEventListener('click', () => void restoreNavigation('back'));
+byId('retry-project').addEventListener(
+  'click',
+  () => void changeProject(state.projectId, { remember: false }),
+);
+byId('forward').addEventListener(
+  'click',
+  () => void restoreNavigation('forward'),
+);
+byId('previous-files').addEventListener(
+  'click',
+  () => void loadFiles(Math.max(0, filePage.offset - 50)),
+);
+byId('next-files').addEventListener('click', () => {
+  if (filePage.nextOffset !== null) void loadFiles(filePage.nextOffset);
+});
 byId('previous-symbols').addEventListener(
   'click',
   () =>
@@ -937,21 +739,150 @@ byId('next-symbols').addEventListener('click', () => {
     void loadSymbolPage(symbolPage.query, symbolPage.nextOffset);
 });
 
+function renderSession(session) {
+  byId('snapshot-summary').textContent = visibleText(
+    `Snapshot ${session.snapshotId} · ${session.counts.files} source files · ${session.counts.declarations} declarations · ${session.counts.callSites} call sites · ${session.coverage} coverage`,
+  );
+  const coverage = byId('coverage');
+  coverage.replaceChildren();
+  for (const [name, status] of Object.entries(session.coverageByCapability))
+    appendText(coverage, 'li', `${name}: ${status}`);
+}
+
+async function loadFiles(offset = 0) {
+  try {
+    const result = await api('/api/files', 'POST', { offset });
+    filePage = { offset: result.offset, nextOffset: result.nextOffset };
+    renderSourceFiles(result, projectMetadata);
+  } catch (error) {
+    showError(
+      error instanceof Error
+        ? error.message
+        : 'Source inventory request failed.',
+    );
+  }
+}
+
+async function navigateToSymbol(symbolId, projectId, snapshotId) {
+  if (
+    repositoryMode &&
+    (projectId !== state.projectId || state.snapshotId === null)
+  ) {
+    const project = projectMetadata.items.find(
+      (item) => item.id === projectId && item.snapshotId === snapshotId,
+    );
+    if (!project) {
+      showError('Declaration context is unavailable.');
+      return;
+    }
+    await changeProject(projectId, { rootSymbolId: symbolId });
+  } else {
+    if (repositoryMode && snapshotId !== state.snapshotId) {
+      showError('Declaration belongs to another snapshot.');
+      return;
+    }
+    applyQueryState({ rootSymbolId: symbolId }, { focusRoot: true });
+    await loadSymbolPage(symbolPage.query, symbolPage.offset);
+  }
+}
+
+async function changeProject(
+  projectId,
+  { remember = true, rootSymbolId = null, restore = null } = {},
+) {
+  const project = projectMetadata.items.find(
+    (item) => item.id === projectId && item.snapshotId,
+  );
+  if (!project) {
+    showError('This project has no usable snapshot.');
+    return;
+  }
+  if (remember && state.snapshotId) navigation.remember(cloneState());
+  const sequence = ++projectQuerySequence;
+  symbolSearchSequence++;
+  graphQuerySequence++;
+  evidenceQuerySequence++;
+  followQuerySequence++;
+  symbolChoices = [];
+  pendingContextChoices = [];
+  Object.assign(state, {
+    projectId,
+    snapshotId: null,
+    rootSymbolId: null,
+    selectedRelationId: null,
+    selectedGraphSymbolId: null,
+    evidenceId: null,
+  });
+  byId('symbol-results').replaceChildren();
+  byId('symbol-count').textContent = '';
+  byId('context-choices').hidden = true;
+  byId('retry-project').hidden = true;
+  renderProjectStatus(projectMetadata, projectId);
+  renderHistoryButton();
+  void loadGraph();
+  byId('snapshot-summary').textContent = 'Loading project context…';
+  clearError();
+  try {
+    const session = await api('/api/session', 'POST', {});
+    if (sequence !== projectQuerySequence) return;
+    if (session.snapshotId !== project.snapshotId)
+      throw new Error('Project snapshot identity changed.');
+    state.snapshotId = session.snapshotId;
+    state.rootSymbolId = rootSymbolId;
+    if (restore) {
+      state.relationKinds = [...restore.relationKinds];
+      state.direction = restore.direction;
+    }
+    renderSession(session);
+    renderFilters();
+    renderHistoryButton();
+    await loadSymbolPage(
+      restore?.symbolPage.query ?? symbolPage.query,
+      restore?.symbolPage.offset ?? 0,
+    );
+    if (sequence !== projectQuerySequence) return;
+    void loadGraph(restore, Boolean(rootSymbolId));
+  } catch (error) {
+    if (sequence === projectQuerySequence) {
+      renderHistoryButton();
+      byId('snapshot-summary').textContent =
+        'Project context is unavailable. Select a context to retry.';
+      byId('retry-project').hidden = false;
+      showError(
+        error instanceof Error ? error.message : 'Project context failed.',
+      );
+    }
+  }
+}
+
 async function initialize() {
   if (!/^[a-f0-9]{64}$/i.test(token)) {
     showError('The viewer session token is missing or invalid.');
     return;
   }
   try {
-    const session = await api('/api/session', 'POST', {});
-    state.snapshotId = session.snapshotId;
-    byId('snapshot-summary').textContent =
-      `Snapshot ${session.snapshotId} · ${session.counts.files} source files · ${session.counts.declarations} declarations · ${session.counts.callSites} call sites · ${session.coverage} coverage`;
-    const coverage = byId('coverage');
-    coverage.replaceChildren();
-    for (const [name, status] of Object.entries(session.coverageByCapability))
-      appendText(coverage, 'li', `${name}: ${status}`);
-    await loadSymbolPage('', 0);
+    projectMetadata = await api('/api/projects', 'POST', {});
+    repositoryMode = projectMetadata.mode === 'repository';
+    renderProjects(projectMetadata);
+    if (repositoryMode) {
+      void loadFiles();
+      if (projectMetadata.initialProjectId)
+        await changeProject(projectMetadata.initialProjectId, {
+          remember: false,
+        });
+      else {
+        byId('snapshot-summary').textContent =
+          'No usable project snapshot; inspect source inventory and project diagnostics.';
+        showError(
+          'All project contexts are unavailable; source coverage is incomplete.',
+        );
+      }
+    } else {
+      const session = await api('/api/session', 'POST', {});
+      state.snapshotId = session.snapshotId;
+      renderSession(session);
+      await loadSymbolPage('', 0);
+    }
   } catch (error) {
     showError(
       error instanceof Error ? error.message : 'Viewer initialization failed.',

@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "author": "Codex",
+  "reviewStatus": "not_independently_reviewed",
+  "authoredBeforeBrowserRuns": true,
+  "analyzerPredictionsAlreadyObserved": true,
+  "interpretation": "Automated source investigation tasks; no human participants or comprehension outcomes.",
+  "repositories": [
+    {
+      "name": "ufo",
+      "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "tasks": [
+        {
+          "id": "CTMVP-UFO-001",
+          "action": "Find withQuery in the whole repository symbol catalog",
+          "expected": "src/utils.ts:348"
+        },
+        {
+          "id": "CTMVP-UFO-002",
+          "action": "Inspect outgoing CALLS",
+          "expected": [
+            "parseURL",
+            "parseQuery",
+            "stringifyQuery",
+            "stringifyParsedURL"
+          ]
+        },
+        {
+          "id": "CTMVP-UFO-003",
+          "action": "Open the parseURL call occurrence and declaration evidence",
+          "expected": ["src/utils.ts:349", "src/parse.ts:51"]
+        },
+        {
+          "id": "CTMVP-UFO-004",
+          "action": "Follow parseURL then use Back and Forward",
+          "expected": "Separate bounded roots retain direction and selection"
+        },
+        {
+          "id": "CTMVP-UFO-005",
+          "action": "Inspect source and context status",
+          "expected": "21 source inputs; missing external type/module context remains disclosed"
+        }
+      ]
+    },
+    {
+      "name": "sourcemaps",
+      "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+      "sourceExpectations": {
+        "configPath": "packages/trace-mapping/tsconfig.json",
+        "symbol": "memoizedBinarySearchSegments",
+        "ownerPath": "packages/trace-mapping/src/binary-search.ts",
+        "ownerLine": 96,
+        "occurrenceLine": 122,
+        "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "target": "binarySearchSegments",
+        "targetPath": "packages/trace-mapping/src/binary-search.ts",
+        "targetLine": 28,
+        "targetSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+        "matchingContexts": 3,
+        "sourceFiles": 53
+      },
+      "tasks": [
+        {
+          "id": "CTMVP-SOURCEMAPS-001",
+          "action": "Find memoizedBinarySearchSegments in the whole-repository catalog",
+          "expected": "Three context-specific catalog rows at packages/trace-mapping/src/binary-search.ts:96"
+        },
+        {
+          "id": "CTMVP-SOURCEMAPS-002",
+          "action": "Choose the matching project context before graph investigation",
+          "expected": "packages/trace-mapping/tsconfig.json"
+        },
+        {
+          "id": "CTMVP-SOURCEMAPS-003",
+          "action": "Inspect the selected symbol's outgoing CALLS",
+          "expected": "binarySearchSegments at packages/trace-mapping/src/binary-search.ts:28"
+        },
+        {
+          "id": "CTMVP-SOURCEMAPS-004",
+          "action": "Open call-occurrence and target-declaration evidence",
+          "expected": "Pinned source hash; occurrence line 122; declaration line 28"
+        },
+        {
+          "id": "CTMVP-SOURCEMAPS-005",
+          "action": "Choose a target context, then restore both roots with Back and Forward",
+          "expected": "Back restores the source context and Forward restores the target context"
+        },
+        {
+          "id": "CTMVP-SOURCEMAPS-006",
+          "action": "Inspect every page of repository source inventory",
+          "expected": "All 53 pinned regular .ts paths show an analysis status"
+        }
+      ]
+    }
+  ]
+}

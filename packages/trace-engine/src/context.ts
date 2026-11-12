@@ -1,10 +1,15 @@
 import type {
   AnalysisFacts,
+  AnalysisResourceProfile,
   CodeRelation,
   CodeSymbol,
   Diagnostic,
   SourceEvidence,
   VerifiedSourceReader,
+} from '@codethread/code-model';
+import {
+  analysisResourceLimits,
+  withinAnalysisCollectionLimits,
 } from '@codethread/code-model';
 import { TraceError } from './fact-integrity.js';
 import { validateFacts } from './validation.js';
@@ -27,14 +32,21 @@ function freeze(value: unknown): void {
 export function createContext(
   input: AnalysisFacts,
   source: VerifiedSourceReader,
+  resourceProfile: AnalysisResourceProfile = 'selected',
 ) {
   let facts: AnalysisFacts;
+  const limits = analysisResourceLimits(resourceProfile);
   try {
+    if (!withinAnalysisCollectionLimits(input, limits))
+      throw new TraceError(
+        'INVALID_FACTS',
+        'Semantic facts exceed the resource profile',
+      );
     facts = structuredClone(input);
   } catch {
     throw new TraceError('INVALID_FACTS', 'Invalid semantic facts');
   }
-  const retained = validateFacts(facts, source);
+  const retained = validateFacts(facts, source, limits);
   freeze(facts);
   const readEvidence = source.readEvidence.bind(source);
   const files = new Map(facts.files.map((item) => [item.id, item]));

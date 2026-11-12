@@ -13,12 +13,12 @@ depend on those frameworks. Static syntax is not proof of runtime execution or
 passing tests.
 
 The repository supplies Foundation validation/tooling, the proposed DB-01
-logical design, a bounded in-memory TypeScript semantic proof, a local Git
-adapter for explicitly selected committed files, and an opt-in ephemeral local
-browser viewer over the same investigation projections. It contains no database
-implementation, repository-wide Git crawler, persistent frontend, public API or
-Gemini integration. See `product.yaml` and `docs/architecture.md` for scope,
-ownership and gates.
+logical design, a bounded in-memory TypeScript semantic proof, pinned Git
+adapters for selected files and whole-repository `.ts` scope, independent
+project-context analysis, and an opt-in ephemeral local browser viewer over the
+same investigation projections. It contains no database implementation,
+persistent frontend, public API or Gemini integration. See `product.yaml` and
+`docs/architecture.md` for scope, ownership and gates.
 
 ## Developer setup
 
@@ -95,11 +95,13 @@ reported input rejections. The annotations were authored by Codex and have not
 been independently reviewed. A passing sample does not establish general
 TypeScript accuracy or comprehension improvement.
 
-Run `pnpm --silent eval:external` after building to evaluate two small,
-source-pinned public repository subsets and inspect bounded investigation
-results. Their source selection, licenses, pre-prediction annotations and
-investigation questions are in `fixtures/external/README.md`. The labels are not
-independently reviewed, and subset coverage is not repository coverage.
+Run `pnpm --silent eval:external` after building to evaluate the pinned tinyexec
+and todo subsets plus all regular `.ts` files from ufo and sourcemaps. The
+repository revisions, license hashes, labels and their review status are in
+`fixtures/external/README.md`. Label counts, unscored project occurrences and
+total static observations are reported separately. Labels are not independently
+reviewed, and these pinned repositories do not establish universal TypeScript
+coverage.
 
 Programmatic consumers provide a repository UUID, the exported
 `COMPILER_PROFILE`, and files containing POSIX paths, raw UTF-8 bytes and
@@ -184,6 +186,30 @@ Selection remains bounded by 20 files, 256 KiB per file and 2 MiB total. Run
 Add `--view` to that command to open the same selected commit and files in the
 visual investigation session.
 
+For the repository-wide MVP path, analyze every regular committed `.ts` blob and
+its bounded compiler/workspace metadata at one pinned revision:
+
+```sh
+pnpm --silent investigate -- --repo ./my-repository \
+  --revision HEAD --scope repository --view
+```
+
+`--repository-id <uuid>` is optional in this mode; if omitted, the CLI creates
+an invocation-local ID. The repository profile admits up to 1,000 `.ts` files,
+32 MiB total source, 32 project contexts, one active worker, a 2 GiB V8 heap
+ceiling and a 120-second session deadline. Excluded symlink/gitlink `.ts` paths,
+source-analysis failures, project/configuration errors and source/context
+completeness appear in the paged browser inventory and diagnostics. Compiler
+context, source coverage, semantic coverage and query truncation are separate
+states.
+
+Repository browser mode searches symbols across project contexts. Select a
+project before graph queries; following a declaration across contexts requires
+matching source path, range and hash. If multiple contexts contain the same
+anchor, choose the destination explicitly. Back and Forward restore project,
+snapshot, root, filters, direction and selections still present in the returned
+projection.
+
 The adapter supports full commit IDs, `HEAD`, and fully qualified local branch
 or tag refs. It resolves the revision once, reads only selected committed `.ts`
 blobs, and ignores dirty working-tree changes. Direct-file mode accepts literal
@@ -234,10 +260,11 @@ handles SVG controls differently. Unknowns, coverage and truncation remain
 visible; an empty bounded result is not proof of absence.
 
 For a caller-owned manifest, append `--view` to the existing input command, for
-example `pnpm investigate -- --manifest ./manifest.json --view`. The viewer
-binds only to IPv4 loopback, uses a per-session token and same-origin checks,
-persists no data, loads no external resources and stops with the CLI. It is a
-local investigation proof, not a general frontend or API service. See
+example `pnpm investigate -- --manifest ./manifest.json --view`. Add `--view` to
+the repository-scope command above to inspect the full source catalog. The
+viewer binds only to IPv4 loopback, uses a per-session token and same-origin
+checks, persists no data, loads no external resources and stops with the CLI. It
+is a local investigation proof, not a general frontend or API service. See
 CT-VIEW-001 and ADR-0005 for the security boundary and exact limits.
 
 ## Offline study toolkit
@@ -353,5 +380,5 @@ independent semantic review and a human study remain separate milestones.
 After reviewing Foundation + DB-01, explicitly approve DB-02 before creating the
 database package, PostgreSQL Compose service, Drizzle schema or any migration.
 The bounded semantic slice is allowed before database implementation by
-ADR-0003. Broader CT-INDEX-001 capabilities, including import and reference
-occurrence facts, remain separate work.
+ADR-0003. Broader CT-INDEX-001 capabilities, including import occurrence facts,
+general references and dynamic dispatch, remain separate work.

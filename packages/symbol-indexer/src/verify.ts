@@ -1,4 +1,6 @@
 import {
+  analysisResourceLimits,
+  withinAnalysisCollectionLimits,
   codeRelationSchema,
   coverageByCapabilitySchema,
   diagnosticSchema,
@@ -66,23 +68,15 @@ export function verifyFacts(
       analysis.configurationHash === request.configurationHash,
   );
   requireFact(identity('snapshot', analysis) === snapshot);
+  const limits = analysisResourceLimits(request.resourceProfile);
+  requireFact(withinAnalysisCollectionLimits(facts, limits));
   requireFact(
     Array.isArray(facts.files) &&
-      facts.files.length === request.files.length &&
-      facts.files.length <= 20,
-  );
-  requireFact(Array.isArray(facts.symbols) && facts.symbols.length <= 2000);
-  requireFact(
-    Array.isArray(facts.observations) && facts.observations.length <= 5000,
-  );
-  requireFact(
-    Array.isArray(facts.relations) && facts.relations.length <= 10000,
-  );
-  requireFact(
-    Array.isArray(facts.evidenceRefs) &&
-      facts.evidenceRefs.length <= 17000 &&
-      Array.isArray(facts.diagnostics) &&
-      facts.diagnostics.length <= 25000,
+      (request.project === undefined
+        ? facts.files.length === request.files.length
+        : request.project.rootPaths.every((path) =>
+            facts.files.some((file) => file.path === path),
+          )),
   );
   coverageByCapabilitySchema.parse(facts.coverageByCapability);
   unique(facts.files);

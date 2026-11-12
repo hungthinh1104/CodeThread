@@ -76,3 +76,41 @@ against source declarations. The analyzer records these as static `REFERENCES`,
 not calls or framework registration. The inputs do not change the external gold
 labels; `references.v1` remains partial because only this narrow subset is
 implemented.
+
+## Whole-repository source and browser workflow evaluation
+
+The repository corpora pin every regular tracked `.ts` blob, compiler/workspace
+metadata, Git commit/tree objects, and license bytes. The loader checks source
+SHA-256 and Git blob identity before analysis. It does not run upstream code,
+tests, package scripts or dependencies.
+
+| Repository                                                        | Pinned commit                              | Scope                  | Source bytes | License material                                              |
+| ----------------------------------------------------------------- | ------------------------------------------ | ---------------------- | -----------: | ------------------------------------------------------------- |
+| [unjs/ufo](https://github.com/unjs/ufo)                           | `f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6` | 21 regular `.ts` files |       82,502 | `LICENSE` (1,078 bytes; SHA-256 is in `repository.json`)      |
+| [jridgewell/sourcemaps](https://github.com/jridgewell/sourcemaps) | `b7600158f4de012d246b7834a73c7c2190e75136` | 53 regular `.ts` files |      286,449 | Five package `LICENSE` files, all hashed in `repository.json` |
+
+`eval:external` reports total labels, scored cases and raw project observations
+separately. Only labels fixed before predictions enter acceptance metrics. The
+sourcemaps overload-related correction remains in `postPredictionCorrections`
+for audit and is excluded from scored cases, exact denominators and the
+closed-owner gate. Repository occurrences without a pre-prediction label remain
+unscored; repeated occurrences in two TypeScript contexts are not silently
+deduplicated into one semantic observation. Inventory, source coverage, context
+completion and semantic coverage are independent fields. The expected source
+labels are Codex-authored; no label set has independent human review.
+
+`repository-workflows.json` pins five browser tasks on ufo and six on
+sourcemaps. Together they exercise whole-repository symbol search, explicit
+project-context selection, outgoing CALLS, occurrence and declaration evidence,
+target follow with Back/Forward, source/context-status inspection, and paged
+inventory display for a monorepo. The sourcemaps task anchors (commit
+`b7600158f4de012d246b7834a73c7c2190e75136`) are specified from its pinned source
+path, lines and SHA-256, then checked against the verified corpus bytes and the
+browser projection.
+
+These tasks were authored after analyzer predictions were observed. Their
+eleven-task denominator is a workflow completion check, not a blind semantic
+gold set. Browser task completion, source labels and total project occurrences
+must be reported as separate counts. No human participant or comprehension
+outcome is measured; the Codex-authored labels have not received independent
+human review.

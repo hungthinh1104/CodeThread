@@ -5,6 +5,8 @@ import {
 } from './browser/semantic-scenarios.ts';
 import { openPage, assertLocalOnly, selectByName } from './browser/helpers.ts';
 import { verifyGitSourceDiscovery } from './browser/source-discovery.ts';
+import { verifyRepositoryNavigation } from './browser/repository-navigation.ts';
+import { verifyRepositoryCliBrowser } from './browser/repository-corpus.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -572,6 +574,8 @@ async function main(): Promise<void> {
     await verifyTruncatedGraphOnlyExposesReturnedEdges(browser);
     await verifySafeEvidence(browser);
     await verifyGitSourceDiscovery(browser);
+    await verifyRepositoryNavigation(browser);
+    await verifyRepositoryCliBrowser(browser);
   } finally {
     await browser.close();
   }

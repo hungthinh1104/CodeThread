@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  analysisResourceLimits,
   createSourcePositionIndex,
   hashSchema,
   isSnapshotPath,
@@ -20,6 +21,7 @@ export interface RetainedSource {
 export function validateSources(
   facts: AnalysisFacts,
   reader: VerifiedSourceReader,
+  limits = analysisResourceLimits(),
 ): Map<string, RetainedSource> {
   const snapshot = facts.snapshotId;
   const files = new Map(facts.files.map((file) => [file.id, file]));
@@ -54,8 +56,8 @@ export function validateSources(
     totalBytes += bytes.length;
     ensure(
       bytes.length === file.byteLength &&
-        bytes.length <= 262144 &&
-        totalBytes <= 2097152,
+        bytes.length <= limits.maxFileBytes &&
+        totalBytes <= limits.maxTotalBytes,
     );
     if (createHash('sha256').update(bytes).digest('hex') !== file.contentHash)
       throw new TraceError(

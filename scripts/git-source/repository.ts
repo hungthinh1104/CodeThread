@@ -26,6 +26,7 @@ interface StageLimits {
   deadlineMs: number;
   metadataBytes: number;
   objectBytes: number;
+  blobBytes?: number;
 }
 const defaultStageLimits: StageLimits = {
   deadlineMs: GIT_DEADLINE_MS,
@@ -265,6 +266,9 @@ export async function openRepository(
       selection,
       counts,
       metadataLimit: limits.metadataBytes,
+      ...(limits.blobBytes === undefined
+        ? {}
+        : { blobLimit: limits.blobBytes }),
     });
     const commit = (
       await reader.readObjects([commitId], 'commit', limits.objectBytes)

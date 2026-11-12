@@ -26,8 +26,22 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Configure bounded APT retries for Chromium dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          # Load after runner-images' zz-retries so these bounded values take effect.
+          printf '%s\n' \
+            'Acquire::Retries "1";' \
+            'Acquire::http::Timeout "15";' \
+            'Acquire::https::Timeout "15";' \
+            | sudo tee /etc/apt/apt.conf.d/zzzz-codethread-retries >/dev/null
+          echo 'Effective APT acquire configuration'
+          sudo apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+          echo 'Ubuntu APT mirrors'
+          sudo cat /etc/apt/apt-mirrors.txt
       - name: Install Chromium for visual investigation tests (Linux)
         if: runner.os == 'Linux'
+        timeout-minutes: 10
         run: pnpm exec playwright install --with-deps chromium
       - name: Install Chromium for visual investigation tests (Windows)
         if: runner.os == 'Windows'

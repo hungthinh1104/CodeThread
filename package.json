@@ -17,6 +17,7 @@
     "test": "vitest run",
     "security:check": "pnpm audit --audit-level=low",
     "bench:positions": "node scripts/benchmark-source-positions.ts",
+    "bench:repository-profile": "node scripts/benchmark-repository-profile.ts",
     "demo:semantic": "node scripts/demo-semantic.ts",
     "investigate": "node scripts/investigate.ts",
     "bench:source-discovery": "node --expose-gc scripts/benchmark-source-discovery.ts",

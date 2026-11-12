@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <title>CodeThread local investigation</title>
     <link rel="stylesheet" href="/viewer.css" />
-    <script src="/viewer.js" defer></script>
+    <script src="/viewer.js" type="module"></script>
   </head>
   <body>
     <header class="page-header">
@@ -14,7 +14,10 @@
         <p class="eyebrow">Static source facts · no execution observed</p>
         <h1>CodeThread investigation</h1>
       </div>
-      <button id="back" type="button" disabled>Back</button>
+      <nav aria-label="Investigation history" class="pager">
+        <button id="back" type="button" disabled>Back</button>
+        <button id="forward" type="button" disabled>Forward</button>
+      </nav>
     </header>
     <main>
       <section class="overview" aria-labelledby="snapshot-heading">
@@ -27,11 +30,33 @@
           class="coverage-list"
           aria-label="Capability coverage"
         ></ul>
+        <div id="repository-controls" hidden>
+          <p id="repository-summary" role="status"></p>
+          <label for="project-select">Project context</label>
+          <select id="project-select"></select>
+          <p id="project-status" class="muted"></p>
+          <button id="retry-project" type="button" hidden>Retry project</button>
+          <details>
+            <summary>Source inventory and project diagnostics</summary>
+            <ul id="project-diagnostics"></ul>
+            <ul id="source-files"></ul>
+            <div class="pager">
+              <button id="previous-files" type="button" disabled>
+                Previous files
+              </button>
+              <button id="next-files" type="button" disabled>Next files</button>
+            </div>
+          </details>
+        </div>
       </section>
       <div class="workspace">
         <aside aria-labelledby="symbols-heading">
           <h2 id="symbols-heading">1. Select a source symbol</h2>
           <form id="symbol-search">
+            <label id="catalog-label" hidden
+              ><input id="global-symbols" type="checkbox" checked /> Search all
+              project contexts</label
+            >
             <label for="symbol-query">Name or source path</label>
             <div class="search-row">
               <input
@@ -84,6 +109,11 @@
             id="root-symbol"
             class="root-symbol"
             aria-live="polite"
+          ></section>
+          <section
+            id="context-choices"
+            aria-label="Choose declaration context"
+            hidden
           ></section>
           <section
             id="graph-symbol-selection"

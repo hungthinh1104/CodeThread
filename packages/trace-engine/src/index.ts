@@ -1,5 +1,6 @@
 import type {
   AnalysisFacts,
+  AnalysisResourceProfile,
   VerifiedSourceReader,
 } from '@codethread/code-model';
 import { createContext } from './context.js';
@@ -10,8 +11,9 @@ export { TraceError } from './fact-integrity.js';
 export function createInvestigation(
   input: AnalysisFacts,
   source: VerifiedSourceReader,
+  options: { resourceProfile?: AnalysisResourceProfile } = {},
 ) {
-  const context = createContext(input, source);
+  const context = createContext(input, source, options.resourceProfile);
   return Object.freeze({
     neighbors: (requestInput: unknown) => neighbors(context, requestInput),
     paths: (requestInput: unknown) => paths(context, requestInput),

@@ -37,6 +37,10 @@ select {
   font: inherit;
 }
 
+select {
+  max-width: 100%;
+}
+
 button,
 select,
 input {
@@ -119,6 +123,13 @@ footer {
 .overview h2,
 .overview p {
   margin-bottom: 0.35rem;
+}
+
+#repository-summary,
+#project-status,
+#project-diagnostics li,
+#source-files li {
+  overflow-wrap: anywhere;
 }
 
 .coverage-list {
