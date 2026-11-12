@@ -27,8 +27,8 @@ developed on a separate feature branch. This is **not** a deployed service or
 verified production database. It preserves the existing semantic engine,
 project-scoped analysis, and exact source evidence rather than replacing them.
 
-See [backend setup, API and verification boundaries](docs/backend.md).
-Use a disposable PostgreSQL database and never commit credentials.
+See [backend setup, API and verification boundaries](docs/backend.md). Use a
+disposable PostgreSQL database and never commit credentials.
 
 ## Developer setup
 

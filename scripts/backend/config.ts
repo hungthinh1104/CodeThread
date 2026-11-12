@@ -21,17 +21,29 @@ export const bodyEvidence = z.strictObject({ request: z.unknown() });
 export function digest(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
-export function tokenMatch(actual: string | undefined, expected: string): boolean {
+export function tokenMatch(
+  actual: string | undefined,
+  expected: string,
+): boolean {
   if (!actual?.startsWith('Bearer ')) return false;
-  const a = Buffer.from(actual.slice(7)), b = Buffer.from(expected);
+  const a = Buffer.from(actual.slice(7)),
+    b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
-export async function allowedRepository(locator: string, allowedRoot: string): Promise<string> {
+export async function allowedRepository(
+  locator: string,
+  allowedRoot: string,
+): Promise<string> {
   const root = await realpath(allowedRoot);
   const candidate = await realpath(locator);
   const remainder = relative(root, candidate);
-  if (!isAbsolute(root) || remainder === '' || remainder === '..' ||
-    remainder.startsWith('..' + sep) || isAbsolute(remainder))
+  if (
+    !isAbsolute(root) ||
+    remainder === '' ||
+    remainder === '..' ||
+    remainder.startsWith('..' + sep) ||
+    isAbsolute(remainder)
+  )
     throw new Error('Repository locator is outside the permitted root');
   return candidate;
 }
@@ -40,8 +52,16 @@ export function serviceConfig() {
   const secret = process.env.CODETHREAD_API_TOKEN;
   const root = process.env.CODETHREAD_ALLOWED_REPO_ROOT;
   const analyzerBuildHash = process.env.CODETHREAD_ANALYZER_BUILD_HASH;
-  if (!url || !secret || secret.length < 32 || !root ||
-      !analyzerBuildHash || !hash.safeParse(analyzerBuildHash).success)
-    throw new Error('Database URL, 32+ character API token, allowed repository root and verified analyzer build hash are required');
+  if (
+    !url ||
+    !secret ||
+    secret.length < 32 ||
+    !root ||
+    !analyzerBuildHash ||
+    !hash.safeParse(analyzerBuildHash).success
+  )
+    throw new Error(
+      'Database URL, 32+ character API token, allowed repository root and verified analyzer build hash are required',
+    );
   return { url, secret, root, analyzerBuildHash, port: 8765 };
 }
