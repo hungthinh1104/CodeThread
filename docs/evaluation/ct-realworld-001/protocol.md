@@ -14,6 +14,9 @@ contexts and are excluded from the external semantic score. The labels were
 authored by AI after reading pinned Git blobs and are awaiting independent human
 review. They are not suitable as independently reviewed research gold.
 
+The 2026-11-12 result record is [run-2026-11-12.md](./run-2026-11-12.md), tied
+to code candidate `ab41baa42b755b845b744445d0089b70635df08c`.
+
 ## Pinned corpus and source handling
 
 `repositories.json` records repository URLs, discovery refs, exact commit and
