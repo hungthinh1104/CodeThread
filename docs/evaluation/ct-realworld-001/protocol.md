@@ -183,6 +183,36 @@ prompts and source SHAs. This is a single-operator engineering comparison, not a
 participant study or independent human result. Report navigation completion
 separately from CodeThread semantic labels.
 
+## Separate real-world study CLI
+
+The real-world packet uses a separate command family so the existing CT-EVAL
+`study:score` interface and its task schema remain unchanged:
+
+```text
+pnpm study:realworld validate
+pnpm study:realworld provenance
+pnpm study:realworld score results.json
+```
+
+`validate` checks the frozen task-bank and repository-set digests and reports
+their task and label counts. `provenance` requires a clean CodeThread checkout
+and emits the exact scorer revision and packet digests. `score` accepts a result
+path only inside the ignored `local-study-data/ct-realworld-001/` directory.
+Before opening that result, it requires `independent-review.json` to match the
+task bank, repository set, scorer revision, and scoring-policy digest, and
+verifies the digests of `independent-answers.json` and `adjudication.json` in
+the same directory.
+
+The local review record contains self-reported blinding and reviewer-eligibility
+fields; the CLI verifies their structure and digests but cannot authenticate a
+reviewer's identity, independence, institutional approval, consent, or data
+handling. The approved amendment was reported to exist, but its version,
+participant cohort, consent, scoring, and retention terms have not been provided
+here. Therefore `score` currently stops with
+`PARTICIPANT_PROTOCOL_NOT_CONFIGURED` after the review provenance gate and does
+not open or score participant results. Keep approval documents and identities
+outside the repository. This gate does not authorize collection or recruitment.
+
 ## Reporting limits
 
 Report results per repository, exact task/label/observation denominators, source
@@ -210,7 +240,6 @@ not seen CodeThread predictions. Participant scoring remains blocked until
 independent answer-key review is completed and preserved.
 
 Do not claim human benefit, independent gold review, universal TypeScript
-support, execution semantics, or research effectiveness. The appropriate
-outcome can remain blocked when the task bank is not independently reviewed or
-when a required workflow, correctness, resource, or security gate lacks
-evidence.
+support, execution semantics, or research effectiveness. The appropriate outcome
+can remain blocked when the task bank is not independently reviewed or when a
+required workflow, correctness, resource, or security gate lacks evidence.
