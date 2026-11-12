@@ -21,8 +21,10 @@ record before viewing the label JSON or CodeThread outputs. The worksheet does
 not itself establish review status; record that only after the completed review
 and any adjudication are preserved.
 
-The 2026-11-12 result record is [run-2026-11-12.md](./run-2026-11-12.md), tied
-to code candidate `ab41baa42b755b845b744445d0089b70635df08c`.
+The 2026-11-12 result record is [run-2026-11-12.md](./run-2026-11-12.md). It
+retains historical candidate results and records the final fixed-task rerun at
+product-code SHA `5b348be80c9ed339f1c9e887da91e8c39ad8dc59`; each result section
+identifies its own tested SHA and evidence boundary.
 
 ## Pinned corpus and source handling
 
