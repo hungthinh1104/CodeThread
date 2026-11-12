@@ -41,7 +41,7 @@ const repository: AnalysisResourceLimits = Object.freeze({
   maxFileBytes: 32 * 1024 * 1024,
   maxTotalBytes: 32 * 1024 * 1024,
   maxDeclarations: 20000,
-  maxCallSites: 50000,
+  maxCallSites: 100000,
   maxReferenceSites: 50000,
   maxRelations: 100000,
   maxEvidence: 220000,

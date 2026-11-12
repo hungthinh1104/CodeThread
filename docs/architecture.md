@@ -1371,7 +1371,8 @@ context separately. Files not assigned by tsconfig enter a labeled default
 context. Project workers run sequentially with one active worker, at most a 2
 GiB V8 heap, and the remaining portion of the 120-second session deadline.
 Context source retention is capped at 128 MiB and combined worker result/IPC
-retention at 128 MiB. These are explicit engineering bounds; the V8 heap limit
+retention at 384 MiB. The repository profile admits at most 100,000 call sites
+per analysis context. These are explicit engineering bounds; the V8 heap limit
 is not a total RSS limit.
 
 An invalid or failed context retains its own diagnostic and does not invalidate
