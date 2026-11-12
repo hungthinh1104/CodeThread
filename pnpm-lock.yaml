@@ -4,10 +4,6 @@ lockfileVersion: '9.0'
 importers:
 
   .:
-    dependencies:
-      postgres:
-        specifier: 3.4.7
-        version: 3.4.7
     configDependencies: {}
     packageManagerDependencies:
       pnpm:
@@ -100,7 +96,6 @@ packages:
 
 snapshots:
 
-  postgres@3.4.7: {}
 
   '@pnpm/exe.android-arm64@12.16.1':
     optional: true
@@ -176,6 +171,10 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      postgres:
+        specifier: 3.4.7
+        version: 3.4.7
     devDependencies:
       '@codethread/code-model':
         specifier: workspace:*
@@ -1091,6 +1090,8 @@ packages:
     resolution: {integrity: sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==}
 
 snapshots:
+
+  postgres@3.4.7: {}
 
   '@cacheable/memory@2.2.0':
     dependencies:
