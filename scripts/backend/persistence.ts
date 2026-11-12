@@ -47,11 +47,12 @@ async function batchInsert(
   // Table and column names are fixed at source-code call sites, never from user input.
   for (let i = 0; i < rows.length; i += 200) {
     const chunk = rows.slice(i, i + 200);
+    const parameters = chunk.flatMap((r) => columns.map((c) => r[c]));
     if (chunk.length)
       await sql.unsafe(
         `INSERT INTO codethread.${table} (${columns.join(',')})
       VALUES ${chunk.map((_, j) => '(' + columns.map((__, k) => '$' + (j * columns.length + k + 1)).join(',') + ')').join(',')}`,
-        chunk.flatMap((r) => columns.map((c) => r[c])) as Parameters<Sql['unsafe']>[1],
+        parameters as Parameters<Sql['unsafe']>[1],
       );
   }
 }
@@ -130,7 +131,7 @@ export async function persistScan(
              configuration_hash, coverage, facts_json)
             VALUES (${f.snapshotId}, ${repositoryId}, ${f.identity.sourceFingerprint},
               ${f.identity.analyzerVersion}, ${f.identity.analyzerBuildHash},
-              ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${serializedFacts})`;
+              ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${serializedFacts}::jsonb)`;
           const fileRows: Record<string, unknown>[] = [];
           for (const file of f.files) {
             const bytes = snapshot.source.readFile(file.id);
