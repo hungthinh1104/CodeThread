@@ -61,9 +61,72 @@ Use the selected package/project context shown by CodeThread; never combine
 separate contexts to manufacture a path. Record failures and incomplete scope as
 such. A failed or truncated inventory is not a completed repository task.
 
-For the CodeThread supplementary case, execute the two prompts in `tasks.json`
-against its pinned commit. Report them as integration workflow observations
-only, outside external accuracy denominators.
+For the CodeThread supplementary case, execute the two fixed-anchor workflows in
+`tests/realworld-self-browser.ts` against its pinned commit. They locate
+`analyzeManifest` and its implementation, package export and focused test, then
+select the symbol-indexer project context and follow `analyzeProject` to
+`planRepositoryProjects`. The runner opens and hashes declaration and call-site
+evidence, and checks export/test locations against pinned Git blobs. Keep these
+as integration workflow observations outside external accuracy denominators.
+
+## Reproducible local runners
+
+Run the frozen external prompt workflows through the actual repository CLI and
+browser viewer with:
+
+```text
+pnpm exec node tests/realworld-browser.ts
+```
+
+By default the runner reads local Git repositories from
+`.tooling/ct-realworld-sources/<key>`. Set `CT_REALWORLD_SOURCE_ROOT` to use a
+different parent directory. `CT_REALWORLD_REPOSITORIES=hono,zod,pinia` can
+select a subset for diagnosis; only an unfiltered run covers all 15 tasks.
+`CT_REALWORLD_OUTPUT_PATH` writes the sanitized JSON result to a local file. The
+runner verifies each pinned commit, selects the documented project context, uses
+the UI for symbol search, relationship filtering, occurrence evidence and
+declaration evidence, and checks evidence hashes against `repositories.json`. It
+exits nonzero for incomplete task workflows or wrong-exact output. It is a
+scripted single-operator workflow, not an independent human study or gold
+review.
+
+Run the supplementary CodeThread self-repository browser workflows separately:
+
+```text
+pnpm exec node tests/realworld-self-browser.ts
+```
+
+This runner analyzes only the regular `.ts` blobs at CodeThread commit
+`0fd2fc9169d091afa1c8e0bdb4697d13c22c9a05`, selects
+`packages/symbol-indexer/tsconfig.json`, and reports two scripted browser tasks.
+Its output records the tested product SHA and worktree state separately from the
+pinned analyzed SHA. These tasks do not alter `tasks.json` or the external
+15-task/28-label score.
+
+Collect all-project-context observation counts and available acquisition, phase,
+Git operation and memory metrics with:
+
+```text
+pnpm exec node tests/realworld-analysis-profile.ts
+```
+
+This profiling runner calls CodeThread's repository analysis service directly on
+the same pinned Git objects; it does not launch scripts or dependencies from the
+analyzed repositories. Observation totals count each project-context membership
+separately. Profiling and browser workflow timings are reported as separate
+measurements.
+
+The terminal-navigation comparator is:
+
+```text
+pnpm exec node tests/realworld-navigation-baseline.ts
+```
+
+It uses only `git grep` and `git show` against the same pinned commits, then
+checks retrieved source lines against the frozen label anchors. Its timings
+cover scripted Git command and validation latency, not human reading or
+comprehension. Treat it as a reproducible terminal lookup baseline; it is not an
+independent answer-generation benchmark or a human productivity comparison.
 
 ## Scoring and denominators
 
