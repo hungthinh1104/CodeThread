@@ -117,7 +117,9 @@ export async function persistScan(
           resourceProfile: 'repository',
         });
         const f = snapshot.facts;
-        const serializedFacts = db.json(f as unknown as Parameters<Sql['json']>[0]);
+        const serializedFacts = db.json(
+          f as unknown as Parameters<Sql['json']>[0],
+        );
         const existing = (
           await db`SELECT state, facts_json = ${serializedFacts} AS same
           FROM codethread.repository_snapshot
