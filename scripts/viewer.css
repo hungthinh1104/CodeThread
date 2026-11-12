@@ -125,6 +125,13 @@ footer {
   margin-bottom: 0.35rem;
 }
 
+#repository-summary,
+#project-status,
+#project-diagnostics li,
+#source-files li {
+  overflow-wrap: anywhere;
+}
+
 .coverage-list {
   display: flex;
   flex-wrap: wrap;
