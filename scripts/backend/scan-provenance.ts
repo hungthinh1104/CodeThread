@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { PinnedInput } from '../git-source/repository-metadata.ts';
 import type { Database } from './database.ts';
+import { compareSourcePaths } from './source-path-order.ts';
 import { storeSourceObjects } from './source-objects.ts';
 
 export interface PinnedRevision {
@@ -103,8 +104,11 @@ export async function persistScanInputs(
 
     const stored =
       await db`SELECT path,git_blob_oid,git_mode,content_hash,input_kind
-      FROM codethread.scan_input_file WHERE scan_job_id=${jobId} ORDER BY path`;
-    const expected = [...files].sort((a, b) => a.path.localeCompare(b.path));
+      FROM codethread.scan_input_file WHERE scan_job_id=${jobId}
+      ORDER BY path COLLATE "C"`;
+    const expected = [...files].sort((a, b) =>
+      compareSourcePaths(a.path, b.path),
+    );
     if (stored.length !== expected.length)
       throw new Error(
         'Persisted scan input manifest has a different file count',

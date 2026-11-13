@@ -26,6 +26,9 @@ export type BackendConfig = {
     phase: 'source_acquisition' | 'analysis' | 'persistence',
     durationMs: number,
   ) => void;
+  onPhaseStart?: (
+    phase: 'source_acquisition' | 'analysis' | 'persistence',
+  ) => void;
 };
 const analyzerVersion = 'ct-index-001b/typescript-6.0.3';
 const configurationHash = digest(
@@ -58,6 +61,11 @@ export class ScanService {
     work: () => Promise<T>,
   ): Promise<T> {
     const started = performance.now();
+    try {
+      this.config.onPhaseStart?.(phase);
+    } catch {
+      // Optional phase observers must not alter scan outcomes.
+    }
     try {
       return await work();
     } finally {
@@ -169,7 +177,7 @@ export class ScanService {
       )[0]?.total ?? 0;
     const items = await this.db`SELECT path,content_hash,git_blob_oid,git_mode
       FROM codethread.scan_input_file WHERE scan_job_id=${jobId}
-      ORDER BY path LIMIT 50 OFFSET ${offset}`;
+      ORDER BY path COLLATE "C" LIMIT 50 OFFSET ${offset}`;
     return {
       items,
       total: count,

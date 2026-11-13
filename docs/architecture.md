@@ -803,17 +803,29 @@ Do not log source excerpts, credentials or connection strings in errors.
 | Large  |   900 |   1,800 |         900 |
 
 `pnpm backend:bench` generates and Git-pins deterministic TypeScript sources
-using seed `codethread-db-workload-v1`, then uses the production scan worker on
-an empty, dedicated loopback database. The large profile is below the current
-1,000-file repository cap; it is not a maximum-size or arbitrary-repository
-claim. The harness emits each commit and dataset checksum, hardware/OS, Node,
-pnpm and PostgreSQL versions, source bytes, phase timings, peak RSS and query
-plans. It takes three full-hydration samples and five optimized symbol-page and
-graph-query samples, reports medians, and verifies that the old and new symbol
-pages match. It includes before/after `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`
-for facts/source hydration and direct symbol search. No new index was introduced
-for this optimization. These synthetic measurements are separate from
-`pnpm eval:external` correctness evidence and human-study results.
+using seed `codethread-db-workload-v1`, scans the 25/250/900-file profiles
+through the actual HTTP API and production worker, and also scans Hono at its
+frozen CT-REALWORLD-001 commit. The runner verifies Hono's pinned tree and
+source blob hashes from the checked-in repository manifest and does not execute
+external scripts or dependencies. The large synthetic profile is below the
+current 1,000-file repository cap; these workloads are not a maximum-size or
+arbitrary-repository claim.
+
+The report includes commit and dataset checksums, hardware/OS, Node, pnpm and
+PostgreSQL versions, source bytes, full scan lifecycle and phase timings, peak
+RSS and query plans. It takes three full-hydration samples and five direct
+symbol-page and graph-query samples, reports medians, and verifies the old and
+new symbol pages match. It includes before/after
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for facts/source hydration and direct
+symbol search. Actual HTTP symbol, neighbor, path and evidence routes report
+response bytes and P50/P95/P99 at concurrency 1/2/4. Cold means the first
+request on a new API server and database client pool; it does not flush
+PostgreSQL shared buffers or the OS page cache. Warm requests follow one
+excluded endpoint warm-up. Database time sums tagged SQL client round-trip
+latencies, including pool wait. Defaults are 10 cold samples and 20 warm
+iterations per concurrency. No new index was introduced for this optimization.
+The local workload measurements are separate from `pnpm eval:external`
+correctness evidence and human-study results.
 
 Required uniqueness indexes are integrity mechanisms. Candidate performance
 indexes include tests(snapshot,file,declaration position), reverse

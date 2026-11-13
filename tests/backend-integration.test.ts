@@ -1,10 +1,24 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  symlink,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
-import { connect, assertMigrations } from '../scripts/backend/database.ts';
+import { dirname, join } from 'node:path';
+import { createServer as createPortProbe } from 'node:net';
+import { request as httpRequest } from 'node:http';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import {
+  acquireServiceLock,
+  connect,
+  assertMigrations,
+} from '../scripts/backend/database.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
 import { ScanService } from '../scripts/backend/service.ts';
 import { persistScan } from '../scripts/backend/scan-persistence.ts';
@@ -23,10 +37,19 @@ const dbUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
 const digest = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 
-async function createGitFixture(parent: string, source: string) {
+async function createGitFixture(
+  parent: string,
+  source: string | readonly { path: string; source: string }[],
+) {
   const folder = join(parent, 'repo');
   await mkdir(folder);
-  await writeFile(join(folder, 'index.ts'), source);
+  const files =
+    typeof source === 'string' ? [{ path: 'index.ts', source }] : source;
+  for (const file of files) {
+    const filePath = join(folder, file.path);
+    await mkdir(dirname(filePath), { recursive: true });
+    await writeFile(filePath, file.source);
+  }
   const git = (...args: string[]) =>
     execFileSync('git', ['-C', folder, ...args], {
       encoding: 'utf8',
@@ -39,7 +62,7 @@ async function createGitFixture(parent: string, source: string) {
     '-c',
     'user.email=test@example.invalid',
     'add',
-    'index.ts',
+    '--all',
   );
   git(
     '-c',
@@ -64,6 +87,53 @@ async function waitForTerminalJob(service: ScanService, jobId: string) {
   throw new Error(
     `Timed out waiting for scan ${jobId}; last state=${last?.state}`,
   );
+}
+
+function waitForProcessMessage(child: ChildProcess, expected: string) {
+  return new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(`Worker process did not send ${expected}`));
+    }, 20_000);
+    const onMessage = (message: unknown) => {
+      if (message !== expected) return;
+      cleanup();
+      resolve();
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      cleanup();
+      reject(new Error(`Worker exited before ${expected}: ${code ?? signal}`));
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      child.off('message', onMessage);
+      child.off('exit', onExit);
+    };
+    child.on('message', onMessage);
+    child.once('exit', onExit);
+  });
+}
+
+function waitForProcessExit(child: ChildProcess) {
+  if (child.exitCode !== null || child.signalCode !== null)
+    return Promise.resolve();
+  return new Promise<void>((resolve) => child.once('exit', () => resolve()));
+}
+
+function startScanWorker(root: string, analyzerBuildHash: string) {
+  const workerPath = fileURLToPath(
+    new URL('./backend-scan-worker-process.ts', import.meta.url),
+  );
+  return spawn(process.execPath, [workerPath], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      CODETHREAD_DATABASE_URL: dbUrl!,
+      CODETHREAD_ALLOWED_REPO_ROOT: root,
+      CODETHREAD_ANALYZER_BUILD_HASH: analyzerBuildHash,
+    },
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+  });
 }
 
 async function prepareClaimedScan(
@@ -368,6 +438,32 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }
       service.stop();
       await running;
+      const pendingScan = await prepareClaimedScan(
+        db,
+        service,
+        { folder, git, commit },
+        repo.id,
+      );
+      await db`UPDATE codethread.scan_job
+        SET created_at=now()-interval '60 days',
+            updated_at=now()-interval '60 days'
+        WHERE id=${pendingScan.queued.id}`;
+      await db`SELECT * FROM codethread.prune_inactive_data(
+        now()-interval '1 day',10,10,10)`;
+      const retainedPending = await db`SELECT j.state,
+        (SELECT count(*)::integer FROM codethread.scan_input_file i
+          WHERE i.scan_job_id=j.id) AS inputs,
+        (SELECT count(*)::integer FROM codethread.scan_input_file i
+          JOIN codethread.source_object o ON o.sha256=i.content_hash
+          WHERE i.scan_job_id=j.id) AS retained_objects
+        FROM codethread.scan_job j WHERE j.id=${pendingScan.queued.id}`;
+      expect(retainedPending[0]).toMatchObject({
+        state: 'running',
+        inputs: 1,
+        retained_objects: 1,
+      });
+      await db`UPDATE codethread.scan_job SET state='cancelled'
+        WHERE id=${pendingScan.queued.id}`;
       const token = 'a'.repeat(48),
         port = 8765;
       viewers = new PersistentViewerManager(db);
@@ -485,6 +581,988 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       if (server)
         await new Promise<void>((resolve) => server!.close(() => resolve()));
       await viewers?.closeAll();
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('persists and pages Git paths in deterministic UTF-8 byte order', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-path-order-')),
+      files = [
+        { path: 'Alpha.ts', source: 'export const alpha = 1;\n' },
+        { path: '_under.ts', source: 'export const under = 1;\n' },
+        { path: 'a-lower.ts', source: 'export const lower = 1;\n' },
+        { path: 'cafe.ts', source: 'export const cafe = 1;\n' },
+        { path: 'caf\u00e9.ts', source: 'export const cafeAccent = 1;\n' },
+      ] as const,
+      fixture = await createGitFixture(parent, files),
+      db = connect(dbUrl!),
+      service = new ScanService(db, {
+        root: parent,
+        analyzerBuildHash: digest('path-order-build'),
+      });
+    let jobId: string | undefined;
+    try {
+      await applyMigrations(db);
+      const setup = await prepareClaimedScan(db, service, fixture),
+        expected = [...files]
+          .map((file) => file.path)
+          .sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b))),
+        page = await service.files(setup.queued.id, 0);
+      jobId = setup.queued.id;
+      expect(page.items.map((item) => item.path)).toEqual(expected);
+    } finally {
+      if (jobId) await service.cancel(jobId).catch(() => {});
+      service.stop();
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('serves scans and graph/evidence queries through a least-privilege login', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-runtime-role-')),
+      allowedRoot = join(parent, 'allowed'),
+      outside = join(parent, 'outside'),
+      fixtureSource =
+        'export function getValue() { return 1; }\n' +
+        'export function consumer() { return getValue(); }\n';
+    await mkdir(allowedRoot);
+    await mkdir(outside);
+    const fixture = await createGitFixture(allowedRoot, fixtureSource),
+      db = connect(dbUrl!),
+      databaseName = 'ct_runtime_' + randomUUID().replaceAll('-', ''),
+      roleName = 'ct_runtime_' + randomUUID().replaceAll('-', ''),
+      migrationRoleName = 'ct_migration_' + randomUUID().replaceAll('-', ''),
+      rolePassword = randomBytes(32).toString('hex'),
+      migrationPassword = randomBytes(32).toString('hex'),
+      token = randomBytes(32).toString('hex');
+    let migrationDb: ReturnType<typeof connect> | undefined,
+      runtimeDb: ReturnType<typeof connect> | undefined,
+      service: ScanService | undefined,
+      server: ReturnType<typeof makeApi> | undefined,
+      worker: Promise<void> | undefined,
+      unlock: (() => Promise<void>) | undefined;
+    try {
+      await applyMigrations(db);
+      await db.unsafe(
+        await readFile(new URL('../db/roles.sql', import.meta.url), 'utf8'),
+      );
+      await db.unsafe(
+        `CREATE ROLE ${migrationRoleName} LOGIN PASSWORD '${migrationPassword}'`,
+      );
+      await db.unsafe(
+        `CREATE DATABASE "${databaseName}" OWNER ${migrationRoleName}`,
+      );
+      const migrationUrl = new URL(dbUrl!);
+      migrationUrl.pathname = '/' + databaseName;
+      migrationUrl.username = migrationRoleName;
+      migrationUrl.password = migrationPassword;
+      migrationDb = connect(migrationUrl.toString());
+      await applyMigrations(migrationDb);
+      await migrationDb.unsafe(
+        await readFile(new URL('../db/roles.sql', import.meta.url), 'utf8'),
+      );
+      await assertMigrations(migrationDb);
+      await db.unsafe(
+        `CREATE ROLE ${roleName} LOGIN PASSWORD '${rolePassword}'`,
+      );
+      await db.unsafe(`GRANT codethread_runtime TO ${roleName}`);
+      const runtimeUrl = new URL(migrationUrl);
+      runtimeUrl.username = roleName;
+      runtimeUrl.password = rolePassword;
+      runtimeDb = connect(runtimeUrl.toString());
+      await assertMigrations(runtimeDb);
+      unlock = await acquireServiceLock(runtimeDb);
+      const role = await runtimeDb`SELECT current_user,
+        pg_has_role(current_user,'codethread_runtime','member') AS runtime_member,
+        r.rolsuper,r.rolcreaterole,r.rolcreatedb,
+        has_table_privilege(current_user,'codethread.code_symbol','DELETE') AS can_delete,
+        has_schema_privilege(current_user,'codethread','CREATE') AS can_create
+        FROM pg_roles r WHERE r.rolname=current_user`;
+      expect(role[0]).toMatchObject({
+        current_user: roleName,
+        runtime_member: true,
+        rolsuper: false,
+        rolcreaterole: false,
+        rolcreatedb: false,
+        can_delete: false,
+        can_create: false,
+      });
+      service = new ScanService(runtimeDb, {
+        root: allowedRoot,
+        analyzerBuildHash: digest('least-privilege-runtime-build'),
+      });
+      await service.recover();
+
+      const probe = createPortProbe();
+      await new Promise<void>((resolve, reject) => {
+        probe.once('error', reject);
+        probe.listen(0, '127.0.0.1', resolve);
+      });
+      const address = probe.address();
+      if (!address || typeof address === 'string')
+        throw new Error('Failed to reserve an API port');
+      const port = address.port;
+      await new Promise<void>((resolve, reject) =>
+        probe.close((error) => (error ? reject(error) : resolve())),
+      );
+
+      server = makeApi(runtimeDb, service, token, port);
+      await new Promise<void>((resolve, reject) => {
+        server!.once('error', reject);
+        server!.listen(port, '127.0.0.1', resolve);
+      });
+      worker = service.run();
+      const base = `http://127.0.0.1:${port}/v1`,
+        auth = { authorization: `Bearer ${token}` },
+        postJson = (url: string, value: unknown) =>
+          fetch(url, {
+            method: 'POST',
+            headers: { ...auth, 'content-type': 'application/json' },
+            body: JSON.stringify(value),
+          });
+
+      const health = await fetch(`${base}/health`, { headers: auth });
+      expect(health.status).toBe(200);
+      expect(await health.json()).toMatchObject({ ready: true });
+      const badHostStatus = await new Promise<number>((resolve, reject) => {
+        const request = httpRequest(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: '/v1/health',
+            headers: { ...auth, host: 'external.invalid' },
+          },
+          (response) => {
+            response.resume();
+            response.once('end', () => resolve(response.statusCode ?? 0));
+          },
+        );
+        request.once('error', reject);
+        request.end();
+      });
+      expect(badHostStatus).toBe(403);
+      const badOrigin = await fetch(`${base}/health`, {
+        headers: { ...auth, origin: 'https://external.invalid' },
+      });
+      expect(badOrigin.status).toBe(403);
+      const oversized = await postJson(`${base}/repositories`, {
+        locator: 'x'.repeat(70_000),
+      });
+      expect(oversized.status).toBe(413);
+      const escaped = await postJson(`${base}/repositories`, {
+        locator: outside,
+      });
+      expect(escaped.status).toBe(400);
+      const escapeLink = join(allowedRoot, 'escape');
+      await symlink(
+        outside,
+        escapeLink,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      const escapedSymlink = await postJson(`${base}/repositories`, {
+        locator: escapeLink,
+      });
+      expect(escapedSymlink.status).toBe(400);
+
+      const registeredResponse = await postJson(`${base}/repositories`, {
+        locator: fixture.folder,
+      });
+      expect(registeredResponse.status).toBe(200);
+      const registered = await registeredResponse.json();
+      const scanResponse = await postJson(
+        `${base}/repositories/${registered.id}/scans`,
+        { revision: 'HEAD', idempotencyKey: 'runtime-http-scan' },
+      );
+      expect(scanResponse.status).toBe(200);
+      const accepted = await scanResponse.json();
+      const deadline = Date.now() + 90_000;
+      let completed: { state: string; git_commit_oid: string | null } | null =
+        null;
+      while (Date.now() < deadline) {
+        const response = await fetch(`${base}/scans/${accepted.id}`, {
+          headers: auth,
+        });
+        const current = (await response.json()) as {
+          state: string;
+          git_commit_oid: string | null;
+        };
+        completed = current;
+        if (['succeeded', 'failed', 'cancelled'].includes(current.state)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(completed?.state).toBe('succeeded');
+      expect(completed?.git_commit_oid).toBe(fixture.commit);
+      const projectResponse = await fetch(
+        `${base}/scans/${accepted.id}/projects`,
+        { headers: auth },
+      );
+      const projects = await projectResponse.json();
+      const project = projects.find(
+        (item: { status: string }) => item.status === 'ready',
+      );
+      expect(project).toBeDefined();
+      const symbolsResponse = await fetch(
+        `${base}/scans/${accepted.id}/projects/${project.project_id}/symbols`,
+        { headers: auth },
+      );
+      expect(symbolsResponse.status).toBe(200);
+      const symbols = await symbolsResponse.json(),
+        consumer = symbols.items.find(
+          (item: { name: string }) => item.name === 'consumer',
+        ),
+        target = symbols.items.find(
+          (item: { name: string }) => item.name === 'getValue',
+        );
+      expect(consumer).toBeDefined();
+      expect(target).toBeDefined();
+      const queryPath = `${base}/scans/${accepted.id}/projects/${project.project_id}`,
+        neighbors = await postJson(`${queryPath}/neighbors`, {
+          snapshotId: project.snapshot_id,
+          symbolId: consumer.id,
+          direction: 'outgoing',
+          depth: 1,
+          nodeLimit: 20,
+        }),
+        paths = await postJson(`${queryPath}/paths`, {
+          snapshotId: project.snapshot_id,
+          fromSymbolId: consumer.id,
+          toSymbolId: target.id,
+          depth: 1,
+          nodeLimit: 20,
+          pathLimit: 5,
+        }),
+        evidence = await postJson(`${queryPath}/evidence`, {
+          snapshotId: project.snapshot_id,
+          evidenceIds: [target.declarationEvidenceId],
+        });
+      expect(neighbors.status).toBe(200);
+      expect(paths.status).toBe(200);
+      expect(evidence.status).toBe(200);
+      expect((await evidence.json()).items[0].status).toBe('available');
+
+      await expect(
+        runtimeDb.unsafe('CREATE TABLE codethread.runtime_escalation(id int)'),
+      ).rejects.toThrow();
+      await expect(
+        runtimeDb.unsafe(
+          'ALTER TABLE codethread.code_symbol DISABLE TRIGGER ALL',
+        ),
+      ).rejects.toThrow();
+      await expect(
+        runtimeDb`DELETE FROM codethread.code_symbol
+          WHERE snapshot_id=${project.snapshot_id}`,
+      ).rejects.toThrow();
+      await expect(
+        runtimeDb`SELECT * FROM codethread.prune_inactive_data(
+          now()-interval '1 day',1,1,1)`,
+      ).rejects.toThrow();
+      const symbolsRemain = await migrationDb`SELECT count(*)::integer AS total
+        FROM codethread.code_symbol WHERE snapshot_id=${project.snapshot_id}`;
+      expect(Number(symbolsRemain[0]?.total)).toBeGreaterThan(0);
+    } finally {
+      service?.stop();
+      await worker?.catch(() => {});
+      if (server)
+        await new Promise<void>((resolve) => server!.close(() => resolve()));
+      await unlock?.();
+      await runtimeDb?.end({ timeout: 5 });
+      await migrationDb?.end({ timeout: 5 });
+      await db
+        .unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)
+        .catch(() => {});
+      await db.unsafe(`DROP ROLE IF EXISTS ${roleName}`).catch(() => {});
+      await db
+        .unsafe(`DROP ROLE IF EXISTS ${migrationRoleName}`)
+        .catch(() => {});
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('recovers pinned source inputs after a worker dies during acquisition persistence', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-input-crash-')),
+      nonce = randomUUID(),
+      inputSources = [
+        {
+          path: 'src/pinned.ts',
+          source: `export function fromPinnedCommit() { return '${nonce}'; }\n`,
+        },
+        {
+          path: 'src/second.ts',
+          source: `export function retainedInput() { return '${nonce}'; }\n`,
+        },
+      ],
+      fixture = await createGitFixture(parent, inputSources),
+      db = connect(dbUrl!),
+      buildHash = digest('source-input-crash-build'),
+      service = new ScanService(db, {
+        root: parent,
+        analyzerBuildHash: buildHash,
+      });
+    let child: ChildProcess | undefined,
+      restartWorker: ChildProcess | undefined,
+      triggerInstalled = false;
+    try {
+      await applyMigrations(db);
+      const repository = await service.register(fixture.folder),
+        queued = await service.accept(
+          repository.id,
+          'HEAD',
+          'process-crash-during-source-inputs',
+        ),
+        inputHashes = inputSources.map((file) => digest(file.source));
+      await db.unsafe(`CREATE FUNCTION codethread.test_pause_source_input()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.scan_job_id='${queued.id}'::uuid THEN PERFORM pg_sleep(60); END IF;
+          RETURN NEW;
+        END $$`);
+      await db.unsafe(`CREATE TRIGGER test_pause_source_input
+        BEFORE INSERT ON codethread.scan_input_file
+        FOR EACH ROW EXECUTE FUNCTION codethread.test_pause_source_input()`);
+      triggerInstalled = true;
+
+      child = startScanWorker(parent, buildHash);
+      await waitForProcessMessage(child, 'ready');
+      const deadline = Date.now() + 60_000;
+      let blockedDuringInputPersistence = false;
+      while (Date.now() < deadline) {
+        const rows = await db`SELECT count(*)::integer AS total
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
+        if (Number(rows[0]?.total) > 0) {
+          blockedDuringInputPersistence = true;
+          break;
+        }
+        if (child.exitCode !== null || child.signalCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blockedDuringInputPersistence).toBe(true);
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: fixture.commit,
+      });
+
+      await writeFile(
+        join(fixture.folder, 'src/pinned.ts'),
+        `export function fromMovedHead() { return '${nonce}'; }\n`,
+      );
+      fixture.git('add', '--all');
+      fixture.git(
+        '-c',
+        'user.name=CodeThread Test',
+        '-c',
+        'user.email=test@example.invalid',
+        'commit',
+        '-qm',
+        'Move HEAD while pinned input persistence is interrupted',
+      );
+      const movedHead = fixture.git('rev-parse', 'HEAD').trim();
+      expect(movedHead).not.toBe(fixture.commit);
+
+      child.send('crash');
+      await waitForProcessMessage(child, 'crash-received');
+      await waitForProcessExit(child);
+      expect(child.exitCode).toBe(86);
+      const blocked = await db`SELECT pid FROM pg_stat_activity
+        WHERE application_name='codethread-backend' AND state='active'
+          AND wait_event='PgSleep'
+          AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
+      if (blocked.length)
+        await db`SELECT pg_terminate_backend(${blocked[0]!.pid})`;
+      await db.unsafe(`DROP TRIGGER test_pause_source_input
+        ON codethread.scan_input_file`);
+      await db.unsafe(`DROP FUNCTION codethread.test_pause_source_input()`);
+      triggerInstalled = false;
+
+      const rolledBack = await db`SELECT
+        (SELECT count(*)::integer FROM codethread.scan_input_file
+          WHERE scan_job_id=${queued.id}) AS inputs,
+        (SELECT count(*)::integer FROM codethread.source_object
+          WHERE sha256=ANY(${db.array(inputHashes)}::text[])) AS objects`;
+      expect(rolledBack[0]).toMatchObject({ inputs: 0, objects: 0 });
+      restartWorker = startScanWorker(parent, buildHash);
+      await waitForProcessMessage(restartWorker, 'ready');
+      const recovered = await waitForTerminalJob(service, queued.id);
+      expect(recovered).toMatchObject({
+        state: 'succeeded',
+        attempt: 2,
+        git_commit_oid: fixture.commit,
+      });
+      expect(recovered.git_commit_oid).not.toBe(movedHead);
+      const projects = await service.projects(queued.id),
+        snapshotId = projects.find(
+          (project) => project.snapshot_id,
+        )?.snapshot_id;
+      expect(snapshotId).toBeTruthy();
+      const snapshot = await loadSnapshot(db, String(snapshotId)),
+        names = snapshot.facts.symbols.map((symbol) => symbol.name);
+      expect(names).toContain('fromPinnedCommit');
+      expect(names).not.toContain('fromMovedHead');
+      restartWorker.send('stop');
+      await waitForProcessExit(restartWorker);
+      restartWorker = undefined;
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.send('crash');
+        await waitForProcessExit(child);
+      }
+      if (
+        restartWorker &&
+        restartWorker.exitCode === null &&
+        restartWorker.signalCode === null
+      ) {
+        restartWorker.send('stop');
+        await waitForProcessExit(restartWorker);
+      }
+      if (triggerInstalled) {
+        await db`SELECT pg_terminate_backend(pid) AS terminated
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
+        await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_source_input
+          ON codethread.scan_input_file`);
+        await db.unsafe(
+          `DROP FUNCTION IF EXISTS codethread.test_pause_source_input()`,
+        );
+      }
+      service.stop();
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('recovers exact pinned scans after process death during analysis', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-analysis-crash-')),
+      sources = Array.from({ length: 900 }, (_, index) => {
+        const stem = String(index).padStart(4, '0');
+        return {
+          path: `src/module-${stem}.ts`,
+          source: `export function target_${stem}() { return ${index}; }\nexport function caller_${stem}() { return target_${stem}(); }\n`,
+        };
+      }),
+      fixture = await createGitFixture(parent, sources),
+      db = connect(dbUrl!),
+      buildHash = digest('analysis-process-crash-build'),
+      service = new ScanService(db, {
+        root: parent,
+        analyzerBuildHash: buildHash,
+      });
+    let child: ChildProcess | undefined,
+      restartWorker: ChildProcess | undefined;
+    try {
+      await applyMigrations(db);
+      const repository = await service.register(fixture.folder),
+        queued = await service.accept(
+          repository.id,
+          'HEAD',
+          'process-crash-during-analysis',
+        );
+      child = startScanWorker(parent, buildHash);
+      await waitForProcessMessage(child, 'ready');
+      await waitForProcessMessage(child, 'phase-started:analysis');
+
+      const durableInputs = await db`SELECT count(*)::integer AS total
+        FROM codethread.scan_input_file WHERE scan_job_id=${queued.id}
+          AND input_kind='source'`;
+      expect(Number(durableInputs[0]?.total)).toBe(sources.length);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: fixture.commit,
+      });
+
+      child.send('crash');
+      await waitForProcessMessage(child, 'crash-received');
+      await waitForProcessExit(child);
+      expect(child.exitCode).toBe(86);
+      const partial = await db`SELECT
+        (SELECT count(*)::integer FROM codethread.scan_project
+          WHERE scan_job_id=${queued.id}) AS projects,
+        (SELECT count(*)::integer FROM codethread.repository_snapshot
+          WHERE repository_id=${repository.id} AND state='published') AS published,
+        (SELECT active_job_id FROM codethread.repository
+          WHERE id=${repository.id}) AS active_job_id`;
+      expect(partial[0]).toMatchObject({
+        projects: 0,
+        published: 0,
+        active_job_id: null,
+      });
+      restartWorker = startScanWorker(parent, buildHash);
+      await waitForProcessMessage(restartWorker, 'ready');
+      const recovered = await waitForTerminalJob(service, queued.id);
+      expect(recovered).toMatchObject({
+        state: 'succeeded',
+        attempt: 2,
+        git_commit_oid: fixture.commit,
+      });
+      expect((await service.repository(repository.id)).active_job_id).toBe(
+        queued.id,
+      );
+      const projects = await service.projects(queued.id),
+        snapshotId = projects.find(
+          (project) => project.snapshot_id,
+        )?.snapshot_id;
+      expect(snapshotId).toBeTruthy();
+      const snapshot = await loadSnapshot(db, String(snapshotId));
+      expect(snapshot.facts.files).toHaveLength(sources.length);
+      expect(
+        snapshot.facts.relations.some(
+          (relation) => relation.resolution.status === 'exact',
+        ),
+      ).toBe(true);
+      restartWorker.send('stop');
+      await waitForProcessExit(restartWorker);
+      restartWorker = undefined;
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.send('crash');
+        await waitForProcessExit(child);
+      }
+      if (
+        restartWorker &&
+        restartWorker.exitCode === null &&
+        restartWorker.signalCode === null
+      ) {
+        restartWorker.send('stop');
+        await waitForProcessExit(restartWorker);
+      }
+      service.stop();
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 180_000);
+
+  it('rolls back publication when a worker process dies and recovers the pinned scan', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-process-crash-')),
+      fixture = await createGitFixture(
+        parent,
+        'export function recovered() { return "pinned"; }\n',
+      ),
+      db = connect(dbUrl!),
+      service = new ScanService(db, {
+        root: parent,
+        analyzerBuildHash: digest('process-crash-build'),
+      });
+    let child: ChildProcess | undefined,
+      triggerInstalled = false,
+      restartWorker: ChildProcess | undefined,
+      activationWorker: ChildProcess | undefined,
+      activationTriggerInstalled = false;
+    try {
+      await applyMigrations(db);
+      const registered = await service.register(fixture.folder),
+        queued = await service.accept(
+          registered.id,
+          'HEAD',
+          'process-crash-publication',
+        );
+      await db.unsafe(`CREATE FUNCTION codethread.test_pause_publication()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.state='published' THEN PERFORM pg_sleep(60); END IF;
+          RETURN NEW;
+        END $$`);
+      await db.unsafe(`CREATE TRIGGER test_pause_publication
+        BEFORE UPDATE OF state ON codethread.repository_snapshot
+        FOR EACH ROW WHEN (NEW.state='published')
+        EXECUTE FUNCTION codethread.test_pause_publication()`);
+      triggerInstalled = true;
+
+      const workerPath = fileURLToPath(
+          new URL('./backend-scan-worker-process.ts', import.meta.url),
+        ),
+        workerEnv = {
+          ...process.env,
+          CODETHREAD_DATABASE_URL: dbUrl!,
+          CODETHREAD_ALLOWED_REPO_ROOT: parent,
+          CODETHREAD_ANALYZER_BUILD_HASH: digest('process-crash-build'),
+        };
+      child = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      let childStderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        childStderr += chunk.toString();
+      });
+      const ready = waitForProcessMessage(child, 'ready');
+      await ready;
+
+      const deadline = Date.now() + 60_000;
+      let blockedAtPublication = false;
+      while (Date.now() < deadline) {
+        const rows = await db`SELECT count(*)::integer AS total
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'`;
+        if (Number(rows[0]?.total) > 0) {
+          blockedAtPublication = true;
+          break;
+        }
+        if (child.exitCode !== null || child.signalCode !== null) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blockedAtPublication).toBe(true);
+      child.send('crash');
+      await waitForProcessMessage(child, 'crash-received');
+      await waitForProcessExit(child);
+      expect(child.exitCode).toBe(86);
+      expect(childStderr).toBe('');
+
+      const blockedBackends = await db`SELECT pid
+        FROM pg_stat_activity WHERE application_name='codethread-backend'
+          AND state='active' AND wait_event='PgSleep'
+          AND query LIKE '%UPDATE codethread.repository_snapshot%'`;
+      if (blockedBackends.length)
+        await db`SELECT pg_terminate_backend(${blockedBackends[0]!.pid})`;
+
+      const rollbackDeadline = Date.now() + 10_000;
+      let publicationLockReleased = false;
+      while (Date.now() < rollbackDeadline) {
+        const active = await db`SELECT count(*)::integer AS total
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'`;
+        if (Number(active[0]?.total) === 0) {
+          publicationLockReleased = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(publicationLockReleased).toBe(true);
+
+      const interrupted = (
+        await db`SELECT state,attempt,git_commit_oid FROM codethread.scan_job
+          WHERE id=${queued.id}`
+      )[0];
+      expect(interrupted).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: fixture.commit,
+      });
+      const rolledBack = await db`SELECT
+        (SELECT count(*)::integer FROM codethread.scan_project
+          WHERE scan_job_id=${queued.id}) AS projects,
+        (SELECT count(*)::integer FROM codethread.repository_snapshot s
+          WHERE s.repository_id=${registered.id} AND s.state='published') AS published,
+        (SELECT active_job_id FROM codethread.repository
+          WHERE id=${registered.id}) AS active_job_id`;
+      expect(rolledBack[0]).toMatchObject({
+        projects: 0,
+        published: 0,
+        active_job_id: null,
+      });
+      await db.unsafe(`DROP TRIGGER test_pause_publication
+        ON codethread.repository_snapshot`);
+      await db.unsafe(`DROP FUNCTION codethread.test_pause_publication()`);
+      triggerInstalled = false;
+
+      restartWorker = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      await waitForProcessMessage(restartWorker, 'ready');
+      const recovered = await waitForTerminalJob(service, queued.id);
+      expect(recovered).toMatchObject({
+        state: 'succeeded',
+        attempt: 2,
+        git_commit_oid: fixture.commit,
+      });
+      expect((await service.repository(registered.id)).active_job_id).toBe(
+        queued.id,
+      );
+      restartWorker.send('stop');
+      await waitForProcessExit(restartWorker);
+      restartWorker = undefined;
+
+      const publishedBeforeActivationCrash = await db`SELECT
+        count(*)::integer AS total FROM codethread.repository_snapshot
+        WHERE repository_id=${registered.id} AND state='published'`;
+      await writeFile(
+        join(fixture.folder, 'index.ts'),
+        'export function recovered() { return "new revision"; }\n',
+      );
+      fixture.git('add', 'index.ts');
+      fixture.git(
+        '-c',
+        'user.name=CodeThread Test',
+        '-c',
+        'user.email=test@example.invalid',
+        'commit',
+        '-qm',
+        'New revision for activation crash',
+      );
+      const nextCommit = fixture.git('rev-parse', 'HEAD').trim(),
+        next = await service.accept(
+          registered.id,
+          'HEAD',
+          'process-crash-activation',
+        );
+      await db.unsafe(`CREATE FUNCTION codethread.test_pause_activation()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.active_job_id IS DISTINCT FROM OLD.active_job_id THEN
+            PERFORM pg_sleep(60);
+          END IF;
+          RETURN NEW;
+        END $$`);
+      await db.unsafe(`CREATE TRIGGER test_pause_activation
+        BEFORE UPDATE OF active_job_id ON codethread.repository
+        FOR EACH ROW EXECUTE FUNCTION codethread.test_pause_activation()`);
+      activationTriggerInstalled = true;
+
+      activationWorker = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      await waitForProcessMessage(activationWorker, 'ready');
+      const activationDeadline = Date.now() + 60_000;
+      let blockedAtActivation = false;
+      while (Date.now() < activationDeadline) {
+        const rows = await db`SELECT count(*)::integer AS total
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%UPDATE codethread.repository%'`;
+        if (Number(rows[0]?.total) > 0) {
+          blockedAtActivation = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blockedAtActivation).toBe(true);
+      activationWorker.send('crash');
+      await waitForProcessMessage(activationWorker, 'crash-received');
+      await waitForProcessExit(activationWorker);
+      expect(activationWorker.exitCode).toBe(86);
+      const activationBackend = await db`SELECT pid FROM pg_stat_activity
+        WHERE application_name='codethread-backend' AND state='active'
+          AND wait_event='PgSleep'
+          AND query LIKE '%UPDATE codethread.repository%'`;
+      if (activationBackend.length)
+        await db`SELECT pg_terminate_backend(${activationBackend[0]!.pid})`;
+      await db.unsafe(`DROP TRIGGER test_pause_activation
+        ON codethread.repository`);
+      await db.unsafe(`DROP FUNCTION codethread.test_pause_activation()`);
+      activationTriggerInstalled = false;
+
+      const activationRollback = await db`SELECT
+        j.state,j.attempt,j.git_commit_oid,r.active_job_id,
+        (SELECT count(*)::integer FROM codethread.scan_project p
+          WHERE p.scan_job_id=j.id) AS projects,
+        (SELECT count(*)::integer FROM codethread.repository_snapshot s
+          WHERE s.repository_id=r.id AND s.state='published') AS published
+        FROM codethread.scan_job j JOIN codethread.repository r
+          ON r.id=j.repository_id WHERE j.id=${next.id}`;
+      expect(activationRollback[0]).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: nextCommit,
+        active_job_id: queued.id,
+        projects: 0,
+        published: Number(publishedBeforeActivationCrash[0]?.total),
+      });
+
+      activationWorker = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      await waitForProcessMessage(activationWorker, 'ready');
+      const activationRecovered = await waitForTerminalJob(service, next.id);
+      expect(activationRecovered).toMatchObject({
+        state: 'succeeded',
+        attempt: 2,
+        git_commit_oid: nextCommit,
+      });
+      expect((await service.repository(registered.id)).active_job_id).toBe(
+        next.id,
+      );
+      activationWorker.send('stop');
+      await waitForProcessExit(activationWorker);
+      activationWorker = undefined;
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.send('crash');
+        await waitForProcessExit(child);
+      }
+      if (
+        restartWorker &&
+        restartWorker.exitCode === null &&
+        restartWorker.signalCode === null
+      ) {
+        restartWorker.send('stop');
+        await waitForProcessExit(restartWorker);
+      }
+      if (
+        activationWorker &&
+        activationWorker.exitCode === null &&
+        activationWorker.signalCode === null
+      ) {
+        activationWorker.send('crash');
+        await waitForProcessExit(activationWorker);
+      }
+      if (triggerInstalled) {
+        await db`SELECT pg_terminate_backend(pid) AS terminated
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%UPDATE codethread.repository_snapshot%'`;
+        await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_publication
+          ON codethread.repository_snapshot`);
+        await db.unsafe(
+          `DROP FUNCTION IF EXISTS codethread.test_pause_publication()`,
+        );
+      }
+      if (activationTriggerInstalled) {
+        await db`SELECT pg_terminate_backend(pid) AS terminated
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%UPDATE codethread.repository%'`;
+        await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_activation
+          ON codethread.repository`);
+        await db.unsafe(
+          `DROP FUNCTION IF EXISTS codethread.test_pause_activation()`,
+        );
+      }
+      service.stop();
+      await db.end({ timeout: 5 });
+      await rm(parent, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it('fails a process-crashed scan explicitly when termination precedes pin commit', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'ct-backend-unpinned-crash-')),
+      fixture = await createGitFixture(
+        parent,
+        'export function beforePin() { return true; }\n',
+      ),
+      db = connect(dbUrl!),
+      service = new ScanService(db, {
+        root: parent,
+        analyzerBuildHash: digest('unpinned-crash-build'),
+      });
+    let child: ChildProcess | undefined,
+      restartWorker: ChildProcess | undefined,
+      triggerInstalled = false;
+    try {
+      await applyMigrations(db);
+      const registered = await service.register(fixture.folder),
+        queued = await service.accept(
+          registered.id,
+          'HEAD',
+          'process-crash-before-pin',
+        );
+      await db.unsafe(`CREATE FUNCTION codethread.test_pause_pin()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.git_commit_oid IS NOT NULL THEN PERFORM pg_sleep(60); END IF;
+          RETURN NEW;
+        END $$`);
+      await db.unsafe(`CREATE TRIGGER test_pause_pin
+        BEFORE UPDATE OF git_commit_oid ON codethread.scan_job
+        FOR EACH ROW WHEN (NEW.git_commit_oid IS NOT NULL)
+        EXECUTE FUNCTION codethread.test_pause_pin()`);
+      triggerInstalled = true;
+
+      const workerPath = fileURLToPath(
+          new URL('./backend-scan-worker-process.ts', import.meta.url),
+        ),
+        workerEnv = {
+          ...process.env,
+          CODETHREAD_DATABASE_URL: dbUrl!,
+          CODETHREAD_ALLOWED_REPO_ROOT: parent,
+          CODETHREAD_ANALYZER_BUILD_HASH: digest('unpinned-crash-build'),
+        };
+      child = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      await waitForProcessMessage(child, 'ready');
+      const deadline = Date.now() + 60_000;
+      let blockedBeforePinCommit = false;
+      while (Date.now() < deadline) {
+        const rows = await db`SELECT count(*)::integer AS total
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%UPDATE codethread.scan_job%'`;
+        if (Number(rows[0]?.total) > 0) {
+          blockedBeforePinCommit = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(blockedBeforePinCommit).toBe(true);
+      child.send('crash');
+      await waitForProcessMessage(child, 'crash-received');
+      await waitForProcessExit(child);
+      expect(child.exitCode).toBe(86);
+      const blocked = await db`SELECT pid FROM pg_stat_activity
+        WHERE application_name='codethread-backend' AND state='active'
+          AND wait_event='PgSleep'
+          AND query LIKE '%UPDATE codethread.scan_job%'`;
+      if (blocked.length)
+        await db`SELECT pg_terminate_backend(${blocked[0]!.pid})`;
+      await db.unsafe(`DROP TRIGGER test_pause_pin ON codethread.scan_job`);
+      await db.unsafe(`DROP FUNCTION codethread.test_pause_pin()`);
+      triggerInstalled = false;
+
+      restartWorker = spawn(process.execPath, [workerPath], {
+        cwd: process.cwd(),
+        env: workerEnv,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      });
+      await waitForProcessMessage(restartWorker, 'ready');
+      const recovered = await waitForTerminalJob(service, queued.id);
+      expect(recovered).toMatchObject({
+        state: 'failed',
+        attempt: 1,
+        error_code: 'REVISION_NOT_PINNED',
+      });
+      expect(recovered.git_commit_oid).toBeNull();
+      const partial = await db`SELECT
+        (SELECT count(*)::integer FROM codethread.scan_input_file
+          WHERE scan_job_id=${queued.id}) AS inputs,
+        (SELECT count(*)::integer FROM codethread.scan_project
+          WHERE scan_job_id=${queued.id}) AS projects,
+        (SELECT active_job_id FROM codethread.repository
+          WHERE id=${registered.id}) AS active_job_id`;
+      expect(partial[0]).toMatchObject({
+        inputs: 0,
+        projects: 0,
+        active_job_id: null,
+      });
+      restartWorker.send('stop');
+      await waitForProcessExit(restartWorker);
+      restartWorker = undefined;
+    } finally {
+      if (child && child.exitCode === null && child.signalCode === null) {
+        child.send('crash');
+        await waitForProcessExit(child);
+      }
+      if (
+        restartWorker &&
+        restartWorker.exitCode === null &&
+        restartWorker.signalCode === null
+      ) {
+        restartWorker.send('stop');
+        await waitForProcessExit(restartWorker);
+      }
+      if (triggerInstalled) {
+        await db`SELECT pg_terminate_backend(pid) AS terminated
+          FROM pg_stat_activity WHERE application_name='codethread-backend'
+            AND state='active' AND wait_event='PgSleep'
+            AND query LIKE '%UPDATE codethread.scan_job%'`;
+        await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_pin
+          ON codethread.scan_job`);
+        await db.unsafe(`DROP FUNCTION IF EXISTS codethread.test_pause_pin()`);
+      }
+      service.stop();
       await db.end({ timeout: 5 });
       await rm(parent, { recursive: true, force: true });
     }

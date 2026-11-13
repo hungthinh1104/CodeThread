@@ -30,6 +30,9 @@ GRANT UPDATE (state,attempt,activation_result,error_code,error_message,
   ON codethread.scan_job TO codethread_runtime;
 GRANT UPDATE (state,published_at)
   ON codethread.repository_snapshot TO codethread_runtime;
+REVOKE ALL ON FUNCTION
+  codethread.prune_inactive_data(timestamptz,integer,integer,integer)
+FROM PUBLIC,codethread_runtime;
 GRANT EXECUTE ON FUNCTION
   codethread.prune_inactive_data(timestamptz,integer,integer,integer)
 TO codethread_retention;

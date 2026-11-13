@@ -89,7 +89,10 @@ jobs:
       - run: pnpm backend:migrate
       - run: pnpm backend:roles
       - run: pnpm backend:roles
-      - run: pnpm exec vitest run tests/backend-integration.test.ts
+      - run:
+          pnpm exec vitest run tests/backend-integration.test.ts
+          tests/backend-migration-integrity.test.ts
+          tests/backend-http-restart.test.ts
       - name: Verify schema backup and isolated restore
         env:
           CODETHREAD_BACKUP_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5432/codethread

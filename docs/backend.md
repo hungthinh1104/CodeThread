@@ -149,19 +149,61 @@ integration databases only, `CODETHREAD_PG_TOOLS_CONTAINER` can name the local
 PostgreSQL container; the helper runs tools through its local socket and does
 not forward URL passwords.
 
+### Local recovery runbook
+
+1. Stop the backend worker and API so no scan or query is changing during the
+   drill. Record the repository, scan/job ID, pinned commit/tree, analyzer build
+   hash, migration versions and current database identity. Never put connection
+   strings or bearer tokens in the record.
+2. Keep the source database intact. Choose a new backup path and an empty,
+   isolated loopback restore database. The restore command refuses a nonempty
+   target and will not overwrite the source.
+3. Run `pnpm backend:backup` against the source. Record its archive SHA-256 and
+   byte count. Then run `pnpm backend:restore:verify` with the same source URL,
+   archive path and isolated restore URL. It restores the `codethread` schema,
+   verifies migration checksums and all published snapshots/source hashes,
+   compares representative symbol/graph/evidence outputs and active sessions,
+   reapplies the reviewed NOLOGIN roles, and checks runtime/retention grants.
+4. Proceed with a local restore only when the verifier reports
+   `status=verified`; record its verification digest and role checks. Confirm
+   the restored API's health, job state and pinned commit/tree before directing
+   any client to it. Keep the original database and archive until that
+   comparison is complete.
+
+This is a reproducible local drill, not production recovery approval. Production
+incident response, credentials, target selection and traffic cutover require a
+separate operator runbook and authorization.
+
 ## Reproducible performance measurement
 
 Run `pnpm backend:bench` against an empty, dedicated loopback database whose
-name starts with `codethread_bench_`. The harness generates and commits three
-deterministic TypeScript repositories (25, 250 and 900 files), scans them with
-the real worker and records seed, commit and dataset checksums, host/software
-versions, source bytes, peak RSS, phase timings, hydration, symbol search,
-investigation construction, graph-query timing and before/after PostgreSQL query
-plans. The 900-file profile stays below the current repository-scope cap of
+name starts with `codethread_bench_`. The harness scans deterministic TypeScript
+repositories at 25, 250 and 900 files through the actual HTTP API and production
+worker, then scans Hono at the frozen CT-REALWORLD-001 commit. It verifies the
+local Git commit/tree and every Hono source blob against
+`docs/evaluation/ct-realworld-001/repositories.json`; it runs no Hono scripts or
+dependencies. Set `CODETHREAD_BENCH_REALWORLD_REPOSITORY` if the local clone is
+not at `.tooling/ct-realworld-sources/hono` (or its sibling path from the
+worktree).
+
+The report includes full scan lifecycle and phase timings, snapshot hydration,
+symbol search, graph-query timing, checksums, host/software versions, peak RSS,
+source bytes and before/after PostgreSQL query plans. Actual HTTP symbol,
+neighbor, path and evidence requests report response bytes and P50/P95/P99 at
+concurrency 1/2/4. Cold samples use a new API server and database client pool;
+PostgreSQL shared-buffer and operating-system caches are not flushed. Warm
+samples follow one excluded warm-up on a persistent server/pool. Database time
+is summed tagged-SQL client round-trip latency, including pool wait, not a claim
+about server-only execution time. Defaults are 10 cold samples and 20 warm
+iterations per concurrency; set `CODETHREAD_HTTP_BENCH_COLD_SAMPLES` and
+`CODETHREAD_HTTP_BENCH_ITERATIONS` to repeat the run with different sample
+counts.
+
+The 900-file synthetic profile stays below the current repository-scope cap of
 1,000 files. The before path models full snapshot hydration; the after path uses
 the normalized search projection. Both pages must match exactly. No new index is
-added. These synthetic timings are local workload evidence, not performance
-claims for arbitrary repositories; use `pnpm eval:external` for the separate
+added. These measurements are local workload evidence, not performance claims
+for arbitrary repositories; use `pnpm eval:external` for the separate
 pinned-source correctness evaluation.
 
 ## Verification and remaining limits

@@ -2,6 +2,7 @@ import { summarizeCoverage } from '@codethread/code-model';
 import { createInvestigation } from '@codethread/trace-engine';
 import type { RepositoryInvestigationSession } from '../investigation/repository-session.ts';
 import type { Database } from './database.ts';
+import { compareSourcePaths } from './source-path-order.ts';
 import { hashSourceBytes, storeSourceObjects } from './source-objects.ts';
 import {
   assertSnapshotEnvelope,
@@ -75,7 +76,7 @@ export async function persistScan(
       FROM codethread.scan_input_file WHERE scan_job_id=${jobId}
         AND input_kind='source' ORDER BY path COLLATE "C"`;
     const expectedInputs = [...acquired.files].sort((a, b) =>
-      Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)),
+      compareSourcePaths(a.path, b.path),
     );
     if (inputRows.length !== expectedInputs.length)
       throw new Error(
