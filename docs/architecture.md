@@ -1349,14 +1349,14 @@ marked `not_analyzed` with `ANALYSIS_TIMEOUT`; the partial session returns with
 needed to return that partial session may finish after the analysis deadline.
 Caller cancellation remains `CANCELLED` and is not converted to a timeout.
 Compiler metadata is limited to 256 files and 4 MiB total, with each metadata
-blob capped at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json` and
-`pnpm-workspace.yaml`, plus the bounded relative `extends` and project-reference
-configuration closure. Source and metadata are read as verified commit objects
-and retain the original Git blob ID and SHA-256. Unsafe paths, inventory
-collisions, unsupported modes and resource overflow fail closed; the adapter
-does not silently analyze a subset. Symlinks and gitlinks are not followed.
-`.ts` symlink/gitlink entries are shown in the paged browser source inventory as
-excluded with their mode reason.
+blob capped at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json`
+and `pnpm-workspace.yaml`, plus the bounded relative `extends` and
+project-reference configuration closure. Source and metadata are read as
+verified commit objects and retain the original Git blob ID and SHA-256. Unsafe
+paths, inventory collisions, unsupported modes and resource overflow fail
+closed; the adapter does not silently analyze a subset. Symlinks and gitlinks
+are not followed. `.ts` symlink/gitlink entries are shown in the paged browser
+source inventory as excluded with their mode reason.
 
 Project configuration is parsed by the pinned TypeScript 6.0.3 compiler against
 a virtual filesystem containing only acquired source, hash-checked metadata and
