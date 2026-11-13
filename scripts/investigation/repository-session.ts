@@ -112,8 +112,8 @@ export async function analyzeGitRepository(
         projects.push({ project, status: project.status });
         continue;
       }
-      const remaining = budget.remainingMs();
       try {
+        const remaining = budget.remainingMs();
         const snapshot = await analyzeProject({
           ...environment,
           repositoryId: acquired.repositoryId,
@@ -148,6 +148,7 @@ export async function analyzeGitRepository(
       } catch (error) {
         if (error instanceof AnalysisError && error.code === 'CANCELLED') {
           throwIfCallerCancelled();
+          if (!checkProjectBudget(projectIndex)) break;
           throw error;
         }
         if (recordTimeout(error, projectIndex)) break;
