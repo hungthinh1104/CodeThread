@@ -12,10 +12,6 @@ export const requestScan = z.strictObject({
 export const registerRepository = z.strictObject({
   locator: z.string().min(1).max(4096),
 });
-export const querySymbols = z.strictObject({
-  query: z.string().max(256).default(''),
-  offset: z.number().int().min(0).max(20000).default(0),
-});
 export const bodyNeighbors = z.strictObject({ request: z.unknown() });
 export const bodyEvidence = z.strictObject({ request: z.unknown() });
 export function digest(value: string | Uint8Array): string {

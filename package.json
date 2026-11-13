@@ -38,7 +38,11 @@
     "req:context": "node scripts/requirements.ts context",
     "check": "pnpm format:check && pnpm lint && pnpm req:validate && pnpm arch:check && pnpm build && pnpm study:validate && pnpm typecheck && pnpm test",
     "backend:start": "node scripts/backend/main.ts",
-    "backend:migrate": "node scripts/backend/migrate.ts"
+    "backend:migrate": "node scripts/backend/migrate.ts",
+    "backend:roles": "node scripts/backend/grant-runtime.ts",
+    "backend:backup": "node scripts/backend/backup.ts",
+    "backend:restore:verify": "node scripts/backend/restore-verify.ts",
+    "backend:bench": "node scripts/backend/benchmark-database.ts"
   },
   "devDependencies": {
     "@codethread/code-model": "workspace:*",

@@ -5,17 +5,11 @@ import {
 } from 'node:http';
 import { URL } from 'node:url';
 import { z, ZodError } from 'zod';
-import { createInvestigation } from '@codethread/trace-engine';
-import {
-  tokenMatch,
-  registerRepository,
-  requestScan,
-  uuid,
-  querySymbols,
-} from './config.ts';
+import { tokenMatch, registerRepository, requestScan, uuid } from './config.ts';
 import type { Database } from './database.ts';
-import { loadSnapshot } from './persistence.ts';
 import { ScanService, ServiceError } from './service.ts';
+import { BackendQueryService } from './query-service.ts';
+import type { PersistentViewerManager } from './viewer-adapter.ts';
 
 const MAX_BODY = 64 * 1024;
 const MAX_RESPONSE = 1024 * 1024;
@@ -27,7 +21,9 @@ export function makeApi(
   service: ScanService,
   secret: string,
   port: number,
+  viewers?: PersistentViewerManager,
 ) {
+  const queries = new BackendQueryService(db, service);
   const server = createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -64,8 +60,19 @@ export function makeApi(
         p.length === components.length &&
         p.every((part, i) => components[i] === '*' || part === components[i]);
       let result: unknown;
-      if (is('GET', 'v1', 'health')) result = { ready: true };
-      else if (is('POST', 'v1', 'repositories')) {
+      let responseStatus = 200;
+      if (is('GET', 'v1', 'health')) {
+        let database: 'ready' | 'unavailable' = 'ready';
+        try {
+          await db`SELECT 1`;
+        } catch {
+          database = 'unavailable';
+        }
+        const worker = service.workerReady ? 'ready' : 'unavailable',
+          ready = database === 'ready' && worker === 'ready';
+        result = { api: 'ready', database, worker, ready };
+        if (!ready) responseStatus = 503;
+      } else if (is('POST', 'v1', 'repositories')) {
         const input = registerRepository.parse(await readJson(req));
         result = await service.register(input.locator);
       } else if (is('GET', 'v1', 'repositories'))
@@ -81,7 +88,15 @@ export function makeApi(
         );
       } else if (is('GET', 'v1', 'scans', '*'))
         result = await service.job(uuid.parse(p[2]));
-      else if (is('POST', 'v1', 'scans', '*', 'cancel'))
+      else if (is('POST', 'v1', 'scans', '*', 'viewer')) {
+        if (!viewers)
+          throw new ServiceError(
+            503,
+            'VIEWER_UNAVAILABLE',
+            'Persistent viewer adapter is not configured.',
+          );
+        result = await viewers.open(uuid.parse(p[2]));
+      } else if (is('POST', 'v1', 'scans', '*', 'cancel'))
         result = await service.cancel(uuid.parse(p[2]));
       else if (is('GET', 'v1', 'scans', '*', 'projects'))
         result = await service.projects(uuid.parse(p[2]));
@@ -99,25 +114,10 @@ export function makeApi(
         req.method === 'GET' &&
         p[5] === 'symbols'
       ) {
-        const id = await service.publishedSnapshot(uuid.parse(p[2]), p[4]!);
-        const { facts } = await loadSnapshot(db, id);
-        const params = querySymbols.parse({
+        result = await queries.symbols(uuid.parse(p[2]), p[4]!, {
           query: url.searchParams.get('query') ?? '',
           offset: Number(url.searchParams.get('offset') ?? 0),
         });
-        const q = params.query.toLowerCase();
-        const filtered = facts.symbols.filter(
-          (s) =>
-            s.name.toLowerCase().includes(q) ||
-            s.filePath.toLowerCase().includes(q),
-        );
-        result = {
-          snapshotId: id,
-          items: filtered.slice(params.offset, params.offset + 50),
-          total: filtered.length,
-          nextOffset:
-            params.offset + 50 < filtered.length ? params.offset + 50 : null,
-        };
       } else if (
         p.length === 6 &&
         p[0] === 'v1' &&
@@ -126,23 +126,14 @@ export function makeApi(
         req.method === 'POST' &&
         ['neighbors', 'paths', 'evidence'].includes(p[5]!)
       ) {
-        const snapshotId = await service.publishedSnapshot(
+        result = await queries.project(
           uuid.parse(p[2]),
           p[4]!,
+          p[5] as 'neighbors' | 'paths' | 'evidence',
+          await readJson(req),
         );
-        const snapshot = await loadSnapshot(db, snapshotId);
-        const request = await readJson(req);
-        const trace = createInvestigation(snapshot.facts, snapshot.source, {
-          resourceProfile: 'repository',
-        });
-        result =
-          p[5] === 'neighbors'
-            ? trace.neighbors(request)
-            : p[5] === 'paths'
-              ? trace.paths(request)
-              : trace.sourceEvidence(request);
       } else throw new ServiceError(404, 'NOT_FOUND', 'Endpoint not found');
-      send(res, 200, result);
+      send(res, responseStatus, result);
     } catch (e) {
       if (e instanceof ZodError)
         send(res, 400, {

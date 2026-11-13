@@ -1,24 +1,31 @@
 import { randomUUID } from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import { acquireGitRepository } from '../git-source/repository-intake.ts';
 import { analyzeGitRepository } from '../investigation/repository-session.ts';
 import { allowedRepository, digest } from './config.ts';
 import { requestHash } from './database.ts';
 import type { Database } from './database.ts';
-import { persistScan } from './persistence.ts';
+import { persistScan } from './scan-persistence.ts';
+import { persistScanInputs, persistScanPin } from './scan-provenance.ts';
 
 export class ServiceError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-  ) {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
     super(message);
+    this.status = status;
+    this.code = code;
   }
 }
 export type BackendConfig = {
   root: string;
   analyzerBuildHash: string;
+  onPhase?: (
+    phase: 'source_acquisition' | 'analysis' | 'persistence',
+    durationMs: number,
+  ) => void;
 };
 const analyzerVersion = 'ct-index-001b/typescript-6.0.3';
 const configurationHash = digest(
@@ -31,12 +38,36 @@ const configurationHash = digest(
 
 export class ScanService {
   private stopped = false;
+  private workerRunning = false;
   private currentController: AbortController | null = null;
   private currentJobId: string | null = null;
-  constructor(
-    private readonly db: Database,
-    private readonly config: BackendConfig,
-  ) {}
+  private readonly db: Database;
+  private readonly config: BackendConfig;
+
+  constructor(db: Database, config: BackendConfig) {
+    this.db = db;
+    this.config = config;
+  }
+
+  get workerReady(): boolean {
+    return this.workerRunning && !this.stopped;
+  }
+
+  private async measure<T>(
+    phase: 'source_acquisition' | 'analysis' | 'persistence',
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const started = performance.now();
+    try {
+      return await work();
+    } finally {
+      try {
+        this.config.onPhase?.(phase, performance.now() - started);
+      } catch {
+        // Optional observability must not alter scan outcomes.
+      }
+    }
+  }
 
   async register(locator: string) {
     const safe = await allowedRepository(locator, this.config.root).catch(
@@ -180,8 +211,12 @@ export class ScanService {
     return { id, state: 'cancelled' };
   }
   async recover() {
-    // A single DB advisory lock protects the worker; after a crash, running jobs are safe to retry.
-    await this.db`UPDATE codethread.scan_job SET state='queued',updated_at=now()
+    await this.db`UPDATE codethread.scan_job SET
+      state=CASE WHEN git_commit_oid IS NULL THEN 'failed' ELSE 'queued' END,
+      error_code=CASE WHEN git_commit_oid IS NULL THEN 'REVISION_NOT_PINNED' ELSE NULL END,
+      error_message=CASE WHEN git_commit_oid IS NULL
+        THEN 'Worker stopped before the revision was pinned; submit a new scan.' ELSE NULL END,
+      updated_at=now()
       WHERE state='running'`;
   }
   private async processOne(): Promise<boolean> {
@@ -189,20 +224,42 @@ export class ScanService {
       const db = tx as unknown as Database;
       const row = (
         await db`SELECT j.id,j.repository_id,j.generation,j.revision_selector,
+        j.attempt,j.git_object_format,j.git_commit_oid,j.git_tree_oid,
         r.local_locator FROM codethread.scan_job j JOIN codethread.repository r
           ON r.id=j.repository_id
         WHERE j.state='queued' ORDER BY j.created_at,j.id
         LIMIT 1 FOR UPDATE OF j SKIP LOCKED`
       )[0];
       if (!row) return null;
-      await db`UPDATE codethread.scan_job SET state='running',attempt=attempt+1,
-        updated_at=now() WHERE id=${row.id}`;
-      return row;
+      const claimed = await db`UPDATE codethread.scan_job SET state='running',
+        attempt=attempt+1,updated_at=now() WHERE id=${row.id}
+        RETURNING attempt`;
+      return {
+        id: row.id as string,
+        repository_id: row.repository_id as string,
+        generation: String(row.generation),
+        revision_selector: row.revision_selector as string,
+        attempt: Number(claimed[0]!.attempt),
+        git_object_format: row.git_object_format as 'sha1' | 'sha256' | null,
+        git_commit_oid: row.git_commit_oid as string | null,
+        git_tree_oid: row.git_tree_oid as string | null,
+        local_locator: row.local_locator as string,
+      };
     });
     if (!job) return false;
     const controller = new AbortController();
     this.currentController = controller;
     this.currentJobId = job.id as string;
+    const generation = String(job.generation),
+      attempt = Number(job.attempt),
+      pinnedCommit = job.git_commit_oid as string | null,
+      pin = pinnedCommit
+        ? {
+            commitId: pinnedCommit,
+            rootTreeId: job.git_tree_oid as string,
+            objectFormat: job.git_object_format as 'sha1' | 'sha256',
+          }
+        : null;
     try {
       const locator = await allowedRepository(
         job.local_locator as string,
@@ -211,22 +268,64 @@ export class ScanService {
       const request = {
         repositoryPath: locator,
         repositoryId: job.repository_id as string,
-        revision: job.revision_selector as string,
+        revision: pin?.commitId ?? (job.revision_selector as string),
         signal: controller.signal,
       };
-      const acquired = await acquireGitRepository(request);
-      // Always resolve subsequent analysis using the exact acquired commit, not a moving ref.
-      const session = await analyzeGitRepository({
-        ...request,
-        revision: acquired.commitId,
-      });
-      await persistScan(
-        this.db,
-        job.id as string,
-        job.repository_id as string,
-        acquired,
-        session,
-        Number(job.generation),
+      let resolvedPin: {
+        commitId: string;
+        rootTreeId: string;
+        objectFormat: 'sha1' | 'sha256';
+      } | null = null;
+      const acquired = await this.measure('source_acquisition', () =>
+        acquireGitRepository(request, () => {}, {
+          onPinned: async (resolved) => {
+            await persistScanPin(
+              this.db,
+              job.id as string,
+              job.repository_id as string,
+              generation,
+              attempt,
+              resolved,
+            );
+            resolvedPin = resolved;
+          },
+          onFilesAcquired: async (files, sourcePaths) => {
+            if (!resolvedPin)
+              throw new Error(
+                'Git source inventory completed before revision pinning',
+              );
+            await persistScanInputs(
+              this.db,
+              job.id as string,
+              job.repository_id as string,
+              generation,
+              attempt,
+              resolvedPin,
+              files,
+              new Set(sourcePaths),
+            );
+          },
+        }),
+      );
+      const session = await this.measure('analysis', () =>
+        analyzeGitRepository(
+          {
+            ...request,
+            revision: acquired.commitId,
+          },
+          acquired,
+        ),
+      );
+      await this.measure('persistence', () =>
+        persistScan(
+          this.db,
+          job.id as string,
+          job.repository_id as string,
+          acquired,
+          session,
+          generation,
+          attempt,
+        ),
       );
     } catch (e) {
       const code =
@@ -237,7 +336,8 @@ export class ScanService {
         e instanceof Error ? e.message.slice(0, 256) : 'Scan failed';
       await this.db`UPDATE codethread.scan_job SET state='failed',
         error_code=${code},error_message=${message},updated_at=now()
-        WHERE id=${job.id} AND state='running'`;
+        WHERE id=${job.id} AND generation=${generation}::bigint
+          AND attempt=${attempt} AND state='running'`;
     } finally {
       this.currentController = null;
       this.currentJobId = null;
@@ -245,13 +345,18 @@ export class ScanService {
     return true;
   }
   async run(): Promise<void> {
-    while (!this.stopped) {
-      try {
-        if (await this.processOne()) continue;
-      } catch (e) {
-        console.error('Scan worker error', e);
+    this.workerRunning = true;
+    try {
+      while (!this.stopped) {
+        try {
+          if (await this.processOne()) continue;
+        } catch (e) {
+          console.error('Scan worker error', e);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    } finally {
+      this.workerRunning = false;
     }
   }
   stop() {

@@ -87,4 +87,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm backend:migrate
+      - run: pnpm backend:roles
+      - run: pnpm backend:roles
       - run: pnpm exec vitest run tests/backend-integration.test.ts
+      - name: Verify schema backup and isolated restore
+        env:
+          CODETHREAD_BACKUP_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5432/codethread
+          CODETHREAD_RESTORE_TEST_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5432/codethread_restore
+          CODETHREAD_BACKUP_FILE: ${{ runner.temp }}/codethread-backend.dump
+          CODETHREAD_PG_TOOLS_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          docker exec "$CODETHREAD_PG_TOOLS_CONTAINER" createdb -U codethread codethread_restore
+          pnpm backend:backup
+          pnpm backend:restore:verify

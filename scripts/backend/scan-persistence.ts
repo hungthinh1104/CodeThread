@@ -1,17 +1,14 @@
-import { createHash } from 'node:crypto';
-import type {
-  AnalysisFacts,
-  VerifiedSourceReader,
-} from '@codethread/code-model';
-import {
-  createSourcePositionIndex,
-  summarizeCoverage,
-} from '@codethread/code-model';
+import { summarizeCoverage } from '@codethread/code-model';
 import { createInvestigation } from '@codethread/trace-engine';
+import type { RepositoryInvestigationSession } from '../investigation/repository-session.ts';
 import type { Database } from './database.ts';
+import { hashSourceBytes, storeSourceObjects } from './source-objects.ts';
+import {
+  assertSnapshotEnvelope,
+  verifyNormalizedSnapshot,
+} from './snapshot-integrity.ts';
 
 type Sql = Database;
-type Snapshot = { facts: AnalysisFacts; source: VerifiedSourceReader };
 type SourceFile = {
   path: string;
   bytes: Uint8Array;
@@ -19,24 +16,7 @@ type SourceFile = {
   blobId: string;
   mode: string;
 };
-type Project = {
-  project: {
-    id: string;
-    configPath?: string | null;
-    status: string;
-    diagnostics: readonly { code: string; message: string }[];
-  };
-  status: string;
-  snapshot?: Snapshot;
-  error?: { code: string; message: string };
-};
-type ScanSession = {
-  repositoryId: string;
-  commitId: string;
-  rootTreeId?: string;
-  objectFormat: 'sha1' | 'sha256';
-  projects: readonly Project[];
-};
+type ScanSession = RepositoryInvestigationSession;
 
 async function batchInsert(
   sql: Sql,
@@ -56,9 +36,6 @@ async function batchInsert(
       );
   }
 }
-function sha(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 export async function persistScan(
   sql: Sql,
   jobId: string,
@@ -70,19 +47,21 @@ export async function persistScan(
     objectFormat: 'sha1' | 'sha256';
   },
   session: ScanSession,
-  generation: number,
+  generation: string,
+  attempt: number,
 ) {
   const projectRows: Record<string, unknown>[] = [];
   await sql.begin(async (tx) => {
     const db = tx as unknown as Sql;
     const job = (
-      await db`SELECT state, generation FROM codethread.scan_job
+      await db`SELECT state, generation, attempt FROM codethread.scan_job
       WHERE id = ${jobId} AND repository_id = ${repositoryId} FOR UPDATE`
     )[0];
     if (
       !job ||
       job.state !== 'running' ||
-      Number(job.generation) !== generation
+      String(job.generation) !== generation ||
+      Number(job.attempt) !== attempt
     )
       throw new Error('Stale or cancelled scan cannot publish');
     if (
@@ -90,25 +69,31 @@ export async function persistScan(
       session.repositoryId !== repositoryId
     )
       throw new Error('Scan source provenance mismatch');
-    for (const file of acquired.files) {
-      if (sha(file.bytes) !== file.sha256)
-        throw new Error('Source hash mismatch before storage');
-      await db`INSERT INTO codethread.source_object (sha256, bytes, byte_length)
-        VALUES (${file.sha256}, ${Buffer.from(file.bytes)}, ${file.bytes.byteLength})
-        ON CONFLICT (sha256) DO NOTHING`;
-    }
-    await batchInsert(
-      db,
-      'scan_input_file',
-      ['scan_job_id', 'path', 'git_blob_oid', 'git_mode', 'content_hash'],
-      acquired.files.map((f) => ({
-        scan_job_id: jobId,
-        path: f.path,
-        git_blob_oid: f.blobId,
-        git_mode: f.mode,
-        content_hash: f.sha256,
-      })),
+    await storeSourceObjects(db, acquired.files);
+    const inputRows =
+      await db`SELECT path,git_blob_oid,git_mode,content_hash,input_kind
+      FROM codethread.scan_input_file WHERE scan_job_id=${jobId}
+        AND input_kind='source' ORDER BY path COLLATE "C"`;
+    const expectedInputs = [...acquired.files].sort((a, b) =>
+      Buffer.compare(Buffer.from(a.path), Buffer.from(b.path)),
     );
+    if (inputRows.length !== expectedInputs.length)
+      throw new Error(
+        'Persisted source manifest does not match the analyzed files',
+      );
+    for (let index = 0; index < expectedInputs.length; index++) {
+      const row = inputRows[index]!,
+        file = expectedInputs[index]!;
+      if (
+        row.path !== file.path ||
+        row.git_blob_oid !== file.blobId ||
+        row.git_mode !== file.mode ||
+        row.content_hash !== file.sha256
+      )
+        throw new Error(
+          'Persisted source manifest does not match the analyzed files',
+        );
+    }
     for (const project of session.projects) {
       const snapshot = project.snapshot;
       if (snapshot) {
@@ -121,27 +106,31 @@ export async function persistScan(
           f as unknown as Parameters<Sql['json']>[0],
         );
         const existing = (
-          await db`SELECT state, facts_json = ${serializedFacts} AS same
+          await db`SELECT state,repository_id,source_fingerprint,analyzer_version,
+            analyzer_build_hash,configuration_hash,coverage,
+            facts_json = ${serializedFacts} AS same
           FROM codethread.repository_snapshot
           WHERE id = ${f.snapshotId} AND repository_id = ${repositoryId} FOR UPDATE`
         )[0];
         if (existing && (existing.state !== 'published' || !existing.same))
           throw new Error('Snapshot identity collision or incomplete staging');
-        if (!existing) {
+        if (existing) {
+          assertSnapshotEnvelope(existing, f);
+          await verifyNormalizedSnapshot(db, f.snapshotId, f);
+        } else {
           await db`INSERT INTO codethread.repository_snapshot
             (id, repository_id, source_fingerprint, analyzer_version, analyzer_build_hash,
              configuration_hash, coverage, facts_json)
             VALUES (${f.snapshotId}, ${repositoryId}, ${f.identity.sourceFingerprint},
               ${f.identity.analyzerVersion}, ${f.identity.analyzerBuildHash},
               ${f.identity.configurationHash}, ${summarizeCoverage(f.coverageByCapability)}, ${serializedFacts}::jsonb)`;
-          const fileRows: Record<string, unknown>[] = [];
+          const fileRows: Record<string, unknown>[] = [],
+            retainedSources: { sha256: string; bytes: Uint8Array }[] = [];
           for (const file of f.files) {
             const bytes = snapshot.source.readFile(file.id);
-            if (!bytes || sha(bytes) !== file.contentHash)
+            if (!bytes || hashSourceBytes(bytes) !== file.contentHash)
               throw new Error('Missing or invalid retained source bytes');
-            await db`INSERT INTO codethread.source_object (sha256, bytes, byte_length)
-              VALUES (${file.contentHash}, ${Buffer.from(bytes)}, ${bytes.byteLength})
-              ON CONFLICT (sha256) DO NOTHING`;
+            retainedSources.push({ sha256: file.contentHash, bytes });
             fileRows.push({
               snapshot_id: f.snapshotId,
               id: file.id,
@@ -150,6 +139,7 @@ export async function persistScan(
               byte_length: file.byteLength,
             });
           }
+          await storeSourceObjects(db, retainedSources);
           await batchInsert(
             db,
             'snapshot_file',
@@ -195,6 +185,7 @@ export async function persistScan(
               'name',
               'kind',
               'declaration_evidence_id',
+              'symbol_json',
             ],
             f.symbols.map((s) => ({
               snapshot_id: f.snapshotId,
@@ -204,6 +195,7 @@ export async function persistScan(
               name: s.name,
               kind: s.kind,
               declaration_evidence_id: s.declarationEvidenceId,
+              symbol_json: db.json(s as unknown as Parameters<Sql['json']>[0]),
             })),
           );
           await batchInsert(
@@ -265,6 +257,7 @@ export async function persistScan(
               coverage: value,
             })),
           );
+          await verifyNormalizedSnapshot(db, f.snapshotId, f);
           await db`UPDATE codethread.repository_snapshot SET state='published',
             published_at=now() WHERE id=${f.snapshotId} AND state='staging'`;
         }
@@ -274,10 +267,17 @@ export async function persistScan(
         scan_job_id: jobId,
         project_id: project.project.id,
         project_label: project.project.configPath ?? 'Default context',
+        project_json: db.json(
+          project.project as unknown as Parameters<Sql['json']>[0],
+        ),
         status: project.status,
         snapshot_id: snapshot?.facts.snapshotId ?? null,
         diagnostics: db.json(
-          project.error ? [project.error] : project.project.diagnostics,
+          (project.error
+            ? [project.error]
+            : project.project.diagnostics) as unknown as Parameters<
+            Sql['json']
+          >[0],
         ),
       });
     }
@@ -289,100 +289,35 @@ export async function persistScan(
         'scan_job_id',
         'project_id',
         'project_label',
+        'project_json',
         'status',
         'snapshot_id',
         'diagnostics',
       ],
       projectRows,
     );
-    const repo = (
-      await db`SELECT desired_generation FROM codethread.repository
-      WHERE id = ${repositoryId} FOR UPDATE`
-    )[0];
-    const activate = Number(repo?.desired_generation) === generation;
-    if (activate)
-      await db`UPDATE codethread.repository SET active_job_id=${jobId},
-      updated_at=now() WHERE id=${repositoryId}`;
-    await db`UPDATE codethread.scan_job SET state='succeeded',
+    const activated = await db`UPDATE codethread.repository
+      SET active_job_id=${jobId}, updated_at=now()
+      WHERE id=${repositoryId} AND desired_generation=${generation}::bigint
+      RETURNING id`;
+    const activate = activated.length > 0;
+    const completed = await db`UPDATE codethread.scan_job SET state='succeeded',
       activation_result=${activate ? 'activated' : 'stale'},
       git_object_format=${acquired.objectFormat}, git_commit_oid=${acquired.commitId},
-      git_tree_oid=${acquired.rootTreeId}, updated_at=now()
-      WHERE id=${jobId}`;
+      git_tree_oid=${acquired.rootTreeId},
+      session_json=${db.json({
+        inventory: session.inventory,
+        files: session.files,
+        diagnostics: session.diagnostics,
+        sourceCoverageComplete: session.sourceCoverageComplete,
+        contextComplete: session.contextComplete,
+        analysisComplete: session.analysisComplete,
+        metrics: session.metrics,
+      } as unknown as Parameters<Sql['json']>[0])}, updated_at=now()
+      WHERE id=${jobId} AND repository_id=${repositoryId}
+        AND generation=${generation}::bigint AND attempt=${attempt} AND state='running'
+      RETURNING id`;
+    if (!completed.length)
+      throw new Error('Fenced scan cannot complete publication');
   });
-}
-
-export async function loadSnapshot(
-  db: Sql,
-  snapshotId: string,
-): Promise<Snapshot> {
-  const row = (
-    await db`SELECT facts_json FROM codethread.repository_snapshot
-    WHERE id=${snapshotId} AND state='published'`
-  )[0];
-  if (!row) throw new Error('Published snapshot not found');
-  const facts = row.facts_json as AnalysisFacts;
-  if (facts.snapshotId !== snapshotId)
-    throw new Error('Snapshot identity mismatch');
-  const files = await db`SELECT f.id, f.path, f.content_hash, o.bytes
-    FROM codethread.snapshot_file f JOIN codethread.source_object o
-    ON o.sha256=f.content_hash WHERE f.snapshot_id=${snapshotId}`;
-  const bytes = new Map<
-    string,
-    { path: string; bytes: Uint8Array; text: string }
-  >();
-  for (const f of files) {
-    const raw = Uint8Array.from(f.bytes as Uint8Array);
-    if (sha(raw) !== f.content_hash)
-      throw new Error('Stored source object hash mismatch');
-    bytes.set(f.id as string, {
-      path: f.path as string,
-      bytes: raw,
-      text: new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-        raw,
-      ),
-    });
-  }
-  const refs = new Map(facts.evidenceRefs.map((e) => [e.id, e]));
-  const source: VerifiedSourceReader = {
-    readFile(id) {
-      const file = bytes.get(id);
-      return file ? Uint8Array.from(file.bytes) : null;
-    },
-    readEvidence(id) {
-      const evidence = refs.get(id);
-      const unavailable = (
-        code:
-          | 'EVIDENCE_NOT_FOUND'
-          | 'SOURCE_UNAVAILABLE'
-          | 'HASH_MISMATCH'
-          | 'INVALID_ENCODING'
-          | 'EVIDENCE_TOO_LARGE',
-      ) => ({
-        status: 'unavailable' as const,
-        snapshotId,
-        evidenceId: id,
-        code,
-      });
-      if (!evidence) return unavailable('EVIDENCE_NOT_FOUND');
-      const file = bytes.get(evidence.fileId);
-      if (!file) return unavailable('SOURCE_UNAVAILABLE');
-      if (sha(file.bytes) !== evidence.contentHash)
-        return unavailable('HASH_MISMATCH');
-      if (!createSourcePositionIndex(file.text).validateRange(evidence.range))
-        return unavailable('SOURCE_UNAVAILABLE');
-      if (evidence.range.end.offset - evidence.range.start.offset > 65536)
-        return unavailable('EVIDENCE_TOO_LARGE');
-      return {
-        status: 'available' as const,
-        evidence,
-        filePath: file.path,
-        text: file.text.slice(
-          evidence.range.start.offset,
-          evidence.range.end.offset,
-        ),
-      };
-    },
-  };
-  createInvestigation(facts, source, { resourceProfile: 'repository' });
-  return { facts, source };
 }

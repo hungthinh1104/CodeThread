@@ -12,20 +12,19 @@ static evidence. Jest/NestJS extensions remain optional; core graph facts do not
 depend on those frameworks. Static syntax is not proof of runtime execution or
 passing tests.
 
-The repository supplies Foundation validation/tooling, the proposed DB-01
-logical design, a bounded in-memory TypeScript semantic proof, pinned Git
-adapters for selected files and whole-repository `.ts` scope, independent
-project-context analysis, and an opt-in ephemeral local browser viewer over the
-same investigation projections. It contains no database implementation,
-persistent frontend, public API or Gemini integration. See `product.yaml` and
-`docs/architecture.md` for scope, ownership and gates.
+The repository supplies Foundation validation/tooling, the DB-01 logical design,
+a bounded in-memory TypeScript semantic proof, pinned Git adapters for selected
+files and whole-repository `.ts` scope, independent project-context analysis,
+and an opt-in local PostgreSQL backend candidate with a persisted viewer
+adapter. A general persistent frontend and Gemini integration remain gated. See
+`product.yaml` and `docs/architecture.md` for scope, ownership and gates.
 
 ## PostgreSQL backend candidate (DB-02)
 
-The opt-in local backend and PostgreSQL persistence implementation is being
-developed on a separate feature branch. This is **not** a deployed service or
-verified production database. It preserves the existing semantic engine,
-project-scoped analysis, and exact source evidence rather than replacing them.
+The opt-in local backend and PostgreSQL persistence implementation is an
+authorized review candidate. This is **not** a deployed service or production
+approved database. It preserves the existing semantic engine, project-scoped
+analysis and exact source evidence.
 
 See [backend setup, API and verification boundaries](docs/backend.md). Use a
 disposable PostgreSQL database and never commit credentials.
@@ -33,8 +32,9 @@ disposable PostgreSQL database and never commit credentials.
 ## Developer setup
 
 Use Node **24.22.2** and pnpm **12.16.1**. The compiler is TypeScript **6.0.3**;
-dependencies and the lockfile are pinned. No database or Docker engine is needed
-for this batch. Vitest uses Vite internally as test tooling; Vite is not the
+dependencies and the lockfile are pinned. Foundation checks need no database;
+backend integration and backup/restore verification use a disposable PostgreSQL
+17 database. Vitest uses Vite internally as test tooling; Vite is not the
 application framework.
 
 With the pinned tools on PATH:
@@ -384,11 +384,10 @@ readiness evidence is in
 Model/contract tests verify schema invariants. The semantic corpus exercises a
 small declared subset, with authored but not independently reviewed labels; it
 cannot establish general extraction accuracy or comprehension effectiveness.
-PostgreSQL integrity, migration, concurrency, performance and restore evidence,
-independent semantic review and a human study remain separate milestones.
-
-After reviewing Foundation + DB-01, explicitly approve DB-02 before creating the
-database package, PostgreSQL Compose service, Drizzle schema or any migration.
-The bounded semantic slice is allowed before database implementation by
-ADR-0003. Broader CT-INDEX-001 capabilities, including import occurrence facts,
-general references and dynamic dispatch, remain separate work.
+PostgreSQL integrity, migration, concurrency, performance and restore results
+remain separate from hosted CI, independent semantic review and human-study
+evidence. DB-02 implementation was explicitly authorized for a local PR
+candidate on 2026-11-13; this did not authorize production credentials,
+deployment or automated merge. Require final-SHA CI and human review before
+recommending PR merge. Broader CT-INDEX-001 capabilities, including import
+occurrence facts, general references and dynamic dispatch, remain separate work.

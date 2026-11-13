@@ -10,7 +10,7 @@ import {
   acquireRepositoryMetadata,
   materializePinnedInput,
 } from './repository-metadata.ts';
-import type { PinnedEntry } from './repository-metadata.ts';
+import type { PinnedEntry, PinnedInput } from './repository-metadata.ts';
 
 const MAX_TREES = 8192;
 const MAX_TREE_ENTRIES = 100000;
@@ -20,6 +20,17 @@ const MAX_PATH_COMPONENTS = 64;
 export async function acquireGitRepository(
   request: Omit<GitSourceRequest, 'selectedPaths'>,
   sessionCheckpoint: () => void = () => {},
+  hooks: {
+    onPinned?: (pin: {
+      commitId: string;
+      rootTreeId: string;
+      objectFormat: 'sha1' | 'sha256';
+    }) => Promise<void> | void;
+    onFilesAcquired?: (
+      files: readonly PinnedInput[],
+      sourcePaths: readonly string[],
+    ) => Promise<void> | void;
+  } = {},
 ) {
   const started = performance.now(),
     limits = analysisResourceLimits('repository');
@@ -28,6 +39,11 @@ export async function acquireGitRepository(
     metadataBytes: 16 * 1024 * 1024,
     objectBytes: 1024 * 1024,
     blobBytes: limits.maxTotalBytes + PROJECT_LIMITS.maxMetadataBytes,
+  });
+  await hooks.onPinned?.({
+    commitId: repository.commitId,
+    rootTreeId: repository.rootTreeId,
+    objectFormat: repository.objectFormat,
   });
   const checkpoint = () => {
     repository.reader.checkpoint();
@@ -143,6 +159,19 @@ export async function acquireGitRepository(
     sources.map((entry) =>
       materializePinnedInput(entry, blobs.get(entry.oid)!.bytes),
     ),
+  );
+  checkpoint();
+  const inputs = [...files, ...metadata].sort((a, b) =>
+    compareGitPaths(a.path, b.path),
+  );
+  if (new Set(inputs.map((file) => file.path)).size !== inputs.length)
+    throw new GitSourceError(
+      'SOURCE_INVENTORY_INCOMPLETE',
+      'Pinned source and metadata paths overlap.',
+    );
+  await hooks.onFilesAcquired?.(
+    inputs,
+    files.map((file) => file.path),
   );
   checkpoint();
   return Object.freeze({

@@ -1,99 +1,180 @@
-# CodeThread DB-02 / local backend
+# CodeThread local PostgreSQL backend
 
-Status: **candidate implementation; PostgreSQL integration and hosted CI must
-pass before approval**.
+Status: **local review candidate**. The user authorized DB-02 implementation,
+testing and PR review on 2026-11-13. This does not authorize production
+credentials, deployment, destructive production migration or automated merge.
 
-User authorized implementing DB and backend on 2026-11-13. This does not grant
-production deployment, real credentials, destructive migrations, or merging.
+## Scope and data flow
 
-## Ownership
+The backend preserves the existing analyzer and trace engine. A loopback HTTP
+transport validates requests and delegates to the scan or query application
+service. PostgreSQL stores scan state, immutable Git provenance, content-
+addressed source bytes, project sessions and published analysis snapshots. The
+snapshot is stored as both a JSONB facts envelope and normalized relational
+rows. Publication and active-pointer changes commit together.
 
-The analyzer and trace-engine are unchanged. The backend exposes a
-token-protected loopback service and serial scan worker; PostgreSQL stores
-operational job state, acquisition provenance, immutable source bytes and
-project-scoped analysis facts. The published graph is stored both as a validated
-JSONB fact envelope and as normalized relational rows for SQL integrity
-enforcement. Queries are served through the existing verified trace engine,
-never a second semantic implementation.
+The worker resolves a revision to a commit and persists its commit/tree/object
+format before source inventory or analysis. It stores an ordered complete input
+manifest and verified source objects, then passes the acquired data directly to
+analysis. It does not read working-tree source or execute analyzed repository
+scripts. Restart recovery fails work that stopped before the pin and requeues
+only jobs with immutable provenance. Generation and attempt fences protect
+publication and activation; PostgreSQL bigint values remain decimal strings in
+JavaScript.
 
-The source adapter reads the **pinned commit only**, never working-tree source.
-Each worker pins a commit before handing it to project-aware analysis.
-Acquisition and project analysis currently read that pinned commit separately;
-profile this before optimizing. A single PostgreSQL advisory lock fences
-multiple backend processes. Crash recovery requeues unfinished jobs; published
-data and active-pointer change occur in one transaction. Source hashes are
-reverified before storing and when loading them.
+Published facts and their relational projections are checked against each other
+before publication, on snapshot hydration and when an existing snapshot is
+reused. Source object hashes are checked on insertion and retrieval. Missing or
+corrupt bytes fail explicitly; there is no working-tree fallback.
 
-## Development setup
+## Migrations and roles
 
-Use the repository's pinned Node and pnpm versions. Provision a disposable
-PostgreSQL database **outside this repository** and execute migrations with a
-dedicated privileged migration role:
+The versioned, checksummed runner applies the contiguous SQL files in
+`db/migrations/` under an advisory lock. `pnpm backend:migrate` is repeatable
+and forward-only. It can adopt the previous unversioned schema only when all
+expected core tables and integrity triggers are present; incomplete schemas or
+checksum/name drift stop for review.
+
+Current migrations provide:
+
+- `001_core.sql`: repository, jobs, immutable snapshots, source objects,
+  provenance, normalized facts and publication guards.
+- `002_integrity_guards.sql`: cross-row ownership, job transitions, pinned
+  provenance and complete source-manifest constraints.
+- `003_persistent_viewer.sql`: durable project/session metadata.
+- `004_retention.sql`: protected, bounded manual cleanup and snapshot/job read
+  fencing.
+- `005_symbol_payload.sql`: immutable complete symbol projections for bounded
+  search, backfilled from and checked against stored facts.
+
+Use a dedicated migration owner for DDL. `pnpm backend:roles` applies the
+idempotent `db/roles.sql` grants for `codethread_runtime` and
+`codethread_retention`; it does not create login credentials or grant table
+ownership. The runtime group has no DDL, trigger-disable or direct delete
+privilege. A database administrator must assign the runtime login to the group
+outside this repository.
 
 ```sh
 export CODETHREAD_MIGRATION_DATABASE_URL='postgres://migration-role:...@127.0.0.1:5432/codethread'
 pnpm backend:migrate
+pnpm backend:roles
 ```
 
-Migration 001 is forward-only and deliberately refuses reapplication; never
-point it at a database with unrelated tables or production data. Create a
-separate runtime role with least-privilege access to schema `codethread`. The
-runtime role must not own tables or have ALTER/TRIGGER privileges. PostgreSQL
-credentials and tokens must be supplied through the environment, never
-committed.
+Do not point these commands at a production database. Use the repository's
+pinned Node 24.22.2 and pnpm 12.16.1.
 
-For development:
+## Running locally
+
+Provision a disposable PostgreSQL 17 database and use separate migration and
+runtime logins. Supply the API token through the environment; it must contain at
+least 32 characters. The analyzer build hash must be a verified lowercase
+SHA-256 fingerprint from the build process.
 
 ```sh
-export CODETHREAD_DATABASE_URL='postgres://runtime-role:...@127.0.0.1:5432/codethread'
-export CODETHREAD_API_TOKEN='replace-with-a-random-secret-at-least-32-characters'
+export CODETHREAD_DATABASE_URL='postgres://runtime-login:...@127.0.0.1:5432/codethread'
+export CODETHREAD_API_TOKEN='a-random-secret-at-least-32-characters'
 export CODETHREAD_ALLOWED_REPO_ROOT='/absolute/path/to/allowed/repos'
 export CODETHREAD_ANALYZER_BUILD_HASH='<verified lowercase SHA-256 build fingerprint>'
 pnpm build
 pnpm backend:start
 ```
 
-The service binds **127.0.0.1:8765 only**, requires
-`Authorization: Bearer <token>` on all endpoints, restricts Host/Origin and JSON
-body sizes, and does not enable cross-origin browser requests. This is **not a
-multi-user or remote API**. The build fingerprint must be produced and verified
-by the release process; supplying arbitrary hashes does not itself attest
-analyzer provenance.
+The service binds `127.0.0.1:8765`, requires a bearer token, validates Host and
+Origin, requires JSON for POST bodies, caps request bodies at 64 KiB and
+responses at 1 MiB, and applies database statement/lock/idle-transaction
+timeouts. Health reports API, database and worker readiness separately. One
+serial worker runs per backend process; the database lock prevents a second
+worker process from silently competing. This is not a team, multi-user or remote
+service.
 
 ## Routes
 
-| Request                                          | Behavior                                                     |
-| ------------------------------------------------ | ------------------------------------------------------------ |
-| POST /v1/repositories                            | Register an existing Git repository beneath the allowed root |
-| GET /v1/repositories                             | List up to 50 registered repositories                        |
-| GET /v1/repositories/:id                         | Repository and active scan                                   |
-| POST /v1/repositories/:id/scans                  | Queue pinned revision with repository-scoped idempotency key |
-| GET /v1/scans/:id                                | Job status and immutable Git acquisition identity            |
-| POST /v1/scans/:id/cancel                        | Cancel queued/running scan                                   |
-| GET /v1/scans/:id/projects                       | Project readiness/diagnostics                                |
-| GET /v1/scans/:id/files?offset=0                 | Paged acquired source provenance                             |
-| GET /v1/scans/:id/projects/:projectId/symbols    | Bounded symbol search                                        |
-| POST /v1/scans/:id/projects/:projectId/neighbors | Existing graph-neighbor contract                             |
-| POST /v1/scans/:id/projects/:projectId/paths     | Existing graph-path contract                                 |
-| POST /v1/scans/:id/projects/:projectId/evidence  | Existing source-evidence contract                            |
+| Request                                            | Behavior                                                                               |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | API, database and worker readiness.                                                    |
+| `POST /v1/repositories`                            | Register an existing Git repository beneath the configured root.                       |
+| `GET /v1/repositories` and `/v1/repositories/:id`  | List or inspect registered repositories and active scan.                               |
+| `POST /v1/repositories/:id/scans`                  | Queue a pinned revision with repository-scoped idempotency.                            |
+| `GET /v1/scans/:id`                                | Job state, attempt, pinned commit/tree and activation result.                          |
+| `POST /v1/scans/:id/cancel`                        | Cancel queued or running work.                                                         |
+| `GET /v1/scans/:id/projects`                       | Project readiness, diagnostics and snapshot IDs.                                       |
+| `GET /v1/scans/:id/files?offset=0`                 | Bounded page of committed source provenance.                                           |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped, deterministic 50-row symbol search with `query` and bounded `offset`. |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated, bounded graph-neighbor projection.                                          |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated, bounded exact-symbol path projection.                                       |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                   |
+| `POST /v1/scans/:id/viewer`                        | Open the existing local viewer from a persisted investigation.                         |
 
-A scan request is JSON
-`{"revision":"HEAD","idempotencyKey":"unique-per-logical-request"}`. Query
-bodies for neighbors, paths and evidence use the corresponding
-`@codethread/contracts` request, including the returned snapshotId. The server
-does not infer unknown symbol targets or merge unrelated project contexts.
+Graph and evidence bodies use the corresponding `@codethread/contracts` request
+and returned `snapshotId`. The query application service checks that the
+snapshot belongs to the selected completed scan and validates the result against
+the original request before transport. The symbol route reads only its bounded
+page from immutable `symbol_json` rows and returns coverage and truncation
+metadata. Other graph/evidence requests still hydrate and validate the complete
+snapshot and its retained bytes.
 
-## Verification boundaries
+The viewer adapter reconstructs the existing viewer from persisted data. It does
+not send the backend bearer token to browser JavaScript. The viewer gets a
+separate short-lived loopback token in its URL fragment; the server limits
+active viewers and closes expired sessions.
 
-`pnpm check` verifies TypeScript, architecture and non-database regressions. The
-dedicated PostgreSQL integration suite requires an isolated real database,
-schema migration, a pinned local test Git repository, and an immutable source
-round-trip. Hosted CI must pass on Ubuntu and Windows for ordinary checks and on
-Ubuntu with PostgreSQL for persistence checks.
+## Retention and backup
 
-Known remaining gaps to review before production: full DB-01 equivalence,
-operational grant scripts, repeatable migration upgrades, verified
-backup/restore, retention/purge, multi-user authentication, multi-instance
-failover, operational metrics, performance at maximum payload sizes and
-independent semantic labels. The DB has no cloud source ingestion or general
-runtime execution.
+Retention is manual; there is no scheduled deletion. The protected
+`codethread.prune_inactive_data(before, job_limit, snapshot_limit, source_limit)`
+procedure rejects future cutoffs and excessive batch sizes. It removes only old
+terminal jobs that are not active, published snapshots that are no longer
+referenced by scan projects, and source objects no longer referenced by either
+snapshots or scan inputs. Snapshot and viewer reads hold shared advisory locks;
+retention skips an item while a reader uses it. Runtime logins cannot execute
+the procedure; grant access only to the retention role.
+
+Backups are PostgreSQL custom archives of the complete `codethread` schema,
+including the content-addressed source bytes. The target must not exist.
+Restoration requires an empty isolated database; verification checks migration
+checksums, every published snapshot, source hashes, representative graph and
+evidence queries, and active persistent sessions.
+
+```sh
+export CODETHREAD_BACKUP_DATABASE_URL='postgres://backup-login:...@127.0.0.1:5432/codethread'
+export CODETHREAD_BACKUP_FILE='/safe/local/path/codethread.dump'
+pnpm backend:backup
+
+export CODETHREAD_RESTORE_TEST_DATABASE_URL='postgres://restore-login:...@127.0.0.1:5432/codethread_restore'
+pnpm backend:restore:verify
+```
+
+The scripts use local `pg_dump`/`pg_restore` by default. For disposable Docker
+integration databases only, `CODETHREAD_PG_TOOLS_CONTAINER` can name the local
+PostgreSQL container; the helper runs tools through its local socket and does
+not forward URL passwords.
+
+## Reproducible performance measurement
+
+Run `pnpm backend:bench` against an empty, dedicated loopback database whose
+name starts with `codethread_bench_`. The harness generates and commits three
+deterministic TypeScript repositories (25, 250 and 900 files), scans them with
+the real worker and records seed, commit and dataset checksums, host/software
+versions, source bytes, peak RSS, phase timings, hydration, symbol search,
+investigation construction, graph-query timing and before/after PostgreSQL query
+plans. The 900-file profile stays below the current repository-scope cap of
+1,000 files. The before path models full snapshot hydration; the after path uses
+the normalized search projection. Both pages must match exactly. No new index is
+added. These synthetic timings are local workload evidence, not performance
+claims for arbitrary repositories; use `pnpm eval:external` for the separate
+pinned-source correctness evaluation.
+
+## Verification and remaining limits
+
+The PostgreSQL CI job runs fresh and repeatable migrations, the role grant
+script twice, adversarial integration tests and an isolated backup/restore
+verification. The Windows and Ubuntu jobs run `pnpm check`, semantic and pinned
+external evaluation, browser tests and the dependency audit. Local PostgreSQL
+tests and local benchmarks do not replace hosted CI or independent review.
+
+Persisted test-case/test-step analysis is not exposed by the backend routes.
+Full graph/evidence queries currently hydrate and verify all facts/source bytes;
+only symbol search has a direct bounded SQL path. Authentication remains a
+single local bearer token. There is no remote deployment, automatic retention
+scheduler, general frontend rewrite or independent human semantic study. This
+candidate is not production approved.

@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { createHash } from 'node:crypto';
+import { readMigrations } from './migration-set.ts';
 
 export type Database = ReturnType<typeof postgres>;
 export function connect(url: string): Database {
@@ -8,6 +9,12 @@ export function connect(url: string): Database {
     prepare: true,
     idle_timeout: 20,
     connect_timeout: 10,
+    connection: {
+      application_name: 'codethread-backend',
+      statement_timeout: 60_000,
+      lock_timeout: 5_000,
+      idle_in_transaction_session_timeout: 30_000,
+    },
   });
 }
 export async function acquireServiceLock(db: Database) {
@@ -29,13 +36,23 @@ export async function acquireServiceLock(db: Database) {
   }
 }
 export async function assertMigrations(db: Database) {
-  const rows = await db`SELECT to_regclass('codethread.scan_job') AS jobs,
-    to_regclass('codethread.repository_snapshot') AS snapshots,
-    to_regclass('codethread.source_object') AS sources`;
-  if (!rows[0]?.jobs || !rows[0]?.snapshots || !rows[0]?.sources)
-    throw new Error(
-      'Missing reviewed CodeThread migrations; apply db/migrations before starting',
-    );
+  const rows = await db`SELECT version,name,checksum
+    FROM codethread.schema_migration ORDER BY version`;
+  const expected = await readMigrations();
+  if (rows.length !== expected.length)
+    throw new Error('CodeThread database migrations are missing or unexpected');
+  for (let i = 0; i < expected.length; i++) {
+    const migration = expected[i]!,
+      applied = rows[i]!;
+    if (
+      Number(applied.version) !== migration.version ||
+      applied.name !== migration.name ||
+      applied.checksum !== migration.checksum
+    )
+      throw new Error(
+        `CodeThread migration ${migration.version} checksum mismatch`,
+      );
+  }
 }
 export function requestHash(input: object): string {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex');
