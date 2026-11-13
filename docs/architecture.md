@@ -1340,10 +1340,16 @@ and installed dependencies are not consulted.
 The repository source profile is capped at 1,000 files, 32 MiB total, and 32 MiB
 per file. Tree traversal is capped at 8,192 unique trees, 100,000 entries,
 16,384 tree visits and 64 path components. A single 120-second monotonic session
-deadline spans Git intake, workspace and project planning, sequential project
-workers, and response assembly; timeout returns a typed failure. Compiler
-metadata is limited to 256 files and 4 MiB total, with each metadata blob capped
-at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json` and
+deadline spans Git intake, workspace and project planning, and sequential
+project workers. Expiry during intake or planning returns a typed
+`ANALYSIS_TIMEOUT` failure. If it expires during project analysis, completed
+contexts are retained, while the interrupted and remaining ready contexts are
+marked `not_analyzed` with `ANALYSIS_TIMEOUT`; the partial session returns with
+`analysisComplete` and `contextComplete` false. The bounded response assembly
+needed to return that partial session may finish after the analysis deadline.
+Caller cancellation remains `CANCELLED` and is not converted to a timeout.
+Compiler metadata is limited to 256 files and 4 MiB total, with each metadata
+blob capped at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json` and
 `pnpm-workspace.yaml`, plus the bounded relative `extends` and project-reference
 configuration closure. Source and metadata are read as verified commit objects
 and retain the original Git blob ID and SHA-256. Unsafe paths, inventory
