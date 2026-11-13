@@ -12,6 +12,7 @@ export interface AnalysisResourceLimits {
   readonly maxEvidence: number;
   readonly maxDiagnostics: number;
   readonly maxCompilerDiagnostics: number;
+  readonly maxFullSemanticDiagnosticFiles: number;
   readonly maxUnsupportedSyntax: number;
   readonly maxRequestBytes: number;
   readonly maxResponseBytes: number;
@@ -30,6 +31,7 @@ const selected: AnalysisResourceLimits = Object.freeze({
   maxEvidence: 17000,
   maxDiagnostics: 25000,
   maxCompilerDiagnostics: 10000,
+  maxFullSemanticDiagnosticFiles: 20,
   maxUnsupportedSyntax: 10000,
   maxRequestBytes: 8 * 1024 * 1024,
   maxResponseBytes: 32 * 1024 * 1024,
@@ -41,12 +43,13 @@ const repository: AnalysisResourceLimits = Object.freeze({
   maxFileBytes: 32 * 1024 * 1024,
   maxTotalBytes: 32 * 1024 * 1024,
   maxDeclarations: 20000,
-  maxCallSites: 50000,
+  maxCallSites: 100000,
   maxReferenceSites: 50000,
   maxRelations: 100000,
   maxEvidence: 220000,
   maxDiagnostics: 150000,
   maxCompilerDiagnostics: 20000,
+  maxFullSemanticDiagnosticFiles: 64,
   maxUnsupportedSyntax: 20000,
   maxRequestBytes: 64 * 1024 * 1024,
   maxResponseBytes: 128 * 1024 * 1024,

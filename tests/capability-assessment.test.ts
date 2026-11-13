@@ -267,7 +267,7 @@ describe('evidence-driven capability assessment', () => {
     ).toBe(true);
   }, 30000);
 
-  it('keeps tinyexec conservative around diagnostics overlapping a target', async () => {
+  it('preserves relevant uncertainty without tainting target body calls', async () => {
     const corpus = await loadExternalCorpus('tinyexec');
     const snapshot = await analyzeManifest({
       repositoryId: TINYEXEC_REPOSITORY_ID,
@@ -300,7 +300,7 @@ describe('evidence-driven capability assessment', () => {
         source:
           'function target() { return missingInside; }\nfunction caller() { return target(); }\n',
         text: 'target()',
-        status: 'unresolved',
+        status: 'exact',
       },
       {
         source:

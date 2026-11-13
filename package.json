@@ -29,6 +29,7 @@
     "study:validate": "node scripts/study.ts validate",
     "study:score": "node scripts/study.ts score",
     "study:provenance": "node scripts/study.ts provenance",
+    "study:realworld": "node scripts/realworld-study.ts",
     "study:demo": "node scripts/study.ts demo",
     "arch:check": "node scripts/architecture.ts",
     "req:validate": "node scripts/requirements.ts validate",
