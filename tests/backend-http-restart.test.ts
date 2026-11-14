@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { randomBytes } from 'node:crypto';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -183,7 +184,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL HTTP restart recovery', () => {
       fixture = await createFixture(root),
       db = connect(databaseUrl!),
       token = randomBytes(32).toString('hex'),
-      buildHash = randomBytes(32).toString('hex'),
+      buildHash = currentAnalyzerBuildHash(),
       port = await reservePort();
     let first: ChildProcess | undefined, second: ChildProcess | undefined;
     try {

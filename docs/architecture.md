@@ -473,13 +473,16 @@ installs them automatically.
 The in-memory proof accepts caller-supplied bytes, not a Git revision. Its
 versioned source fingerprint hashes the UTF-8-byte-ordered path, raw SHA-256 and
 byte length for each supplied file. Its configuration hash covers the explicit
-fixed profile; its build fingerprint covers the analyzer, code model, compiler
-and allowlisted library contents. A repository UUID and these components form a
-deterministic proof snapshot UUID. Snapshot-local file/entity UUIDv8 values
-derive from SHA-256 descriptors and duplicate identities fail validation. This
-proof identity makes no commit/tree or published-database claim. The proposed
-`ScanJob`/`ScanInputFile` provenance is a database acquisition record; it does
-not alter the manifest fingerprint or deterministic semantic snapshot identity.
+fixed profile; its build fingerprint covers installed analyzer and code-model
+JavaScript, Zod runtime, TypeScript compiler and standard libraries, and the
+Node version. It fingerprints specified files on disk, not already-loaded memory
+or the Git acquisition and session orchestration scripts. A repository UUID and
+these components form a deterministic proof snapshot UUID. Snapshot-local
+file/entity UUIDv8 values derive from SHA-256 descriptors and duplicate
+identities fail validation. This proof identity makes no commit/tree or
+published-database claim. The proposed `ScanJob`/`ScanInputFile` provenance is a
+database acquisition record; it does not alter the manifest fingerprint or
+deterministic semantic snapshot identity.
 
 Snapshot-local canonical keys use a versioned kind plus SHA-256 of an anchor
 descriptor. Symbols anchor to supported canonical declarations; test keys
@@ -653,6 +656,12 @@ shutdown stops intake, cancels an in-flight statement on the lock-holding
 backend, closes the worker session and bounds HTTP and process cleanup. Recovery
 requeues interrupted pinned work and marks pre-pin work `REVISION_NOT_PINNED`.
 An explicit cancellation remains distinct from shutdown and analysis failure.
+The worker checks its accepted analyzer version and build after claiming and
+again inside publication, including each snapshot's identity and its source
+paths, hashes and lengths against the admitted Git manifest. Readiness reflects
+bounded polling/claim failures and a blocked claim; pinned database errors retry
+up to five attempts, while failed settlement stops the worker after five tries.
+The local backend guide describes recovery and fingerprint limitations.
 
 ### Retention and recovery
 

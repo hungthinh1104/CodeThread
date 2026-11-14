@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +18,7 @@ function startWorker(): ChildProcess {
       ...process.env,
       CODETHREAD_DATABASE_URL: databaseUrl!,
       CODETHREAD_ALLOWED_REPO_ROOT: tmpdir(),
-      CODETHREAD_ANALYZER_BUILD_HASH: 'a'.repeat(64),
+      CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });

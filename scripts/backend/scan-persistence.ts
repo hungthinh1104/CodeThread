@@ -1,5 +1,10 @@
 import { summarizeCoverage } from '@codethread/code-model';
+import { createHash } from 'node:crypto';
 import { createInvestigation } from '@codethread/trace-engine';
+import {
+  ANALYZER_VERSION,
+  analyzerBuildHash,
+} from '@codethread/symbol-indexer';
 import type { RepositoryInvestigationSession } from '../investigation/repository-session.ts';
 import type { Database } from './database.ts';
 import { compareSourcePaths } from './source-path-order.ts';
@@ -55,7 +60,7 @@ export async function persistScan(
   await sql.begin(async (tx) => {
     const db = tx as unknown as Sql;
     const job = (
-      await db`SELECT state, generation, attempt FROM codethread.scan_job
+      await db`SELECT state, generation, attempt, analyzer_version, analyzer_build_hash FROM codethread.scan_job
       WHERE id = ${jobId} AND repository_id = ${repositoryId} FOR UPDATE`
     )[0];
     if (
@@ -65,6 +70,13 @@ export async function persistScan(
       Number(job.attempt) !== attempt
     )
       throw new Error('Stale or cancelled scan cannot publish');
+    if (
+      job.analyzer_build_hash !== analyzerBuildHash() ||
+      job.analyzer_version !== ANALYZER_VERSION
+    )
+      throw Object.assign(new Error('Accepted analyzer build is unavailable'), {
+        code: 'ANALYZER_BUILD_MISMATCH',
+      });
     if (
       session.commitId !== acquired.commitId ||
       session.repositoryId !== repositoryId
@@ -78,6 +90,37 @@ export async function persistScan(
     const expectedInputs = [...acquired.files].sort((a, b) =>
       compareSourcePaths(a.path, b.path),
     );
+    const expectedFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          version: 1,
+          files: expectedInputs.map((file) => ({
+            path: file.path,
+            sha256: file.sha256,
+            byteLength: file.bytes.length,
+          })),
+        }),
+      )
+      .digest('hex');
+    const sourceByPath = new Map(
+      acquired.files.map((file) => [file.path, file]),
+    );
+    if (
+      sourceByPath.size !== acquired.files.length ||
+      session.files.length !== acquired.files.length ||
+      session.files.some((file) => {
+        const source = sourceByPath.get(file.path);
+        return (
+          !source ||
+          source.sha256 !== file.sha256 ||
+          source.blobId !== file.blobId ||
+          source.bytes.length !== file.byteLength
+        );
+      }) ||
+      new Set(session.files.map((file) => file.path)).size !==
+        session.files.length
+    )
+      throw new Error('Session source manifest does not match pinned input');
     if (inputRows.length !== expectedInputs.length)
       throw new Error(
         'Persisted source manifest does not match the analyzed files',
@@ -98,6 +141,31 @@ export async function persistScan(
     for (const project of session.projects) {
       const snapshot = project.snapshot;
       if (snapshot) {
+        if (
+          snapshot.facts.identity.repositoryId !== repositoryId ||
+          snapshot.facts.identity.sourceFingerprint !== expectedFingerprint
+        )
+          throw new Error('Snapshot identity does not match pinned input');
+        if (
+          snapshot.facts.identity.analyzerBuildHash !==
+            job.analyzer_build_hash ||
+          snapshot.facts.identity.analyzerVersion !== job.analyzer_version
+        )
+          throw Object.assign(
+            new Error('Snapshot analyzer identity does not match job'),
+            {
+              code: 'ANALYZER_BUILD_MISMATCH',
+            },
+          );
+        for (const file of snapshot.facts.files) {
+          const source = sourceByPath.get(file.path);
+          if (
+            !source ||
+            source.sha256 !== file.contentHash ||
+            source.bytes.length !== file.byteLength
+          )
+            throw new Error('Snapshot source does not match pinned input');
+        }
         // The analyzer has already verified facts against immutable source bytes.
         createInvestigation(snapshot.facts, snapshot.source, {
           resourceProfile: 'repository',
@@ -282,6 +350,10 @@ export async function persistScan(
         ),
       });
     }
+    const preexisting =
+      await db`SELECT 1 FROM codethread.scan_project WHERE scan_job_id=${jobId} LIMIT 1`;
+    if (preexisting.length)
+      throw new Error('Scan already has project mappings before publication');
     await batchInsert(
       db,
       'scan_project',

@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -52,7 +53,7 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
       lease = await acquireWorkerLease(databaseUrl!);
       service = new ScanService(
         db,
-        { root: tmpdir(), analyzerBuildHash: 'f'.repeat(64) },
+        { root: tmpdir(), analyzerBuildHash: currentAnalyzerBuildHash() },
         lease,
       );
       await service.recover();

@@ -6,7 +6,11 @@ import {
   isSnapshotPath,
 } from '@codethread/code-model';
 import type { VerifiedSourceReader } from '@codethread/code-model';
-import { COMPILER_PROFILE, AnalysisError } from './analysis-types.js';
+import {
+  ANALYZER_VERSION,
+  COMPILER_PROFILE,
+  AnalysisError,
+} from './analysis-types.js';
 import type {
   AnalysisInput,
   AnalysisSnapshot,
@@ -17,6 +21,7 @@ import type { WorkerInput } from './protocol.js';
 import type { PreparedFile } from './analysis-types.js';
 import type { ProjectWorkerContext } from './project-types.js';
 import { verifyFacts } from './verify.js';
+import { analyzerBuildHash } from './analyzer-build.js';
 
 function freeze(value: unknown): void {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -171,6 +176,7 @@ export async function analyzeInput(
     resourceProfile: input.resourceProfile ?? 'selected',
     heapLimitBytes: heapLimitMiB * 1024 * 1024,
     repositoryId: idSchema.parse(input.repositoryId),
+    analyzerBuildHash: analyzerBuildHash(),
     sourceFingerprint: sha(
       JSON.stringify({
         version: 1,
@@ -244,6 +250,15 @@ export async function analyzeInput(
       'Analysis process returned invalid phase timings',
     );
   const facts = output.facts;
+  if (
+    facts?.identity?.analyzerBuildHash !== workerInput.analyzerBuildHash ||
+    analyzerBuildHash() !== workerInput.analyzerBuildHash ||
+    facts?.identity?.analyzerVersion !== ANALYZER_VERSION
+  )
+    throw new AnalysisError(
+      'ANALYZER_BUILD_MISMATCH',
+      'Analyzer build identity changed or did not match the worker result',
+    );
   const factValidationStarted = Date.now();
   try {
     verifyFacts(facts, workerInput, sources);

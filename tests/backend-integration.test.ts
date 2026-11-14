@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { describe, it, expect } from 'vitest';
 import {
   mkdtemp,
@@ -264,7 +265,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       lease = await acquireWorkerLease(dbUrl!);
       service = new ScanService(
         db,
-        { root: parent, analyzerBuildHash: digest('integration-build') },
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
         lease,
       );
       const repo = await service.register(folder);
@@ -603,7 +604,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('path-order-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let jobId: string | undefined;
     try {
@@ -696,7 +697,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         runtimeDb,
         {
           root: allowedRoot,
-          analyzerBuildHash: digest('least-privilege-runtime-build'),
+          analyzerBuildHash: currentAnalyzerBuildHash(),
         },
         lease,
       );
@@ -915,7 +916,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       ],
       fixture = await createGitFixture(parent, inputSources),
       db = connect(dbUrl!),
-      buildHash = digest('source-input-crash-build'),
+      buildHash = currentAnalyzerBuildHash(),
       service = new ScanService(db, {
         root: parent,
         analyzerBuildHash: buildHash,
@@ -1066,7 +1067,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }),
       fixture = await createGitFixture(parent, sources),
       db = connect(dbUrl!),
-      buildHash = digest('analysis-process-crash-build'),
+      buildHash = currentAnalyzerBuildHash(),
       service = new ScanService(db, {
         root: parent,
         analyzerBuildHash: buildHash,
@@ -1166,7 +1167,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('process-crash-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let child: ChildProcess | undefined,
       triggerInstalled = false,
@@ -1200,7 +1201,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           ...process.env,
           CODETHREAD_DATABASE_URL: dbUrl!,
           CODETHREAD_ALLOWED_REPO_ROOT: parent,
-          CODETHREAD_ANALYZER_BUILD_HASH: digest('process-crash-build'),
+          CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
         };
       child = spawn(process.execPath, [workerPath], {
         cwd: process.cwd(),
@@ -1464,7 +1465,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('unpinned-crash-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let child: ChildProcess | undefined,
       restartWorker: ChildProcess | undefined,
@@ -1496,7 +1497,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           ...process.env,
           CODETHREAD_DATABASE_URL: dbUrl!,
           CODETHREAD_ALLOWED_REPO_ROOT: parent,
-          CODETHREAD_ANALYZER_BUILD_HASH: digest('unpinned-crash-build'),
+          CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
         };
       child = spawn(process.execPath, [workerPath], {
         cwd: process.cwd(),
@@ -1597,7 +1598,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!);
     const firstWorker = new ScanService(db, {
       root: parent,
-      analyzerBuildHash: digest('recovery-build'),
+      analyzerBuildHash: currentAnalyzerBuildHash(),
     });
     let restartedWorker: ScanService | undefined,
       running: Promise<void> | undefined,
@@ -1625,7 +1626,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       lease = await acquireWorkerLease(dbUrl!);
       restartedWorker = new ScanService(
         db,
-        { root: parent, analyzerBuildHash: digest('recovery-build') },
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
         lease,
       );
       await restartedWorker.recover();
@@ -1676,7 +1677,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       lease = await acquireWorkerLease(dbUrl!);
       service = new ScanService(
         db,
-        { root: parent, analyzerBuildHash: digest('rollback-build') },
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
         lease,
       );
       const registered = await service.register(fixture.folder),
@@ -1706,7 +1707,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       fixture.commit = fixture.git('rev-parse', 'HEAD').trim();
       const failedService = new ScanService(db, {
           root: parent,
-          analyzerBuildHash: digest('rollback-build'),
+          analyzerBuildHash: currentAnalyzerBuildHash(),
         }),
         setup = await prepareClaimedScan(
           db,
@@ -1784,7 +1785,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       lease = await acquireWorkerLease(dbUrl!);
       service = new ScanService(
         db,
-        { root: parent, analyzerBuildHash: digest('fence-build') },
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
         lease,
       );
       const setup = await prepareClaimedScan(db, service, fixture),
@@ -1843,7 +1844,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       observer = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('cancel-race-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let publishing: Promise<void> | undefined;
     try {
@@ -1931,7 +1932,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           'HEAD',${digest('legacy-config')},'legacy-analyzer',
           ${digest('legacy-build')},'queued')`;
 
-      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5, 6, 7]);
       await assertMigrations(legacy);
       const retained = await legacy`SELECT id,state FROM codethread.scan_job
         WHERE id=${jobId}`;

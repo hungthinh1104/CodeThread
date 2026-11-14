@@ -26,6 +26,11 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Report installed analyzer build identity
+        run:
+          node --input-type=module -e "import { analyzerBuildHash } from
+          '@codethread/symbol-indexer'; console.log('analyzerBuildHash=' +
+          analyzerBuildHash())"
       - name: Configure bounded APT retries for Chromium dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -123,6 +128,9 @@ jobs:
           tests/backend-partial-session.test.ts
           tests/backend-benchmark-telemetry.test.ts
           tests/backend-query-admission.test.ts
+          tests/backend-release-gate.test.ts
+          tests/backend-worker-readiness.test.ts
+          tests/backend-worker-probe.test.ts
           tests/backend-persistent-browser.test.ts --maxWorkers=1
       - name: Verify restart of a dedicated PostgreSQL service
         env:

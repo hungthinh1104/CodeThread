@@ -159,6 +159,11 @@ export async function analyzeGitRepository(
         contextSourceBytes += sourceBytes;
         projects.push({ project, status: 'ready', snapshot });
       } catch (error) {
+        if (
+          error instanceof AnalysisError &&
+          error.code === 'ANALYZER_BUILD_MISMATCH'
+        )
+          throw error;
         if (error instanceof AnalysisError && error.code === 'CANCELLED') {
           throwIfCallerCancelled();
           if (!checkProjectBudget(projectIndex)) break;

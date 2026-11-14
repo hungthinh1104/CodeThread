@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
@@ -39,7 +40,7 @@ function startBackend(port: number, token: string) {
       ...process.env,
       CODETHREAD_DATABASE_URL: databaseUrl!,
       CODETHREAD_ALLOWED_REPO_ROOT: tmpdir(),
-      CODETHREAD_ANALYZER_BUILD_HASH: 'a'.repeat(64),
+      CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
       CODETHREAD_API_TOKEN: token,
       CODETHREAD_TEST_API_PORT: String(port),
     },

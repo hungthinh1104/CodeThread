@@ -17,7 +17,7 @@ const MAX_CONNECTIONS = 64;
 const REQUEST_TIMEOUT_MS = 30_000;
 const HEADERS_TIMEOUT_MS = 10_000;
 const queryInventory = z.strictObject({
-  offset: z.number().int().min(0).max(1000).default(0),
+  offset: z.number().int().min(0).max(1256).default(0),
 });
 export function makeApi(
   db: Database,
@@ -57,7 +57,16 @@ export function makeApi(
       if (!tokenMatch(req.headers.authorization, secret))
         throw new ServiceError(401, 'UNAUTHORIZED', 'Bearer token required');
       const url = new URL(req.url, 'http://127.0.0.1:' + port);
-      const p = url.pathname.split('/').filter(Boolean);
+      let p: string[];
+      try {
+        p = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+      } catch {
+        throw new ServiceError(
+          400,
+          'INVALID_REQUEST',
+          'Invalid URL path encoding',
+        );
+      }
       const is = (method: string, ...components: string[]) =>
         req.method === method &&
         p.length === components.length &&

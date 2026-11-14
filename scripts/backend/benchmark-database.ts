@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -365,7 +366,7 @@ try {
       if (!selected.includes(workloads[index]!.name))
         workloads.splice(index, 1);
   }
-  const analyzerBuildHash = digest('codethread-db-benchmark-analyzer-v1');
+  const analyzerBuildHash = currentAnalyzerBuildHash();
 
   for (const profile of workloads) {
     phaseSamples = {

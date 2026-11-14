@@ -34,6 +34,7 @@ const nodeBuiltins: Record<string, readonly string[]> = {
     'node:crypto',
     'node:child_process',
     'node:fs',
+    'node:module',
     'node:path',
     'node:url',
     'node:v8',

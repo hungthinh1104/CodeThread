@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   createConnection,
@@ -56,7 +57,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
       await applyMigrations(db);
       service = new ScanService(db, {
         root,
-        analyzerBuildHash: 'a'.repeat(64),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
       const port = await reservePort(),
         token = randomBytes(32).toString('hex');

@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -15,7 +16,7 @@ const databaseUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
 const workerPath = fileURLToPath(
   new URL('./backend-scan-worker-process.ts', import.meta.url),
 );
-const buildHash = 'b'.repeat(64);
+const buildHash = currentAnalyzerBuildHash();
 
 async function fixture(root: string) {
   const folder = join(root, 'repo');

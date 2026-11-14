@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -16,7 +17,7 @@ import { acquireWorkerLease } from '../scripts/backend/worker-lease.ts';
 import { createGitRepository } from './helpers/git-fixture.ts';
 
 const databaseUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
-const buildHash = 'e'.repeat(64),
+const buildHash = currentAnalyzerBuildHash(),
   token = 'partial-session-test-token-000000';
 
 async function reservePort() {

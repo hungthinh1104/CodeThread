@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -15,7 +16,7 @@ const container = process.env.CODETHREAD_RESTART_TEST_CONTAINER;
 const workerPath = fileURLToPath(
   new URL('./backend-scan-worker-process.ts', import.meta.url),
 );
-const buildHash = 'd'.repeat(64);
+const buildHash = currentAnalyzerBuildHash();
 
 function assertDisposableContainer(): string {
   if (!databaseUrl || !container)

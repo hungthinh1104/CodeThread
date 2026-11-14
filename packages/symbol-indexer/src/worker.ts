@@ -2,7 +2,7 @@ import { getHeapStatistics } from 'node:v8';
 import { analysisResourceLimits } from '@codethread/code-model';
 import type { AnalysisFacts } from '@codethread/code-model';
 import type { WorkerInput, WorkerOutput } from './protocol.js';
-import { AnalysisError } from './analysis-types.js';
+import { ANALYZER_VERSION, AnalysisError } from './analysis-types.js';
 import { identity } from './identity.js';
 import { extractFacts } from './extract.js';
 import { buildCompilerProgram } from './project-program.js';
@@ -58,7 +58,7 @@ function analyze(input: WorkerInput): WorkerOutput {
     const identityParts = {
       repositoryId: input.repositoryId,
       sourceFingerprint: input.sourceFingerprint,
-      analyzerVersion: 'ct-index-001b/0.1.0;typescript/6.0.3',
+      analyzerVersion: ANALYZER_VERSION,
       analyzerBuildHash: compiled.buildHash,
       configurationHash: input.configurationHash,
     };
