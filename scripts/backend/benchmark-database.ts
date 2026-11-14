@@ -15,6 +15,7 @@ import { applyMigrations } from './migrations.ts';
 import { BackendQueryService } from './query-service.ts';
 import { loadSnapshot } from './snapshot-persistence.ts';
 import { ScanService } from './service.ts';
+import { acquireWorkerLease, type WorkerLease } from './worker-lease.ts';
 import {
   DatabaseQueryTimer,
   benchmarkHttpApi,
@@ -300,6 +301,7 @@ type BenchmarkRepository = {
 };
 let service: ScanService | undefined,
   worker: Promise<void> | undefined,
+  workerLease: WorkerLease | undefined,
   peakRss = process.memoryUsage().rss;
 const rssTimer = setInterval(() => {
   peakRss = Math.max(peakRss, process.memoryUsage().rss);
@@ -312,6 +314,17 @@ try {
       'Benchmark database must be empty; refusing to reuse or mutate it',
     );
   await applyMigrations(db);
+  const rawWorkerLease = await acquireWorkerLease(url.toString());
+  workerLease = rawWorkerLease;
+  const measuredWorker: WorkerLease = {
+    db: instrumentDatabase(rawWorkerLease.db, databaseTimer),
+    signal: rawWorkerLease.signal,
+    get active() {
+      return rawWorkerLease.active;
+    },
+    cancelPending: (control) => rawWorkerLease.cancelPending(control),
+    close: () => rawWorkerLease.close(),
+  };
   const server = await db`SELECT version() AS version`;
   const packageMetadata = JSON.parse(
     await readFile(join(process.cwd(), 'package.json'), 'utf8'),
@@ -330,12 +343,28 @@ try {
     expectedFiles: profile.files,
     build: () => makeRepository(temporaryRoot, profile.files),
   }));
-  const pinnedHono = await makePinnedHonoRepository(temporaryRoot);
-  workloads.push({
-    name: 'pinned-hono',
-    expectedFiles: pinnedHono.expectedFiles,
-    build: async () => pinnedHono,
-  });
+  const selected = process.env.CODETHREAD_BENCH_PROFILES?.split(',').map(
+    (item) => item.trim(),
+  );
+  const allowed = new Set<string>([
+    ...profiles.map((profile) => profile.name),
+    'pinned-hono',
+  ]);
+  if (selected?.some((name) => !allowed.has(name)))
+    throw new Error('CODETHREAD_BENCH_PROFILES contains an unknown profile');
+  if (!selected || selected.includes('pinned-hono')) {
+    const pinnedHono = await makePinnedHonoRepository(temporaryRoot);
+    workloads.push({
+      name: 'pinned-hono',
+      expectedFiles: pinnedHono.expectedFiles,
+      build: async () => pinnedHono,
+    });
+  }
+  if (selected) {
+    for (let index = workloads.length - 1; index >= 0; index--)
+      if (!selected.includes(workloads[index]!.name))
+        workloads.splice(index, 1);
+  }
   const analyzerBuildHash = digest('codethread-db-benchmark-analyzer-v1');
 
   for (const profile of workloads) {
@@ -344,12 +373,16 @@ try {
       analysis_ms: [],
       persistence_ms: [],
     };
-    service = new ScanService(db, {
-      root: temporaryRoot,
-      analyzerBuildHash,
-      onPhase: (phase, durationMs) =>
-        phaseSamples[`${phase}_ms`]!.push(Number(durationMs.toFixed(2))),
-    });
+    service = new ScanService(
+      db,
+      {
+        root: temporaryRoot,
+        analyzerBuildHash,
+        onPhase: (phase, durationMs) =>
+          phaseSamples[`${phase}_ms`]!.push(Number(durationMs.toFixed(2))),
+      },
+      measuredWorker,
+    );
     const beforeRss = process.memoryUsage().rss,
       repository = await profile.build();
     worker = service.run();
@@ -556,7 +589,7 @@ try {
         status: 'measured',
         seed,
         methodology:
-          'Deterministic 25/250/900-file TypeScript repositories plus Hono at the frozen CT-REALWORLD-001 commit; scan lifecycle through the actual loopback HTTP API and production worker; 3 verified full-hydration samples; actual HTTP symbols/neighbors/paths/evidence at concurrency 1/2/4; 10 fresh-server cold samples and 20 warm iterations per concurrency by default; database query time is summed client SQL round-trip latency; no analyzed-repository scripts or dependencies executed; no index added.',
+          'Selected deterministic 25/250/900-file TypeScript repositories and/or Hono at the frozen CT-REALWORLD-001 commit; scan lifecycle through the actual loopback HTTP API and production worker; 3 verified full-hydration samples; actual HTTP symbols/neighbors/paths/evidence at concurrency 1/4/8/16/32; 10 fresh-server cold samples and 20 warm iterations per concurrency by default; no analyzed-repository scripts or dependencies executed; no index added.',
         command: 'pnpm backend:bench',
         database: { name: databaseName, version: server[0]?.version },
         host: {
@@ -580,6 +613,7 @@ try {
 } finally {
   clearInterval(rssTimer);
   service?.stop();
+  await workerLease?.close();
   if (worker) await worker;
   await db.end({ timeout: 5 });
   await rm(temporaryRoot, { recursive: true, force: true });

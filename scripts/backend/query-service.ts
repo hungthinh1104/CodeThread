@@ -19,6 +19,7 @@ import { ServiceError } from './service.ts';
 import type { ScanService } from './service.ts';
 
 type ProjectQuery = 'neighbors' | 'paths' | 'evidence';
+const MAX_HEAVY_QUERIES = 4;
 const symbolSearchParameters = z.strictObject({
   query: z.string().max(256).default(''),
   offset: z.number().int().min(0).max(20000).default(0),
@@ -29,6 +30,7 @@ const symbolSearchParameters = z.strictObject({
 export class BackendQueryService {
   private readonly db: Database;
   private readonly scans: Pick<ScanService, 'publishedSnapshot'>;
+  private activeHeavyQueries = 0;
 
   constructor(db: Database, scans: Pick<ScanService, 'publishedSnapshot'>) {
     this.db = db;
@@ -95,6 +97,26 @@ export class BackendQueryService {
   }
 
   async project(
+    jobId: string,
+    projectId: string,
+    kind: ProjectQuery,
+    input: unknown,
+  ) {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      return await this.executeProject(jobId, projectId, kind, input);
+    } finally {
+      this.activeHeavyQueries--;
+    }
+  }
+
+  private async executeProject(
     jobId: string,
     projectId: string,
     kind: ProjectQuery,
