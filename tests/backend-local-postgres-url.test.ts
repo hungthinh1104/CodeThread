@@ -29,6 +29,38 @@ describe('local PostgreSQL connection URLs', () => {
     ).toThrow('Backup source must use a loopback PostgreSQL host');
   });
 
+  it('removes inherited libpq routing overrides from native tool env', () => {
+    const names = ['PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE', 'PGSYSCONFDIR'],
+      previous = new Map(names.map((name) => [name, process.env[name]]));
+    process.env.PGHOSTADDR = '203.0.113.9';
+    process.env.PGSERVICE = 'remote-service';
+    process.env.PGSERVICEFILE = 'C:\\remote-service.conf';
+    process.env.PGSYSCONFDIR = 'C:\\postgresql';
+    try {
+      const connection = localPostgresConnection(
+        'postgres://user:pass@127.0.0.1:5432/source',
+        'Backup source',
+      );
+      expect(
+        Object.keys(connection.env)
+          .filter((name) => /^PG/i.test(name))
+          .sort(),
+      ).toEqual([
+        'PGDATABASE',
+        'PGHOST',
+        'PGPASSWORD',
+        'PGPORT',
+        'PGSSLMODE',
+        'PGUSER',
+      ]);
+    } finally {
+      for (const [name, value] of previous) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
   it('rejects non-PostgreSQL URLs and missing databases', () => {
     expect(() =>
       localPostgresConnection('https://localhost/db', 'Restore target'),

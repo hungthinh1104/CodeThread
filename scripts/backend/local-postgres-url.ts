@@ -12,10 +12,13 @@ export function localPostgresConnection(raw: string, label: string) {
     throw new Error(`${label} must use a loopback PostgreSQL host`);
   const database = decodeURIComponent(url.pathname.slice(1));
   if (!database) throw new Error(`${label} database name is missing`);
+  const inheritedEnv = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !/^PG/i.test(name)),
+  ) as NodeJS.ProcessEnv;
   return {
     url: url.toString(),
     env: {
-      ...process.env,
+      ...inheritedEnv,
       PGHOST: hostname.replace(/^\[|\]$/g, ''),
       PGPORT: url.port || '5432',
       PGUSER: decodeURIComponent(url.username),
