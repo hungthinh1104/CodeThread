@@ -88,7 +88,8 @@ async function loadRepositorySessionContents(
             >,
           }
         : {}),
-      ...(row.status === 'failed' && diagnostics[0]
+      ...((row.status === 'failed' || row.status === 'not_analyzed') &&
+      diagnostics[0]
         ? { error: diagnostics[0] }
         : {}),
     });
