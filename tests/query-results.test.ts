@@ -37,6 +37,45 @@ function testPage() {
 }
 
 describe('CT-FIX-001 request-aware pagination', () => {
+  it('validates bounded, snapshot-scoped symbol search pages', () => {
+    const symbol = traceFixture().symbols[0]!;
+    const response = {
+      meta: {
+        ...traceFixture().meta,
+        truncated: true,
+        truncationReasons: ['result_limit'],
+        appliedLimits: { pageSize: 1 },
+      },
+      items: [symbol],
+      total: 2,
+      nextOffset: 1,
+    };
+    expect(
+      contracts.parseListSymbolsResult(
+        { snapshotId, query: symbol.name, limit: 1 },
+        response,
+      ).items,
+    ).toHaveLength(1);
+    expect(() =>
+      contracts.parseListSymbolsResult(
+        { snapshotId, query: 'no-match', limit: 1 },
+        response,
+      ),
+    ).toThrow(/filter/i);
+    expect(() =>
+      contracts.parseListSymbolsResult(
+        { snapshotId: id(99), query: symbol.name, limit: 1 },
+        response,
+      ),
+    ).toThrow(/snapshot/i);
+    expect(() =>
+      contracts.parseListSymbolsResult(
+        { snapshotId, query: symbol.name, limit: 1 },
+        { ...response, nextOffset: null },
+      ),
+    ).toThrow(/continuation|truncation/i);
+  });
+
   it('accepts a valid continuation and rejects changed filters, snapshots and overlapping pages', () => {
     const page = testPage();
     expect(

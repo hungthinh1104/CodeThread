@@ -34,7 +34,7 @@ export function extractFacts(
     );
   const semanticDiagnosticFiles =
     projectContext && sourceFiles.length > limits.maxFullSemanticDiagnosticFiles
-      ? collectSemanticDiagnosticFiles(sourceFiles, checker, projectContext)
+      ? collectSemanticDiagnosticFiles(sourceFiles, checker)
       : sourceFiles;
   let declarationCount = 0,
     callCount = 0,
@@ -809,7 +809,6 @@ export function extractFacts(
 function collectSemanticDiagnosticFiles(
   sourceFiles: readonly ts.SourceFile[],
   checker: ts.TypeChecker,
-  projectContext: boolean,
 ): ts.SourceFile[] {
   const sourceSet = new Set(sourceFiles),
     selected = new Set<ts.SourceFile>();
@@ -827,9 +826,7 @@ function collectSemanticDiagnosticFiles(
         ts.isImportSpecifier(binding) &&
         !binding.isTypeOnly &&
         !binding.parent.parent.isTypeOnly &&
-        ts.isStringLiteral(binding.parent.parent.parent.moduleSpecifier) &&
-        (projectContext ||
-          /^\.\.?\//.test(binding.parent.parent.parent.moduleSpecifier.text))
+        ts.isStringLiteral(binding.parent.parent.parent.moduleSpecifier)
       ) {
         importedFile = checker
           .getSymbolAtLocation(binding.parent.parent.parent.moduleSpecifier)

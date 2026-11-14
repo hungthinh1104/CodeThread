@@ -2,8 +2,10 @@
 
 This document defines the Foundation and proposed database design for the local,
 single-developer V0. It is a logical design, not evidence that PostgreSQL
-enforces these rules. Production migrations and persistence behavior start only
-after DB-01 approval. Requirement lifecycle is not execution status.
+enforces these rules. DB-02 migrations and persistence are now authorized for a
+reviewable local candidate (2026-11-13), not production deployment. DB-01
+invariants still govern publication. Requirement lifecycle is not execution
+status.
 
 ## 1. Product and ownership
 
@@ -24,19 +26,20 @@ Current packages:
 | symbol-indexer      | Bounded manifest validation, isolated TypeScript extraction, retained source and compiler-backed repository/project context planning                                                                                                                     | code-model, pinned TypeScript and explicitly allowed Node APIs                                                      |
 | trace-engine        | Source-verified, bounded in-memory graph exploration                                                                                                                                                                                                     | code-model, contracts and Node crypto; no compiler or filesystem                                                    |
 | Application scripts | Explicit local Git object/source-metadata acquisition, bounded workspace mapping, CLI and per-context session orchestration, and bounded loopback viewer presentation; reads pinned project metadata as data, with no fact extraction or graph traversal | symbol-indexer, trace-engine, code-model/contracts, pinned TypeScript/YAML parsers and explicitly allowed Node APIs |
+| Backend scripts     | Local-only HTTP transport, scan/query orchestration, PostgreSQL migrations/persistence, verified source retention and persisted viewer adapter                                                                                                           | contracts, trace-engine, PostgreSQL driver, pinned Node APIs                                                        |
 | Foundation scripts  | Requirements and package-boundary verification                                                                                                                                                                                                           | Node, TypeScript API, YAML and Ajv                                                                                  |
 
 Data flows from source ingestion/semantic extraction → code model →
 tracing/query behavior → transport/presentation. Code dependencies point from
 consumers toward the framework-independent model; the model never imports its
-extractors. Future code dependency direction is transport → application
-orchestration → semantic modules. Symbol/test indexers produce code-model facts;
-trace-engine consumes facts, not framework AST internals. Database owns
-adapters, not semantic rules. `scripts/git-source.ts` owns Git object
-acquisition; `scripts/investigate.ts` owns arguments, source selection display
-and session orchestration. API uses contracts rather than exposing Drizzle rows.
-UI uses contracts/API rather than the database. No Next.js backend duplicates
-Fastify/application rules.
+extractors. Backend dependencies follow transport → application orchestration →
+persistence or semantic modules. Symbol/test indexers produce code-model facts;
+trace-engine consumes facts, not framework AST internals. Database modules own
+persistence adapters, not semantic rules. `scripts/git-source/` owns Git object
+acquisition; `scripts/investigate.ts` owns CLI arguments, source selection
+display and in-memory session orchestration. The API validates contracts rather
+than exposing database rows. UI uses contracts/API rather than the database;
+there is no second web-framework backend.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root
@@ -152,8 +155,13 @@ RepositorySnapshot, SourceFile, CodeSymbol, CodeRelation, SourceEvidence and
 Diagnostic form the code-comprehension core. TestCase/TestStep/TestCodeLink are
 an optional extension. Existing test-oriented read projections remain reusable;
 they are not the sole future investigation API. The logical database proposal
-remains unimplemented and must be reviewed against the semantic proof before
-DB-02.
+remains the DB-01 baseline. The DB-02 candidate introduces a separate opt-in
+local PostgreSQL backend. The user authorized implementation, testing and PR
+review of this local candidate on 2026-11-13. It implements pinned scan
+provenance, checksummed migrations, immutable persistence, a bounded HTTP API,
+manual protected retention, backup/restore verification and a persisted viewer
+adapter. Hosted CI and human review remain release gates; this authorization
+does not approve production credentials, deployment or automated merge.
 
 The database/API readiness review and operation inventory are linked from the
 [README](../README.md). They distinguish logical proposals, executable in-memory
@@ -637,48 +645,48 @@ content. Failure/error codes and attempt history are operational data; they must
 not mutate an immutable payload. Fencing and publication guards are DB-04
 acceptance scenarios, not implemented concurrency guarantees in Foundation.
 
+In the local PostgreSQL candidate, a dedicated single-connection worker client
+holds the session advisory lock and performs every worker SQL statement on that
+same session. Loss of that session stops the worker and closes the backend;
+worker work cannot silently continue on a replacement pool connection. Graceful
+shutdown stops intake, cancels an in-flight statement on the lock-holding
+backend, closes the worker session and bounds HTTP and process cleanup. Recovery
+requeues interrupted pinned work and marks pre-pin work `REVISION_NOT_PINNED`.
+An explicit cancellation remains distinct from shutdown and analysis failure.
+
 ### Retention and recovery
 
-Default retention is manual, with no automatic deletion. Source/graph readers
-use a shared transaction advisory lock keyed by a domain-prefixed 64-bit hash of
-the snapshot UUID; a hash collision causes conservative contention, not unsafe
-deletion. The narrow maintenance entry point acquires the exclusive counterpart
-before rechecking intent and deleting anything. Its lock order is Repository →
-retention advisory lock → Snapshot → ScanJob. Readers never acquire repository
-row locks after their shared retention lock. Timeout/cancellation ends the
-transaction and releases its locks; keep no pooled connection with an open
-transaction.
+Default retention is manual, with no automatic deletion. Snapshot readers hold a
+shared transaction advisory lock keyed by snapshot UUID; persistent-session
+readers also hold a separate shared lock keyed by job UUID. The maintenance
+procedure takes a nonblocking exclusive lock for each candidate and skips an
+item while a reader holds shared protection. Lock collisions cause conservative
+contention, not unsafe deletion. Timeouts/cancellation end the transaction and
+release its locks; keep no pooled connection with an open transaction.
 
-The purge refuses active/desired snapshots, writer-owned staging and retained
-idempotency references, and cannot proceed while a reader holds shared
-protection. It first removes an eligible whole snapshot in a maintenance
-transaction, then marks unreferenced cache objects for delayed mark/sweep. Never
-recursively delete the original source repository. Individually deleting
-published child records is forbidden; maintenance purge uses a separate
-privileged path and preserves foreign-key integrity.
+The procedure removes only old terminal jobs that are not active, published
+snapshots no longer referenced by scan projects, and source objects with no
+snapshot or scan-input reference. It is a bounded, privileged maintenance path;
+runtime roles cannot invoke it. Individual published-child deletion remains
+forbidden to application roles. Never recursively delete the original source
+repository.
 
-Cache-object sweeping is offline maintenance in V0: pause new scan requests,
-drain indexing/publication and cache writes, then rebuild the live hash set from
-all retained snapshots, staging inputs and configuration manifests before
-deleting any object. Do not introduce online object GC without a writer/GC
-coordination protocol and race tests. Snapshot read protection alone does not
-prevent an orphan object from being reused by a concurrently publishing scan.
-
-Backups include a database dump plus the exact referenced content/config
-manifests and cache objects. Pin the retained snapshot set while creating this
-bundle. Restore into isolation, verify all hashes/references, then run
-representative queries and source checks before considering it usable. A
-database dump alone does not recover source evidence. DB-06 owns the actual
-restore drill; see the
+Backups use a PostgreSQL custom archive of the `codethread` schema, which
+contains the exact project manifests and content-addressed source bytes. Restore
+into an empty isolated database, verify migration checksums, every published
+snapshot, source hashes, representative graph/evidence queries and active
+persistent sessions. `pnpm backend:backup` and `pnpm backend:restore:verify`
+implement this local verification path; it does not establish production
+recovery readiness. See the
 [PostgreSQL backup reference](https://www.postgresql.org/docs/18/backup.html).
 
 ## 7. Read contracts and query access patterns
 
 `@codethread/contracts` is the executable interface source. Inputs are validated
 before querying; projections are validated before transport. IDs identify
-entities, never filesystem paths. The future API validates the loopback access
-boundary and rejects snapshots/entities outside the selected repository. There
-is no arbitrary SQL or filesystem-reading endpoint.
+entities, never filesystem paths. The local HTTP API validates its loopback
+access boundary and rejects snapshots outside the selected completed project.
+There is no arbitrary SQL or filesystem-reading endpoint.
 
 Every response has snapshotId, evidenceBasis=static, declared coverage, applied
 limits, truncated and truncationReasons. Partial coverage and result truncation
@@ -713,19 +721,21 @@ semantic evaluator supplies that evidence.
 Consumers with a request must use parseListTestsResult,
 parseRelatedProductionSymbolsResult, parseFindTestsForSymbolResult,
 parseGetDiagnosticsResult, parseGetTestTraceResult,
-parseGetSourceEvidenceResult, parseGraphNeighborsResult or
-parseFindSymbolPathsResult. These parse the request and response and reject
+parseGetSourceEvidenceResult, parseListSymbolsResult, parseGraphNeighborsResult
+or parseFindSymbolPathsResult. These parse the request and response and reject
 mismatched snapshots, selections or applied limits. Related/reverse parsers
 additionally require bounded supporting steps (≤1000) and evidenceRefs (≤5000),
 checking ownership, known containment cycles and call sites. Generic schemas
 intentionally do not guess unavailable request-specific context.
 
-Paged results strictly advance from the incoming cursor using UTF-8 byte order
-for paths/keys and numeric UTF-16 offsets. A continuation must match the
+Cursor-paged results strictly advance from the incoming cursor using UTF-8 byte
+order for paths/keys and numeric UTF-16 offsets. A continuation must match the
 normalized request scope/filter and the final returned tuple. Diagnostic
 ordering uses its explicit path, or empty path/offset zero for source-free
 diagnostics. These guards prevent invalid pagination positions; complete SQL
-query coverage remains DB-03 verification work.
+coverage remains specific to the implemented routes described below; the
+test-oriented contracts are reusable but are not exposed by the persistent
+backend yet.
 
 Neighbor result validation uses bounded breadth-first reachability in the
 requested direction. Edges come from an expanded frontier (distance < applied
@@ -738,11 +748,10 @@ endpoints or disconnected returned remnants.
 
 Source batches return exactly the requested IDs in request order, including
 typed unavailability. Structural validation, matching excerpt length and
-consistent metadata do not authenticate source bytes. The future source adapter
-must verify raw hashes, UTF-8 and immutable cache identity before returning
-available excerpts. The in-memory proof verifies its private manifest copies and
-excerpts; a durable cache adapter, SQL query implementation and runtime
-observation do not exist here.
+consistent metadata do not authenticate source bytes. The persistent source
+adapter verifies raw hashes, UTF-8 and immutable cache identity before returning
+available excerpts. The in-memory proof continues to verify its private manifest
+copies and excerpts.
 
 | Contract                    | Inputs/defaults                                                                                                  | Projection and SQL access pattern                                                                                                                                                                                                                                                                                                                                                                |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -755,20 +764,24 @@ observation do not exist here.
 | GraphNeighbors              | Snapshot/root, outgoing/incoming/both, `relationKinds` defaults to `[calls]`, depth 2 (max 5), ≤200 nodes        | Deterministic bounded breadth-first expansion across only the requested kinds; every response edge retains its kind and is checked against the request. Scope every frontier join to snapshot. Retain site-level parallel relations and diagnostics. At most 1000 relations, 5000 support refs, 200 diagnostics and 10000 examined relations.                                                    |
 | FindSymbolPaths             | Snapshot/from/to, `relationKinds` defaults to `[calls]`; directed depth 2 (max 5), ≤200 visited nodes, ≤20 paths | Deterministic bounded search over exact outgoing relations of selected kinds, with per-path visited symbols and a global work budget of 10000 examined relations. Return paths as symbol/relation ID sequences with support dictionaries and explicit edge kinds. No repeated symbol within a path; a root-to-itself path may contain zero edges. Hitting depth/work/result budgets is explicit. |
 
-There is no backend or SQL adapter in this batch. These are required SQL shapes
-for DB-03 verification, not performance observations. Add no unbounded recursive
-query: an outer LIMIT alone need not bound recursive work, sorting or joins. Cap
-each frontier, total examined relations, rows, depth and statement duration;
-report QUERY_TIMEOUT instead of presenting an interrupted result as complete.
+The persistent backend implements repository/scan management, symbol search,
+graph-neighbor/path and source-evidence routes. Symbol search uses an immutable
+read projection; graph/evidence routes hydrate and verify the snapshot before
+calling `trace-engine`. Test-oriented queries remain package contracts without
+persisted test tables or API routes. Do not treat this partial API as completion
+of the broader CT-INDEX-001 scope. Add no unbounded recursive query: an outer
+LIMIT alone need not bound recursive work, sorting or joins. Cap each frontier,
+total examined relations, rows, depth and statement duration; report
+QUERY_TIMEOUT instead of presenting an interrupted result as complete.
 
-Pagination uses a versioned base64url UTF-8 JSON cursor with snapshot, query
-kind, canonical filter key, fixed source-v1 ordering and last path/offset/key.
-Related lookups include the selected test/symbol in the filter key. Tokens are
-strictly validated and canonical, not authorization credentials or signed proof.
-No offset pagination. Request limits may change between pages without changing
-selection. Paginated responses include nextCursor; a next page is a result_limit
-truncation, while null with truncation can also mean a non-page support budget
-was exhausted.
+Contract-library test/diagnostic pages use versioned base64url UTF-8 cursors
+with snapshot, query kind, canonical filter key, fixed source-v1 ordering and
+last path/offset/key. Related lookups include the selected test/symbol in the
+filter key. Tokens are strictly validated and canonical, not authorization
+credentials or signed proof. The backend's symbol route retains bounded offset
+pagination for compatibility (`offset` <=20,000, page size 50), with
+deterministic ordering and explicit `nextOffset`/truncation metadata. Graph and
+evidence requests are snapshot-scoped and bounded.
 
 Trace and graph assembly must not return dangling edges when truncating.
 Unresolved sites retain null targets and their source/diagnostic refs.
@@ -777,48 +790,58 @@ symbol. Order is syntax position, not claimed execution order. Linear and
 graphical views receive the same facts and disclosure; layout coordinates are
 not persisted semantic evidence.
 
-Bound database statement counts independently of result cardinality: ListTests,
-diagnostics and evidence use ≤3 scoped statements each; reverse/related lookups
-use ≤4; a trace uses ≤8 bulk statements. Graph expansion uses at most two
-statements per depth plus two support statements. Avoid a query per
-node/evidence record. Set transaction-local timeouts and cancellation in DB-03;
-choose latency budgets after DB-05 baselines. Batch limits are safety bounds,
-not measured performance SLAs.
+The DB-01 statement-count budgets remain targets for future persisted test
+queries. The current backend uses PostgreSQL statement, lock and
+idle-transaction timeouts. The symbol page uses a small fixed set of statements;
+graph/evidence currently pay for full verified hydration. Query bounds are
+safety limits, not measured performance SLAs.
+
+For the local API, graph, path and evidence hydration share a four-request
+admission limit per API instance. Excess work is rejected with HTTP 429
+`QUERY_CAPACITY_EXCEEDED`; the limit does not apply to symbol or health routes.
+The 900-file synthetic benchmark has its own explicit local latency and memory
+budget; it does not establish a bound for arbitrary snapshots.
 
 Query errors are INVALID_REQUEST, INVALID_CURSOR, SNAPSHOT_NOT_FOUND,
 SNAPSHOT_NOT_PUBLISHED, ENTITY_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH,
-RESOURCE_LIMIT and QUERY_TIMEOUT. Ingestion/publication additionally needs typed
-IDEMPOTENCY_CONFLICT, WRITER_FENCED, SOURCE_NOT_READY, INTEGRITY_VIOLATION,
-REVISION_NOT_PINNED for retrying a request that failed before selector
-resolution, and ANALYZER_BUILD_UNAVAILABLE when the job's pinned build cannot be
-used. These are proposed codes, not runtime API behavior. Do not log source
-excerpts, credentials or connection strings in errors.
+RESOURCE_LIMIT and QUERY_TIMEOUT. The local scan API uses typed
+IDEMPOTENCY_CONFLICT, REVISION_NOT_PINNED and INVALID_REQUEST errors. Other
+proposal codes remain design vocabulary unless a route explicitly returns them.
+Do not log source excerpts, credentials or connection strings in errors.
 
 ## 8. Reproducible scalability methodology
 
-| Scale  | Symbols | Relations |  Tests |
-| ------ | ------: | --------: | -----: |
-| Small  |   2,000 |    10,000 |    200 |
-| Medium |  25,000 |   150,000 |  2,000 |
-| Large  | 100,000 | 1,000,000 | 10,000 |
+| Scale  | Files | Symbols | Exact CALLS |
+| ------ | ----: | ------: | ----------: |
+| Small  |    25 |      50 |          25 |
+| Medium |   250 |     500 |         250 |
+| Large  |   900 |   1,800 |         900 |
 
-DB-05 will generate relational fixtures using a published fixed seed, explicit
-generator version and checksum. Include multiple snapshots, repeated sites,
-skewed high-degree symbols, cycles, unresolved sites, shared hook evidence,
-parameterized declarations and partial coverage. Generate endpoints only from
-the same snapshot; control distributions and evidence sizes explicitly. The
-large scale is a proposed workload, not a supported-capacity guarantee.
+`pnpm backend:bench` generates and Git-pins deterministic TypeScript sources
+using seed `codethread-db-workload-v1`, scans the 25/250/900-file profiles
+through the actual HTTP API and production worker, and also scans Hono at its
+frozen CT-REALWORLD-001 commit. The runner verifies Hono's pinned tree and
+source blob hashes from the checked-in repository manifest and does not execute
+external scripts or dependencies. The large synthetic profile is below the
+current 1,000-file repository cap; these workloads are not a maximum-size or
+arbitrary-repository claim.
 
-Record hardware/OS/storage, PostgreSQL patch/container digest, configuration,
-dataset seed/checksum, application/analyzer revision, command, pool size,
-concurrency and warm/cold policy. Run warmup separately; collect ≥100 timed
-repetitions per query shape across independent processes where practical. Report
-p50/p95 with sample counts and methodology; do not mix warm/cold or include
-warmup samples. Use EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON), row estimates,
-buffers and actual rows. Measure batch write throughput, DB/source-cache size,
-peak memory, concurrent reads, write contention, publication latency and cleanup
-cost. Verify query results as well as timing. Run write/destructive benchmarks
-only against disposable databases.
+The report includes commit and dataset checksums, hardware/OS, Node, pnpm and
+PostgreSQL versions, source bytes, full scan lifecycle and phase timings, peak
+RSS and query plans. It takes three full-hydration samples and five direct
+symbol-page and graph-query samples, reports medians, and verifies the old and
+new symbol pages match. It includes before/after
+`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for facts/source hydration and direct
+symbol search. Actual HTTP symbol, neighbor, path and evidence routes report
+response bytes and P50/P95/P99 at concurrency 1/4/8/16/32. Cold means the first
+request on a new API server and database client pool; it does not flush
+PostgreSQL shared buffers or the OS page cache. Warm requests follow one
+excluded endpoint warm-up. PostgreSQL driver diagnostics separately report pool
+lease wait, queued-to-sent time and sent-to-completion client round trips; they
+do not isolate server execution. Defaults are 10 cold samples and 20 warm
+iterations per concurrency. No new index was introduced for this optimization.
+The local workload measurements are separate from `pnpm eval:external`
+correctness evidence and human-study results.
 
 Required uniqueness indexes are integrity mechanisms. Candidate performance
 indexes include tests(snapshot,file,declaration position), reverse
@@ -844,25 +867,28 @@ raw plans/results outside canonical docs.
   full checks and strict engine/peer installation. Reassess/remove overrides
   when parents accept a patched release. Application exploitability has not been
   demonstrated; this is development-tool exposure.
-- Keep PostgreSQL/API local by default. The future HTTP boundary must protect
-  against cross-origin requests, DNS rebinding and unauthorized local source
-  reads; loopback binding by itself is insufficient. Team authentication/tenancy
-  is out of V0 scope, not a promise that shared deployment is already safe.
+- Keep PostgreSQL/API local by default. The implemented HTTP boundary binds to
+  loopback, checks Host/Origin, requires a bearer token, bounds JSON
+  input/output and scopes queries to the selected scan/project. Loopback is not
+  a substitute for these checks. Team authentication/tenancy is out of V0 scope.
 - Ingestion has explicit byte/file/depth/time/memory budgets, declared as
   analysis configuration. It reads Git objects and verified cached inputs
   without invoking repository scripts, hooks, package managers or tests. Source
   comments remain untrusted data; no automatic AI upload occurs.
-- Maintain separate migration-owner, indexing-writer, read-only query and
-  guarded maintenance privileges. Application roles cannot disable triggers, own
-  tables or run DDL. Least-privilege role behavior requires DB-06 verification.
-- DB-02 must review generated Drizzle SQL for composite FK null handling, check
-  nullability, evidence joins, cyclic DDL dependencies and parent-row DML
-  guards. Generated ORM definitions alone do not prove SQL integrity. Add FKs in
-  migration order where Repository/Snapshot/Job pointers form a DDL cycle.
+- Separate migration-owner, runtime and guarded-retention privileges are
+  represented by PostgreSQL roles. Runtime roles cannot disable triggers, own
+  tables, run DDL, delete data or invoke retention. Real PostgreSQL integration
+  checks the grants; hosted PostgreSQL CI must confirm the same on the final
+  SHA.
+- The backend uses
+  [reviewed SQL migrations](decisions/0008-reviewed-sql-migrations-for-postgresql.md),
+  not Drizzle. Continue review of composite foreign-key null handling, evidence
+  ownership, cyclic DDL order and publication guards. Raw migration SQL and
+  passing local tests do not replace independent review.
 - Configuration/source cache formats are versioned and immutable. A new
   analyzer, compiler, capability or identity algorithm creates a new analysis
-  identity. Future projection changes need contract/version compatibility
-  review; no deployed API exists to migrate in this batch.
+  identity. Local API projection changes need contract/version compatibility
+  review; no remote deployment or production compatibility promise exists.
 - Large cascades, vacuum bloat, lock waits, stale leases, deadlocks, cache disk
   loss, partial backups and restoration without guards are explicit risks.
   Review migration SQL, bound pools/timeouts and retry only retryable
@@ -871,8 +897,10 @@ raw plans/results outside canonical docs.
 
 ## 10. Worked design reviews
 
-These are reasoned examples to be tested against real PostgreSQL in DB-02–DB-06.
-They are not simulated measurements or claims of implemented persistence.
+These are design scenarios, not a claim that every combination is covered. The
+local PostgreSQL integration suite covers the explicitly named migration,
+fencing, publication, source-integrity and retention cases; the synthetic
+benchmark is reported separately and is not production-capacity evidence.
 
 | Scenario                                                | Expected design behavior                                                         | Required later evidence                                      |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -890,42 +918,35 @@ They are not simulated measurements or claims of implemented persistence.
 | A graph or evidence budget is reached                   | Keep a closed admitted subgraph and explicit truncation; no dangling target      | Query regression on high-degree fixture                      |
 | Retention races a reader or desired snapshot            | Shared read protection blocks purge; intent checks still apply                   | Advisory retention lock and maintenance contention test      |
 
-## 11. Exit gates and the DB-02 handoff
+## 11. DB-02 implementation and release gates
 
-Foundation acceptance is a frozen clean-clone installation, formatting/lint,
-registry validation, boundary checks, build, typecheck and focused regressions.
-Prepared Windows/Linux Actions workflows do not constitute hosted CI evidence.
-Always report the exact tested revision and distinguish local clone checks from
-hosted results, even when they use the same SHA. Schema tests do not establish
-PostgreSQL, analyzer or study correctness.
+The logical DB-01 model remains the design baseline. A local DB-02 backend
+candidate is now implemented on the authorized feature branch. User
+authorization on 2026-11-13 covers implementation, local/hosted verification and
+PR review only. It does not authorize production credentials, deployment or
+automated merge.
 
-DB-01 is ready for user review when this model, dictionary, invariant ownership,
-query contracts, source lifecycle, worked failures, workload method and two
-significant ADRs are complete and internally consistent. User approval is the
-phase gate. Outstanding empirical evidence belongs to the next work packages.
+The candidate includes checksummed forward migrations, PostgreSQL publication
+and isolation guards, pinned scan recovery, source integrity, fenced writes,
+least-privilege roles, manual protected retention, isolated backup/restore,
+validated local query routes and reproducible synthetic database measurements.
+These are claims about repository implementation; each gate still requires
+evidence tied to the exact candidate SHA.
 
-After explicit approval, the first DB-02 task is:
+Before recommending PR merge, run `pnpm check`, semantic and pinned external
+evaluation, browser verification, security audit, disposable PostgreSQL
+migration/integration/backup/restore checks, and Windows plus Ubuntu hosted CI.
+Request human review and wait for required hosted checks and approval. Report
+local evidence, hosted evidence, unsupported capabilities and human-study
+evidence separately. A green local run or a stale hosted run is not a release
+gate. Even after merge approval, production rollout needs separate authorization
+and operational planning.
 
-1. Verify exact stable PostgreSQL 18, Drizzle ORM/Kit and pg compatibility.
-   Create the database package with real schema behavior and disposable local
-   Compose; keep migration and runtime roles separate.
-2. Translate this reviewed logical model into Drizzle schema and reviewed
-   initial SQL migration, including scoped FKs, occurrence uniqueness,
-   resolution checks, declared capability counts and immutable-publication
-   guards. Review SQL lock and trigger behavior, including child writes racing
-   publication.
-3. Prove fresh creation and negative integrity cases on real isolated
-   PostgreSQL. Cover cross-snapshot references, evidence hashes, unresolved
-   targets, duplicate occurrences and published mutation attempts. Do not claim
-   query/concurrency performance or restore readiness from fresh migration
-   tests.
-4. Report SQL/constraint differences from this design and actual evidence before
-   accepting DB-02. DB-03 implements minimal storage/query adapters, DB-04 tests
-   concurrency/failure recovery, DB-05 benchmarks, and DB-06 audits upgrades,
-   privileges, restore and overall database readiness.
-
-Do not begin a full backend until DB-06 passes its agreed evidence gate.
-Frontend and optional AI remain later phases.
+Persisted test-case/test-step querying, a general persistent frontend,
+multi-user authentication, hosted ingestion, background retention scheduling and
+independent semantic/human-study results remain outside this candidate. Do not
+represent this backend as completion of the broader CT-INDEX-001 capability or
+as production approved.
 
 ## 12. Bounded in-memory semantic proof
 
@@ -1340,17 +1361,23 @@ and installed dependencies are not consulted.
 The repository source profile is capped at 1,000 files, 32 MiB total, and 32 MiB
 per file. Tree traversal is capped at 8,192 unique trees, 100,000 entries,
 16,384 tree visits and 64 path components. A single 120-second monotonic session
-deadline spans Git intake, workspace and project planning, sequential project
-workers, and response assembly; timeout returns a typed failure. Compiler
-metadata is limited to 256 files and 4 MiB total, with each metadata blob capped
-at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json` and
-`pnpm-workspace.yaml`, plus the bounded relative `extends` and project-reference
-configuration closure. Source and metadata are read as verified commit objects
-and retain the original Git blob ID and SHA-256. Unsafe paths, inventory
-collisions, unsupported modes and resource overflow fail closed; the adapter
-does not silently analyze a subset. Symlinks and gitlinks are not followed.
-`.ts` symlink/gitlink entries are shown in the paged browser source inventory as
-excluded with their mode reason.
+deadline spans Git intake, workspace and project planning, and sequential
+project workers. Expiry during intake or planning returns a typed
+`ANALYSIS_TIMEOUT` failure. If it expires during project analysis, completed
+contexts are retained, while the interrupted and remaining ready contexts are
+marked `not_analyzed` with `ANALYSIS_TIMEOUT`; the partial session returns with
+`analysisComplete` and `contextComplete` false. The bounded response assembly
+needed to return that partial session may finish after the analysis deadline.
+Caller cancellation remains `CANCELLED` and is not converted to a timeout.
+Compiler metadata is limited to 256 files and 4 MiB total, with each metadata
+blob capped at 1 MiB. The metadata set includes `tsconfig*.json`, `package.json`
+and `pnpm-workspace.yaml`, plus the bounded relative `extends` and
+project-reference configuration closure. Source and metadata are read as
+verified commit objects and retain the original Git blob ID and SHA-256. Unsafe
+paths, inventory collisions, unsupported modes and resource overflow fail
+closed; the adapter does not silently analyze a subset. Symlinks and gitlinks
+are not followed. `.ts` symlink/gitlink entries are shown in the paged browser
+source inventory as excluded with their mode reason.
 
 Project configuration is parsed by the pinned TypeScript 6.0.3 compiler against
 a virtual filesystem containing only acquired source, hash-checked metadata and
@@ -1371,7 +1398,7 @@ context separately. Files not assigned by tsconfig enter a labeled default
 context. Project workers run sequentially with one active worker, at most a 2
 GiB V8 heap, and the remaining portion of the 120-second session deadline.
 Context source retention is capped at 128 MiB and combined worker result/IPC
-retention at 384 MiB. The repository profile admits at most 100,000 call sites
+retention at 128 MiB. The repository profile admits at most 50,000 call sites
 per analysis context. These are explicit engineering bounds; the V8 heap limit
 is not a total RSS limit.
 
@@ -1411,12 +1438,12 @@ source-discovery benchmark covers flat, deep and wide trees at 100, 1,000 and
 inventory or a typed failure. Neither benchmark establishes performance on
 arbitrary repositories.
 
-Repository sessions are process-local and ephemeral. The in-memory project
-catalog and source bytes disappear when the CLI exits. PostgreSQL, a durable
-repository/session registry, source caching, hosted source acquisition, `.tsx`,
-JavaScript, general dynamic dispatch, arbitrary TypeScript configuration and AI
-remain outside this MVP. DB-02 still requires its own authorization and evidence
-gate; no PostgreSQL migration or production persistence is implied.
+This semantic-proof path remains process-local and ephemeral: its in-memory
+project catalog and source bytes disappear when the CLI exits. Separately, the
+authorized DB-02 candidate persists pinned repository sessions and verified
+source for local investigation. It does not add hosted acquisition, `.tsx`,
+JavaScript, general dynamic dispatch, arbitrary TypeScript configuration or AI,
+and it does not claim the broader CT-INDEX-001 capability is complete.
 
 The browser workflow task manifest pins the ufo commit and defines five
 automatable tasks for symbol search, CALLS, occurrence/declaration evidence,

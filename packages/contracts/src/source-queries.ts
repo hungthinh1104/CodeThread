@@ -4,6 +4,7 @@ import {
   sourceEvidenceSchema,
   snapshotPathSchema,
   diagnosticSchema,
+  symbolSchema,
 } from '@codethread/code-model';
 import {
   pageFields,
@@ -46,6 +47,23 @@ export const getSourceEvidenceRequestSchema = z.strictObject({
       'Duplicate evidence IDs',
     ),
 });
+
+/** Snapshot-scoped symbol search for persisted repository investigations. */
+export const listSymbolsRequestSchema = z.strictObject({
+  snapshotId: idSchema,
+  query: z.string().max(256).default(''),
+  offset: z.number().int().min(0).max(20000).default(0),
+  limit: z.number().int().min(1).max(50).default(50),
+});
+
+export const listSymbolsResponseSchema = scoped(
+  z.strictObject({
+    meta: queryMetaSchema,
+    items: z.array(symbolSchema).max(50),
+    total: z.number().int().nonnegative(),
+    nextOffset: z.number().int().nonnegative().nullable(),
+  }),
+);
 
 const sourceSuccessSchema = z
   .strictObject({
@@ -113,6 +131,10 @@ export const getDiagnosticsResponseSchema = scoped(
 export type GetSourceEvidenceRequest = z.infer<
   typeof getSourceEvidenceRequestSchema
 >;
+
+export type ListSymbolsRequest = z.infer<typeof listSymbolsRequestSchema>;
+
+export type ListSymbolsResponse = z.infer<typeof listSymbolsResponseSchema>;
 
 export type GetSourceEvidenceResponse = z.infer<
   typeof getSourceEvidenceResponseSchema
