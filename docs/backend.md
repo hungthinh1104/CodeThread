@@ -94,6 +94,24 @@ reports API, database and worker readiness separately. One serial worker runs
 per backend process; the database lock prevents a second worker process from
 silently competing. This is not a team, multi-user or remote service.
 
+At most four graph-neighbor, path or evidence queries may be active per API
+instance. Further requests in those families receive 429
+`QUERY_CAPACITY_EXCEEDED` and can retry; symbol and health requests are not
+counted against this admission limit. This bounds concurrent snapshot hydration,
+but does not guarantee fairness or cancel work when a client disconnects.
+
+The worker holds its advisory lock and executes worker SQL on one dedicated
+PostgreSQL session. If the session closes, the worker stops and the backend
+exits with an error instead of silently continuing on another session. On
+SIGINT/SIGTERM, the backend stops the worker, cancels a statement on the
+lock-holding session through its normal database role, closes that session, and
+gives active HTTP connections a bounded grace period. A failed or timed-out
+shutdown exits nonzero. PostgreSQL can retain a disconnected session until it
+detects the connection loss; a new worker must wait for that lock to disappear.
+On recovery, interrupted pinned jobs are requeued with their original commit;
+interrupted jobs without a persisted pin fail with `REVISION_NOT_PINNED`.
+Explicit cancellation remains `cancelled`, and analysis errors remain failures.
+
 ## Routes
 
 | Request                                            | Behavior                                                                                                              |
@@ -170,7 +188,8 @@ not forward URL passwords.
    archive path and isolated restore URL. It restores the `codethread` schema,
    verifies migration checksums and all published snapshots/source hashes,
    compares representative symbol/graph/evidence outputs and active sessions,
-   reapplies the reviewed NOLOGIN roles, and checks runtime/retention grants.
+   including project failure and timeout reasons, reapplies the reviewed NOLOGIN
+   roles, and checks runtime/retention grants.
 4. Proceed with a local restore only when the verifier reports
    `status=verified`; record its verification digest and role checks. Confirm
    the restored API's health, job state and pinned commit/tree before directing
@@ -196,15 +215,24 @@ worktree).
 The report includes full scan lifecycle and phase timings, snapshot hydration,
 symbol search, graph-query timing, checksums, host/software versions, peak RSS,
 source bytes and before/after PostgreSQL query plans. Actual HTTP symbol,
-neighbor, path and evidence requests report response bytes and P50/P95/P99 at
-concurrency 1/2/4. Cold samples use a new API server and database client pool;
-PostgreSQL shared-buffer and operating-system caches are not flushed. Warm
-samples follow one excluded warm-up on a persistent server/pool. Database time
-is summed tagged-SQL client round-trip latency, including pool wait, not a claim
-about server-only execution time. Defaults are 10 cold samples and 20 warm
-iterations per concurrency; set `CODETHREAD_HTTP_BENCH_COLD_SAMPLES` and
+neighbor, path and evidence requests report response bytes, outcomes and
+P50/P95/P99 at concurrency 1/4/8/16/32. Cold samples use a new API server and
+database client pool; PostgreSQL shared-buffer and operating-system caches are
+not flushed. Warm samples follow one excluded warm-up on a persistent
+server/pool. Database time is summed tagged-SQL client round-trip latency.
+Driver diagnostics separately report transaction pool-lease wait, queued-to-sent
+time and sent-to-completion round trips; none is a server-only execution
+measurement. Each request has a 30-second client timeout, and outcomes and
+sampled peak process RSS are reported. Successful-request latency percentiles
+are separate from immediate overload responses. For the local 900-file synthetic
+stress fixture, the candidate budget is P99 at most 10 seconds for admitted
+requests and sampled process RSS at most 1 GiB; this is a workload-specific
+gate, not a general service-level promise. Defaults are 10 cold samples and 20
+warm iterations per concurrency; set `CODETHREAD_HTTP_BENCH_COLD_SAMPLES` and
 `CODETHREAD_HTTP_BENCH_ITERATIONS` to repeat the run with different sample
-counts.
+counts. Set `CODETHREAD_BENCH_PROFILES` to a comma-separated subset of `small`,
+`medium`, `large` and `pinned-hono` when measuring a named subset; the default
+includes all four.
 
 The 900-file synthetic profile stays below the current repository-scope cap of
 1,000 files. The before path models full snapshot hydration; the after path uses

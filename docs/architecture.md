@@ -645,6 +645,15 @@ content. Failure/error codes and attempt history are operational data; they must
 not mutate an immutable payload. Fencing and publication guards are DB-04
 acceptance scenarios, not implemented concurrency guarantees in Foundation.
 
+In the local PostgreSQL candidate, a dedicated single-connection worker client
+holds the session advisory lock and performs every worker SQL statement on that
+same session. Loss of that session stops the worker and closes the backend;
+worker work cannot silently continue on a replacement pool connection. Graceful
+shutdown stops intake, cancels an in-flight statement on the lock-holding
+backend, closes the worker session and bounds HTTP and process cleanup. Recovery
+requeues interrupted pinned work and marks pre-pin work `REVISION_NOT_PINNED`.
+An explicit cancellation remains distinct from shutdown and analysis failure.
+
 ### Retention and recovery
 
 Default retention is manual, with no automatic deletion. Snapshot readers hold a
@@ -787,6 +796,12 @@ idle-transaction timeouts. The symbol page uses a small fixed set of statements;
 graph/evidence currently pay for full verified hydration. Query bounds are
 safety limits, not measured performance SLAs.
 
+For the local API, graph, path and evidence hydration share a four-request
+admission limit per API instance. Excess work is rejected with HTTP 429
+`QUERY_CAPACITY_EXCEEDED`; the limit does not apply to symbol or health routes.
+The 900-file synthetic benchmark has its own explicit local latency and memory
+budget; it does not establish a bound for arbitrary snapshots.
+
 Query errors are INVALID_REQUEST, INVALID_CURSOR, SNAPSHOT_NOT_FOUND,
 SNAPSHOT_NOT_PUBLISHED, ENTITY_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH,
 RESOURCE_LIMIT and QUERY_TIMEOUT. The local scan API uses typed
@@ -818,11 +833,12 @@ symbol-page and graph-query samples, reports medians, and verifies the old and
 new symbol pages match. It includes before/after
 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for facts/source hydration and direct
 symbol search. Actual HTTP symbol, neighbor, path and evidence routes report
-response bytes and P50/P95/P99 at concurrency 1/2/4. Cold means the first
+response bytes and P50/P95/P99 at concurrency 1/4/8/16/32. Cold means the first
 request on a new API server and database client pool; it does not flush
 PostgreSQL shared buffers or the OS page cache. Warm requests follow one
-excluded endpoint warm-up. Database time sums tagged SQL client round-trip
-latencies, including pool wait. Defaults are 10 cold samples and 20 warm
+excluded endpoint warm-up. PostgreSQL driver diagnostics separately report pool
+lease wait, queued-to-sent time and sent-to-completion client round trips; they
+do not isolate server execution. Defaults are 10 cold samples and 20 warm
 iterations per concurrency. No new index was introduced for this optimization.
 The local workload measurements are separate from `pnpm eval:external`
 correctness evidence and human-study results.

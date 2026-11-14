@@ -70,6 +70,18 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U codethread -d codethread"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      restartdb:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: codethread_restart_test
+          POSTGRES_USER: codethread
+          POSTGRES_PASSWORD: integration-only-password
+        ports:
+          - 5433:5432
+        options: >-
+          --label codethread.test=restart-only --health-cmd "pg_isready -U
+          codethread -d codethread_restart_test" --health-interval 5s
+          --health-timeout 5s --health-retries 20
     env:
       CODETHREAD_MIGRATION_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5432/codethread
       CODETHREAD_TEST_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5432/codethread
@@ -95,6 +107,18 @@ jobs:
           pnpm exec vitest run tests/backend-integration.test.ts
           tests/backend-migration-integrity.test.ts
           tests/backend-http-restart.test.ts tests/backend-queue-limit.test.ts
+          tests/backend-driver-loss.test.ts tests/backend-worker-lock.test.ts
+          tests/backend-worker-connection-loss.test.ts
+          tests/backend-worker-lease.test.ts tests/backend-shutdown.test.ts
+          tests/backend-partial-session.test.ts
+          tests/backend-benchmark-telemetry.test.ts
+          tests/backend-query-admission.test.ts --maxWorkers=1
+      - name: Verify restart of a dedicated PostgreSQL service
+        env:
+          CODETHREAD_RESTART_TEST_CONTAINER: ${{ job.services.restartdb.id }}
+          CODETHREAD_RESTART_TEST_DATABASE_URL: postgres://codethread:integration-only-password@127.0.0.1:5433/codethread_restart_test
+        run:
+          pnpm exec vitest run tests/backend-database-restart.test.ts
           --maxWorkers=1
       - name: Verify schema backup and isolated restore
         env:
