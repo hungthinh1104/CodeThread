@@ -24,7 +24,7 @@ const files = Array.from({ length: 21 }, (_, index) => {
 });
 
 describe('repository resource profile through the semantic pipeline', () => {
-  it('keeps the expanded repository limits finite and validates their boundary', () => {
+  it('keeps repository resource limits within the declared safety bounds', () => {
     const limits = analysisResourceLimits('repository');
     const facts = {
       files: [],
@@ -32,54 +32,43 @@ describe('repository resource profile through the semantic pipeline', () => {
       relations: [],
       evidenceRefs: [],
       diagnostics: [],
-      observations: new Array(100_000),
+      observations: new Array(50_000),
     };
 
     expect(analysisResourceLimits('selected').maxCallSites).toBe(5000);
     expect(
       analysisResourceLimits('selected').maxFullSemanticDiagnosticFiles,
     ).toBe(20);
-    expect(limits.maxCallSites).toBe(100_000);
+    expect(limits.maxCallSites).toBe(50_000);
     expect(limits.maxFullSemanticDiagnosticFiles).toBe(64);
-    expect(PROJECT_LIMITS.maxSessionResultBytes).toBe(384 * 1024 * 1024);
+    expect(PROJECT_LIMITS.maxSessionResultBytes).toBe(128 * 1024 * 1024);
     expect(withinAnalysisCollectionLimits(facts, limits)).toBe(true);
     expect(
       withinAnalysisCollectionLimits(
-        { ...facts, observations: new Array(100_001) },
+        { ...facts, observations: new Array(50_001) },
         limits,
       ),
     ).toBe(false);
   });
 
-  it('preserves exact call occurrences above the previous repository limit', async () => {
+  it('rejects call occurrences above the repository limit', async () => {
     const callCount = 50_001;
     const source = `function target() {}\nexport function caller() {\n${'  target();\n'.repeat(callCount)}}\n`;
     const bytes = new TextEncoder().encode(source);
-    const snapshot = await analyzeManifest({
-      repositoryId,
-      compilerOptions: COMPILER_PROFILE,
-      files: [
-        {
-          path: 'many-calls.ts',
-          bytes,
-          sha256: createHash('sha256').update(bytes).digest('hex'),
-        },
-      ],
-      resourceProfile: 'repository',
-    });
-
-    expect(snapshot.facts.observations).toHaveLength(callCount);
-    expect(snapshot.facts.relations).toHaveLength(callCount);
-    expect(
-      new Set(
-        snapshot.facts.relations.map((relation) => relation.siteEvidenceId),
-      ).size,
-    ).toBe(callCount);
-    expect(
-      snapshot.facts.relations.every(
-        (relation) => relation.resolution.status === 'exact',
-      ),
-    ).toBe(true);
+    await expect(
+      analyzeManifest({
+        repositoryId,
+        compilerOptions: COMPILER_PROFILE,
+        files: [
+          {
+            path: 'many-calls.ts',
+            bytes,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+          },
+        ],
+        resourceProfile: 'repository',
+      }),
+    ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
   }, 60000);
 
   it('admits more than twenty files consistently through verified graph queries', async () => {
