@@ -101,6 +101,16 @@ jobs:
       - run: pnpm backend:migrate
       - run: pnpm backend:roles
       - run: pnpm backend:roles
+      - name: Configure bounded APT retries for PostgreSQL browser tests
+        run: |
+          printf '%s\n' \
+            'Acquire::Retries "1";' \
+            'Acquire::http::Timeout "15";' \
+            'Acquire::https::Timeout "15";' \
+            | sudo tee /etc/apt/apt.conf.d/zzzz-codethread-retries >/dev/null
+      - name: Install Chromium for persistent viewer tests
+        timeout-minutes: 10
+        run: pnpm exec playwright install --with-deps chromium
       # These suites migrate and exercise the same disposable schema, so keep
       # Vitest file workers sequential to prevent cross-suite schema races.
       - run:
@@ -112,7 +122,8 @@ jobs:
           tests/backend-worker-lease.test.ts tests/backend-shutdown.test.ts
           tests/backend-partial-session.test.ts
           tests/backend-benchmark-telemetry.test.ts
-          tests/backend-query-admission.test.ts --maxWorkers=1
+          tests/backend-query-admission.test.ts
+          tests/backend-persistent-browser.test.ts --maxWorkers=1
       - name: Verify restart of a dedicated PostgreSQL service
         env:
           CODETHREAD_RESTART_TEST_CONTAINER: ${{ job.services.restartdb.id }}

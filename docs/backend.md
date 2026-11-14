@@ -255,7 +255,10 @@ restarted during input persistence, publication and activation. POSIX tests send
 real SIGINT/SIGTERM while a scan is pinned or unpinned and while an HTTP body is
 still arriving. The partial-session suite injects a project timeout or resource
 error while using real Git inputs, PostgreSQL publication and API reopening; the
-injected limit is not a maximum-size performance result.
+injected limit is not a maximum-size performance result. The persistent-browser
+test opens a real partial PostgreSQL session in Chromium, checks
+CALLS/REFERENCES and source hashes, then reopens it after moving HEAD, removing
+the fixture repository and restarting the backend.
 
 Persisted test-case/test-step analysis is not exposed by the backend routes.
 Full graph/evidence queries currently hydrate and verify all facts/source bytes;
