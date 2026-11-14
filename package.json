@@ -62,6 +62,6 @@
     "zod": "4.6.7"
   },
   "dependencies": {
-    "postgres": "3.4.7"
+    "postgres": "4.1.1"
   }
 }

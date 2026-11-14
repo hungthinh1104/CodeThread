@@ -1,8 +1,8 @@
+import { connect, assertMigrations } from '../scripts/backend/database.ts';
 import {
-  connect,
-  acquireServiceLock,
-  assertMigrations,
-} from '../scripts/backend/database.ts';
+  acquireWorkerLease,
+  type WorkerLease,
+} from '../scripts/backend/worker-lease.ts';
 import { ScanService } from '../scripts/backend/service.ts';
 
 const url = process.env.CODETHREAD_DATABASE_URL;
@@ -12,28 +12,35 @@ if (!url || !root || !analyzerBuildHash)
   throw new Error('Worker process test configuration is incomplete');
 
 const db = connect(url);
-const service = new ScanService(db, {
-  root,
-  analyzerBuildHash,
-  onPhaseStart: (phase) => process.send?.(`phase-started:${phase}`),
-});
-let unlock: (() => Promise<void>) | undefined;
+let lease: WorkerLease | undefined;
+let service: ScanService | undefined;
 let worker: Promise<void> | undefined;
 let stopping = false;
 
-async function stop() {
+async function stop(exitCode = 0) {
   if (stopping) return;
   stopping = true;
-  service.stop();
+  service?.stop();
+  await lease?.close();
   await worker;
-  await unlock?.();
   await db.end({ timeout: 5 });
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 try {
   await assertMigrations(db);
-  unlock = await acquireServiceLock(db);
+  lease = await acquireWorkerLease(url);
+  service = new ScanService(
+    db,
+    {
+      root,
+      analyzerBuildHash,
+      onPhaseStart: (phase) => process.send?.(`phase-started:${phase}`),
+    },
+    lease,
+  );
+  lease.signal.addEventListener('abort', () => void stop(1), { once: true });
+  if (lease.signal.aborted) throw new Error('Database worker lock was lost');
   await service.recover();
   worker = service.run();
   process.send?.('ready');
@@ -45,6 +52,7 @@ try {
     if (message === 'stop') void stop();
   });
 } catch (error) {
+  await lease?.close().catch(() => {});
   await db.end({ timeout: 5 });
   throw error;
 }

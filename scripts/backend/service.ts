@@ -6,6 +6,7 @@ import { analyzeGitRepository } from '../investigation/repository-session.ts';
 import { allowedRepository, digest } from './config.ts';
 import { requestHash } from './database.ts';
 import type { Database } from './database.ts';
+import type { WorkerLease } from './worker-lease.ts';
 import { persistScan } from './scan-persistence.ts';
 import { persistScanInputs, persistScanPin } from './scan-provenance.ts';
 
@@ -47,14 +48,23 @@ export class ScanService {
   private currentJobId: string | null = null;
   private readonly db: Database;
   private readonly config: BackendConfig;
+  private readonly worker: WorkerLease | undefined;
 
-  constructor(db: Database, config: BackendConfig) {
+  constructor(db: Database, config: BackendConfig, worker?: WorkerLease) {
     this.db = db;
     this.config = config;
+    this.worker = worker;
+    worker?.signal.addEventListener('abort', () => this.stop(), { once: true });
   }
 
   get workerReady(): boolean {
-    return this.workerRunning && !this.stopped;
+    return this.workerRunning && !this.stopped && !!this.worker?.active;
+  }
+
+  private workerDatabase(): Database {
+    if (!this.worker?.active)
+      throw new Error('Active worker lease is required');
+    return this.worker.db;
   }
 
   private async measure<T>(
@@ -234,7 +244,8 @@ export class ScanService {
     return { id, state: 'cancelled' };
   }
   async recover() {
-    await this.db`UPDATE codethread.scan_job SET
+    const db = this.workerDatabase();
+    await db`UPDATE codethread.scan_job SET
       state=CASE WHEN git_commit_oid IS NULL THEN 'failed' ELSE 'queued' END,
       error_code=CASE WHEN git_commit_oid IS NULL THEN 'REVISION_NOT_PINNED' ELSE NULL END,
       error_message=CASE WHEN git_commit_oid IS NULL
@@ -243,7 +254,8 @@ export class ScanService {
       WHERE state='running'`;
   }
   private async processOne(): Promise<boolean> {
-    const job = await this.db.begin(async (tx) => {
+    const workerDb = this.workerDatabase();
+    const job = await workerDb.begin(async (tx) => {
       const db = tx as unknown as Database;
       const row = (
         await db`SELECT j.id,j.repository_id,j.generation,j.revision_selector,
@@ -303,7 +315,7 @@ export class ScanService {
         acquireGitRepository(request, () => {}, {
           onPinned: async (resolved) => {
             await persistScanPin(
-              this.db,
+              workerDb,
               job.id as string,
               job.repository_id as string,
               generation,
@@ -318,7 +330,7 @@ export class ScanService {
                 'Git source inventory completed before revision pinning',
               );
             await persistScanInputs(
-              this.db,
+              workerDb,
               job.id as string,
               job.repository_id as string,
               generation,
@@ -341,7 +353,7 @@ export class ScanService {
       );
       await this.measure('persistence', () =>
         persistScan(
-          this.db,
+          workerDb,
           job.id as string,
           job.repository_id as string,
           acquired,
@@ -357,10 +369,11 @@ export class ScanService {
           : 'ANALYSIS_FAILED';
       const message =
         e instanceof Error ? e.message.slice(0, 256) : 'Scan failed';
-      await this.db`UPDATE codethread.scan_job SET state='failed',
-        error_code=${code},error_message=${message},updated_at=now()
-        WHERE id=${job.id} AND generation=${generation}::bigint
-          AND attempt=${attempt} AND state='running'`;
+      if (!this.stopped && this.worker?.active)
+        await workerDb`UPDATE codethread.scan_job SET state='failed',
+          error_code=${code},error_message=${message},updated_at=now()
+          WHERE id=${job.id} AND generation=${generation}::bigint
+            AND attempt=${attempt} AND state='running'`;
     } finally {
       this.currentController = null;
       this.currentJobId = null;
@@ -368,6 +381,8 @@ export class ScanService {
     return true;
   }
   async run(): Promise<void> {
+    this.workerDatabase();
+    if (this.workerRunning) throw new Error('Scan worker is already running');
     this.workerRunning = true;
     try {
       while (!this.stopped) {
