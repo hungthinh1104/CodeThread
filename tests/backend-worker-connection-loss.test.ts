@@ -1,6 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer, connect as connectSocket, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,17 +43,61 @@ async function fixture(root: string) {
   return { folder, commit };
 }
 
-function startWorker(root: string) {
+function startWorker(root: string, url = databaseUrl!) {
   return spawn(process.execPath, [workerPath], {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      CODETHREAD_DATABASE_URL: databaseUrl!,
+      CODETHREAD_DATABASE_URL: url,
       CODETHREAD_ALLOWED_REPO_ROOT: root,
       CODETHREAD_ANALYZER_BUILD_HASH: buildHash,
     },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
+}
+
+async function createProxy(raw: string) {
+  const target = new URL(raw);
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname))
+    throw new Error('Connection-loss proxy requires loopback PostgreSQL');
+  const sockets = new Set<Socket>();
+  const server = createServer((client) => {
+    const upstream = connectSocket(
+      Number(target.port || '5432'),
+      target.hostname.replace(/^\[|\]$/g, ''),
+    );
+    sockets.add(client);
+    sockets.add(upstream);
+    client.pipe(upstream).pipe(client);
+    const close = () => {
+      client.destroy();
+      upstream.destroy();
+      sockets.delete(client);
+      sockets.delete(upstream);
+    };
+    client.on('error', close).on('close', close);
+    upstream.on('error', close).on('close', close);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No proxy port');
+  const proxyUrl = new URL(raw);
+  proxyUrl.hostname = '127.0.0.1';
+  proxyUrl.port = String(address.port);
+  let closed: Promise<void> | undefined;
+  return {
+    url: proxyUrl.toString(),
+    close() {
+      if (!closed) {
+        for (const socket of sockets) socket.destroy();
+        closed = new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+      return closed;
+    },
+  };
 }
 
 function ready(child: ChildProcess) {
@@ -116,7 +161,12 @@ async function terminal(service: ScanService, id: string) {
 
 type Stage = 'inputs' | 'publication' | 'activation';
 
-async function installPause(db: Database, stage: Stage, jobId: string) {
+async function installPause(
+  db: Database,
+  stage: Stage,
+  jobId: string,
+  seconds: number,
+) {
   const spec = {
     inputs: {
       table: 'scan_input_file',
@@ -139,7 +189,7 @@ async function installPause(db: Database, stage: Stage, jobId: string) {
   }[stage];
   await db.unsafe(`CREATE FUNCTION codethread.test_pause_connection_loss()
     RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN IF ${spec.condition} THEN PERFORM pg_sleep(60); END IF;
+    BEGIN IF ${spec.condition} THEN PERFORM pg_sleep(${seconds}); END IF;
       RETURN NEW; END $$`);
   await db.unsafe(`CREATE TRIGGER test_pause_connection_loss
     BEFORE ${spec.event} ON codethread.${spec.table}
@@ -160,52 +210,95 @@ async function blockedPid(db: Database, query: string) {
 }
 
 describe.skipIf(!databaseUrl)('worker transaction connection loss', () => {
-  for (const stage of ['inputs', 'publication', 'activation'] as const) {
-    it(`rolls back ${stage} and recovers only the pinned revision`, async () => {
-      const root = await mkdtemp(join(tmpdir(), 'ct-worker-loss-')),
-        repo = await fixture(root),
-        db = connect(databaseUrl!),
-        service = new ScanService(db, { root, analyzerBuildHash: buildHash });
-      let child: ChildProcess | undefined;
-      let pause: Awaited<ReturnType<typeof installPause>> | undefined;
-      try {
-        await applyMigrations(db);
-        await repo.commit('previousRevision');
-        const registered = await service.register(repo.folder);
-        let previousJob: string | null = null;
-        if (stage === 'activation') {
-          const initial = await service.accept(
-            registered.id,
-            'HEAD',
-            randomUUID(),
+  for (const mode of ['terminate', 'network'] as const) {
+    for (const stage of ['inputs', 'publication', 'activation'] as const) {
+      it(`${mode} rolls back ${stage} and recovers only the pinned revision`, async () => {
+        const root = await mkdtemp(join(tmpdir(), 'ct-worker-loss-')),
+          repo = await fixture(root),
+          db = connect(databaseUrl!),
+          service = new ScanService(db, { root, analyzerBuildHash: buildHash });
+        let child: ChildProcess | undefined;
+        let pause: Awaited<ReturnType<typeof installPause>> | undefined;
+        let proxy: Awaited<ReturnType<typeof createProxy>> | undefined;
+        let pid: number | undefined;
+        try {
+          await applyMigrations(db);
+          await repo.commit('previousRevision');
+          const registered = await service.register(repo.folder);
+          let previousJob: string | null = null;
+          if (stage === 'activation') {
+            const initial = await service.accept(
+              registered.id,
+              'HEAD',
+              randomUUID(),
+            );
+            child = startWorker(root);
+            await ready(child);
+            expect((await terminal(service, initial.id)).state).toBe(
+              'succeeded',
+            );
+            previousJob = initial.id;
+            await stop(child);
+            child = undefined;
+          }
+          const pinned = await repo.commit('pinnedRevision'),
+            queued = await service.accept(registered.id, 'HEAD', randomUUID());
+          pause = await installPause(
+            db,
+            stage,
+            queued.id,
+            mode === 'network' ? 8 : 60,
           );
-          child = startWorker(root);
+          if (mode === 'network') proxy = await createProxy(databaseUrl!);
+          child = startWorker(root, proxy?.url);
           await ready(child);
-          expect((await terminal(service, initial.id)).state).toBe('succeeded');
-          previousJob = initial.id;
-          await stop(child);
+          pid = await blockedPid(db, pause.query);
+          expect(await service.job(queued.id)).toMatchObject({
+            state: 'running',
+            attempt: 1,
+            git_commit_oid: pinned,
+          });
+          const moved = await repo.commit('movedHead');
+          expect(moved).not.toBe(pinned);
+          if (mode === 'terminate') {
+            const terminated =
+              await db`SELECT pg_terminate_backend(${pid}) AS killed`;
+            expect(terminated[0]?.killed).toBe(true);
+          } else {
+            await proxy!.close();
+          }
+          await waitForExit(child);
+          expect(child.exitCode).toBe(1);
           child = undefined;
-        }
-        const pinned = await repo.commit('pinnedRevision'),
-          queued = await service.accept(registered.id, 'HEAD', randomUUID());
-        pause = await installPause(db, stage, queued.id);
-        child = startWorker(root);
-        await ready(child);
-        const pid = await blockedPid(db, pause.query);
-        expect(await service.job(queued.id)).toMatchObject({
-          state: 'running',
-          attempt: 1,
-          git_commit_oid: pinned,
-        });
-        const moved = await repo.commit('movedHead');
-        expect(moved).not.toBe(pinned);
-        const terminated =
-          await db`SELECT pg_terminate_backend(${pid}) AS killed`;
-        expect(terminated[0]?.killed).toBe(true);
-        await waitForExit(child);
-        expect(child.exitCode).toBe(1);
-        child = undefined;
-        const partial = await db`SELECT
+          if (mode === 'network') {
+            const contender = await db.reserve();
+            try {
+              const attempt =
+                await contender`SELECT pg_try_advisory_lock(1919606126, 2) AS acquired`;
+              if (attempt[0]?.acquired) {
+                const oldLock = await db`SELECT pid FROM pg_locks
+                WHERE pid=${pid} AND locktype='advisory' AND classid=1919606126::oid
+                  AND objid=2::oid AND objsubid=2 AND granted`;
+                expect(oldLock).toHaveLength(0);
+                await contender`SELECT pg_advisory_unlock(1919606126, 2)`;
+              }
+            } finally {
+              await contender.release();
+            }
+          }
+          const disconnectDeadline = Date.now() + 15_000;
+          let gone = false;
+          while (Date.now() < disconnectDeadline) {
+            const rows =
+              await db`SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND pid=${pid}`;
+            if (!rows.length) {
+              gone = true;
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
+          }
+          expect(gone).toBe(true);
+          const partial = await db`SELECT
           (SELECT count(*)::integer FROM codethread.scan_input_file
             WHERE scan_job_id=${queued.id}) AS inputs,
           (SELECT count(*)::integer FROM codethread.scan_project
@@ -214,52 +307,58 @@ describe.skipIf(!databaseUrl)('worker transaction connection loss', () => {
             WHERE repository_id=${registered.id}) AS snapshots,
           (SELECT active_job_id FROM codethread.repository
             WHERE id=${registered.id}) AS active_job_id`;
-        expect(partial[0]).toMatchObject({
-          ...(stage === 'inputs' ? { inputs: 0 } : {}),
-          projects: 0,
-          snapshots: previousJob ? 1 : 0,
-          active_job_id: previousJob,
-        });
-        await db.unsafe(
-          `DROP TRIGGER test_pause_connection_loss ON codethread.${pause.table}`,
-        );
-        await db.unsafe(
-          'DROP FUNCTION codethread.test_pause_connection_loss()',
-        );
-        pause = undefined;
-        child = startWorker(root);
-        await ready(child);
-        expect(await terminal(service, queued.id)).toMatchObject({
-          state: 'succeeded',
-          attempt: 2,
-          git_commit_oid: pinned,
-        });
-        expect((await service.repository(registered.id)).active_job_id).toBe(
-          queued.id,
-        );
-        const projects = await service.projects(queued.id),
-          snapshotId = projects.find(
-            (project) => project.snapshot_id,
-          )?.snapshot_id;
-        expect(snapshotId).toBeTruthy();
-        const snapshot = await loadSnapshot(db, String(snapshotId));
-        const names = snapshot.facts.symbols.map((symbol) => symbol.name);
-        expect(names).toContain('pinnedRevision');
-        expect(names).not.toContain('movedHead');
-      } finally {
-        await stop(child);
-        if (pause) {
+          expect(partial[0]).toMatchObject({
+            ...(stage === 'inputs' ? { inputs: 0 } : {}),
+            projects: 0,
+            snapshots: previousJob ? 1 : 0,
+            active_job_id: previousJob,
+          });
           await db.unsafe(
-            `DROP TRIGGER IF EXISTS test_pause_connection_loss ON codethread.${pause.table}`,
+            `DROP TRIGGER test_pause_connection_loss ON codethread.${pause.table}`,
           );
           await db.unsafe(
-            'DROP FUNCTION IF EXISTS codethread.test_pause_connection_loss()',
+            'DROP FUNCTION codethread.test_pause_connection_loss()',
           );
+          pause = undefined;
+          child = startWorker(root);
+          await ready(child);
+          expect(await terminal(service, queued.id)).toMatchObject({
+            state: 'succeeded',
+            attempt: 2,
+            git_commit_oid: pinned,
+          });
+          expect((await service.repository(registered.id)).active_job_id).toBe(
+            queued.id,
+          );
+          const projects = await service.projects(queued.id),
+            snapshotId = projects.find(
+              (project) => project.snapshot_id,
+            )?.snapshot_id;
+          expect(snapshotId).toBeTruthy();
+          const snapshot = await loadSnapshot(db, String(snapshotId));
+          const names = snapshot.facts.symbols.map((symbol) => symbol.name);
+          expect(names).toContain('pinnedRevision');
+          expect(names).not.toContain('movedHead');
+        } finally {
+          await proxy?.close();
+          await stop(child);
+          if (pause) {
+            if (pid)
+              await db`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+            WHERE datname=current_database() AND pid=${pid} AND application_name='codethread-worker'
+              AND wait_event='PgSleep' AND query LIKE ${pause.query}`;
+            await db.unsafe(
+              `DROP TRIGGER IF EXISTS test_pause_connection_loss ON codethread.${pause.table}`,
+            );
+            await db.unsafe(
+              'DROP FUNCTION IF EXISTS codethread.test_pause_connection_loss()',
+            );
+          }
+          service.stop();
+          await db.end({ timeout: 5 });
+          await rm(root, { recursive: true, force: true });
         }
-        service.stop();
-        await db.end({ timeout: 5 });
-        await rm(root, { recursive: true, force: true });
-      }
-    }, 120_000);
+      }, 120_000);
+    }
   }
 });

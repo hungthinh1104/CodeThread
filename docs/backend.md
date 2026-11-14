@@ -249,6 +249,14 @@ verification. The Windows and Ubuntu jobs run `pnpm check`, semantic and pinned
 external evaluation, browser tests and the dependency audit. Local PostgreSQL
 tests and local benchmarks do not replace hosted CI or independent review.
 
+The driver-loss and worker-loss suites exercise terminated sessions and forced
+TCP closure. The dedicated, explicitly labelled PostgreSQL restart service is
+restarted during input persistence, publication and activation. POSIX tests send
+real SIGINT/SIGTERM while a scan is pinned or unpinned and while an HTTP body is
+still arriving. The partial-session suite injects a project timeout or resource
+error while using real Git inputs, PostgreSQL publication and API reopening; the
+injected limit is not a maximum-size performance result.
+
 Persisted test-case/test-step analysis is not exposed by the backend routes.
 Full graph/evidence queries currently hydrate and verify all facts/source bytes;
 only symbol search has a direct bounded SQL path. Authentication remains a

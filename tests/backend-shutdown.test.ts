@@ -154,6 +154,8 @@ describe.skipIf(!databaseUrl || process.platform === 'win32')(
   () => {
     for (const scenario of [
       { stage: 'unpinned', signal: 'SIGINT' },
+      { stage: 'unpinned', signal: 'SIGTERM' },
+      { stage: 'pinned', signal: 'SIGINT' },
       { stage: 'pinned', signal: 'SIGTERM' },
     ] as const) {
       it(`${scenario.signal} preserves ${scenario.stage} recovery semantics`, async () => {
