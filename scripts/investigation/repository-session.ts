@@ -11,6 +11,7 @@ import type {
   RepositoryProject,
 } from '@codethread/symbol-indexer';
 import { acquireGitRepository } from '../git-source/repository-intake.ts';
+import type { AcquiredGitRepository } from '../git-source/repository-intake.ts';
 import type { GitSourceRequest } from '../git-source/types.ts';
 import { repositoryWorkspaces } from './repository-workspaces.ts';
 import { createSessionBudget } from './session-budget.ts';
@@ -25,6 +26,7 @@ export interface RepositoryProjectState {
 /** Sequential project execution owns one overall deadline and bounded retained results. */
 export async function analyzeGitRepository(
   request: Omit<GitSourceRequest, 'selectedPaths'>,
+  pinnedAcquisition?: AcquiredGitRepository,
 ) {
   const limits = analysisResourceLimits('repository'),
     budget = createSessionBudget(request.signal, limits.maxDeadlineMs);
@@ -38,10 +40,21 @@ export async function analyzeGitRepository(
   }, 100);
   try {
     budget.throwIfStopped();
-    const acquired = await acquireGitRepository(
-      { ...request, signal: budget.signal },
-      budget.throwIfStopped,
-    );
+    const acquired =
+      pinnedAcquisition ??
+      (await acquireGitRepository(
+        { ...request, signal: budget.signal },
+        budget.throwIfStopped,
+      ));
+    if (
+      acquired.repositoryId !== request.repositoryId ||
+      (pinnedAcquisition !== undefined &&
+        acquired.commitId !== request.revision)
+    )
+      throw new AnalysisError(
+        'INVALID_MANIFEST',
+        'Pinned repository acquisition does not match the analysis request.',
+      );
     budget.throwIfStopped();
     const workspace = repositoryWorkspaces(
       acquired.metadata,
@@ -280,6 +293,14 @@ export async function analyzeGitRepository(
   }
 }
 
-export type RepositoryInvestigationSession = Awaited<
+type AnalyzedRepositorySession = Awaited<
   ReturnType<typeof analyzeGitRepository>
 >;
+export type RepositoryInvestigationSession = Omit<
+  AnalyzedRepositorySession,
+  'inventory'
+> & {
+  inventory: Omit<AnalyzedRepositorySession['inventory'], 'complete'> & {
+    complete: boolean;
+  };
+};
