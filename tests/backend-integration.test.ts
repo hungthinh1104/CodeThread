@@ -839,7 +839,19 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       expect(neighbors.status).toBe(200);
       expect(paths.status).toBe(200);
       expect(evidence.status).toBe(200);
-      expect((await evidence.json()).items[0].status).toBe('available');
+      const evidenceBeforeRemoval = await evidence.json();
+      expect(evidenceBeforeRemoval.items[0]).toMatchObject({
+        status: 'available',
+        filePath: 'index.ts',
+        text: expect.stringContaining('function getValue'),
+      });
+      await rm(fixture.folder, { recursive: true, force: true });
+      const evidenceAfterRemoval = await postJson(queryPath + '/evidence', {
+        snapshotId: project.snapshot_id,
+        evidenceIds: [target.declarationEvidenceId],
+      });
+      expect(evidenceAfterRemoval.status).toBe(200);
+      expect(await evidenceAfterRemoval.json()).toEqual(evidenceBeforeRemoval);
 
       await expect(
         runtimeDb.unsafe('CREATE TABLE codethread.runtime_escalation(id int)'),
