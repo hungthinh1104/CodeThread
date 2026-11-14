@@ -864,10 +864,11 @@ raw plans/results outside canonical docs.
   tables, run DDL, delete data or invoke retention. Real PostgreSQL integration
   checks the grants; hosted PostgreSQL CI must confirm the same on the final
   SHA.
-- The backend uses reviewed SQL migrations, not Drizzle. Continue review of
-  composite foreign-key null handling, evidence ownership, cyclic DDL order and
-  publication guards. Raw migration SQL and passing local tests do not replace
-  independent review.
+- The backend uses
+  [reviewed SQL migrations](decisions/0008-reviewed-sql-migrations-for-postgresql.md),
+  not Drizzle. Continue review of composite foreign-key null handling, evidence
+  ownership, cyclic DDL order and publication guards. Raw migration SQL and
+  passing local tests do not replace independent review.
 - Configuration/source cache formats are versioned and immutable. A new
   analyzer, compiler, capability or identity algorithm creates a new analysis
   identity. Local API projection changes need contract/version compatibility

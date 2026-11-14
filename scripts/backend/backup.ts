@@ -2,29 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { access, link, mkdir, rm, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
+import { localPostgresConnection } from './local-postgres-url.ts';
 import { runPgDump } from './postgres-tools.ts';
-
-function localConnection(raw: string) {
-  const url = new URL(raw);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol))
-    throw new Error('A PostgreSQL connection URL is required');
-  if (!['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase()))
-    throw new Error('Backup is restricted to a loopback PostgreSQL database');
-  const database = decodeURIComponent(url.pathname.slice(1));
-  if (!database) throw new Error('The PostgreSQL database name is missing');
-  return {
-    database,
-    env: {
-      ...process.env,
-      PGHOST: url.hostname,
-      PGPORT: url.port || '5432',
-      PGUSER: decodeURIComponent(url.username),
-      PGPASSWORD: decodeURIComponent(url.password),
-      PGDATABASE: database,
-      PGSSLMODE: url.searchParams.get('sslmode') ?? 'disable',
-    },
-  };
-}
 
 async function checksum(path: string): Promise<string> {
   const hash = createHash('sha256');
@@ -38,7 +17,7 @@ if (!url || !output)
   throw new Error(
     'CODETHREAD_BACKUP_DATABASE_URL and CODETHREAD_BACKUP_FILE are required',
   );
-const connection = localConnection(url),
+const connection = localPostgresConnection(url, 'Backup source'),
   target = resolve(output),
   temporary = `${target}.tmp-${randomUUID()}`;
 try {

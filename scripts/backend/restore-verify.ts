@@ -2,31 +2,11 @@ import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
 import { BackendQueryService } from './query-service.ts';
 import { connect, assertMigrations } from './database.ts';
+import { localPostgresConnection } from './local-postgres-url.ts';
 import { runPgRestore } from './postgres-tools.ts';
 import { loadRepositorySession } from './session-persistence.ts';
 import { loadSnapshot } from './snapshot-persistence.ts';
 import { createInvestigation } from '@codethread/trace-engine';
-
-function restoreEnvironment(raw: string) {
-  const url = new URL(raw);
-  if (!['postgres:', 'postgresql:'].includes(url.protocol))
-    throw new Error('A PostgreSQL restore URL is required');
-  if (!['localhost', '127.0.0.1', '::1'].includes(url.hostname.toLowerCase()))
-    throw new Error('Restore target must be an isolated loopback database');
-  const database = decodeURIComponent(url.pathname.slice(1));
-  if (!database) throw new Error('Restore target database name is missing');
-  return {
-    env: {
-      ...process.env,
-      PGHOST: url.hostname,
-      PGPORT: url.port || '5432',
-      PGUSER: decodeURIComponent(url.username),
-      PGPASSWORD: decodeURIComponent(url.password),
-      PGDATABASE: database,
-      PGSSLMODE: url.searchParams.get('sslmode') ?? 'disable',
-    },
-  };
-}
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -220,9 +200,10 @@ if (!archive || !sourceUrl || !targetUrl)
     'CODETHREAD_BACKUP_FILE, CODETHREAD_BACKUP_DATABASE_URL and CODETHREAD_RESTORE_TEST_DATABASE_URL are required',
   );
 await access(archive);
-const target = restoreEnvironment(targetUrl),
-  sourceDb = connect(sourceUrl),
-  db = connect(targetUrl);
+const source = localPostgresConnection(sourceUrl, 'Backup source'),
+  target = localPostgresConnection(targetUrl, 'Restore target'),
+  sourceDb = connect(source.url),
+  db = connect(target.url);
 try {
   const existing = await db`SELECT to_regnamespace('codethread') AS schema`;
   if (existing[0]?.schema)
