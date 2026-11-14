@@ -24,6 +24,8 @@ export {
   getSourceEvidenceRequestSchema,
   getSourceEvidenceResponseSchema,
   getDiagnosticsResponseSchema,
+  listSymbolsRequestSchema,
+  listSymbolsResponseSchema,
 } from './source-queries.js';
 export {
   graphNeighborsRequestSchema,
@@ -46,6 +48,8 @@ export type {
   GetSourceEvidenceResponse,
   GetDiagnosticsRequest,
   GetDiagnosticsResponse,
+  ListSymbolsRequest,
+  ListSymbolsResponse,
 } from './source-queries.js';
 export type {
   GraphNeighborsRequest,
