@@ -13,6 +13,9 @@ import type { PersistentViewerManager } from './viewer-adapter.ts';
 
 const MAX_BODY = 64 * 1024;
 const MAX_RESPONSE = 1024 * 1024;
+const MAX_CONNECTIONS = 64;
+const REQUEST_TIMEOUT_MS = 30_000;
+const HEADERS_TIMEOUT_MS = 10_000;
 const queryInventory = z.strictObject({
   offset: z.number().int().min(0).max(1000).default(0),
 });
@@ -24,7 +27,7 @@ export function makeApi(
   viewers?: PersistentViewerManager,
 ) {
   const queries = new BackendQueryService(db, service);
-  const server = createServer(async (req, res) => {
+  const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader(
@@ -151,7 +154,18 @@ export function makeApi(
         });
       }
     }
-  });
+  };
+  const server = createServer(
+    {
+      requestTimeout: REQUEST_TIMEOUT_MS,
+      headersTimeout: HEADERS_TIMEOUT_MS,
+      connectionsCheckingInterval: 1_000,
+      keepAliveTimeout: 5_000,
+    },
+    requestHandler,
+  );
+  server.maxConnections = MAX_CONNECTIONS;
+  server.maxRequestsPerSocket = 100;
   return server;
 }
 async function readJson(req: IncomingMessage): Promise<unknown> {

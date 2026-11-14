@@ -1898,7 +1898,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           'HEAD',${digest('legacy-config')},'legacy-analyzer',
           ${digest('legacy-build')},'queued')`;
 
-      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5]);
+      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5, 6]);
       await assertMigrations(legacy);
       const retained = await legacy`SELECT id,state FROM codethread.scan_job
         WHERE id=${jobId}`;

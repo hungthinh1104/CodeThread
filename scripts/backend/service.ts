@@ -31,6 +31,7 @@ export type BackendConfig = {
   ) => void;
 };
 const analyzerVersion = 'ct-index-001b/typescript-6.0.3';
+const MAX_OUTSTANDING_SCANS = 32;
 const configurationHash = digest(
   JSON.stringify({
     compiler: COMPILER_PROFILE,
@@ -139,6 +140,20 @@ export class ScanService {
           reused: true,
         };
       }
+      // Admission is global, so serialize submissions from different repositories.
+      await db`SELECT pg_advisory_xact_lock(1919606128, 1)`;
+      const outstanding = Number(
+        (
+          await db`SELECT count(*)::integer AS total FROM codethread.scan_job
+            WHERE state IN ('queued','running')`
+        )[0]?.total ?? 0,
+      );
+      if (outstanding >= MAX_OUTSTANDING_SCANS)
+        throw new ServiceError(
+          429,
+          'SCAN_QUEUE_FULL',
+          'The scan queue is full; retry after a scan completes or is cancelled.',
+        );
       const jobId = randomUUID(),
         generation = BigInt(repo.desired_generation) + 1n;
       await db`UPDATE codethread.repository SET desired_generation=${generation.toString()},

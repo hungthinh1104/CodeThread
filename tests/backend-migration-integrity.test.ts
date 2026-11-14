@@ -29,7 +29,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL migration integrity', () => {
       )`);
       const migrations = await readMigrations();
       expect(migrations.map((migration) => migration.version)).toEqual([
-        1, 2, 3, 4, 5,
+        1, 2, 3, 4, 5, 6,
       ]);
       for (const migration of migrations.slice(0, 4))
         await db.begin(async (transaction) => {
@@ -73,7 +73,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL migration integrity', () => {
       await db.unsafe(`DROP TRIGGER test_fail_v5_record
         ON codethread.schema_migration`);
       await db.unsafe(`DROP FUNCTION codethread.test_fail_v5_record()`);
-      await expect(applyMigrations(db)).resolves.toEqual([1, 2, 3, 4, 5]);
+      await expect(applyMigrations(db)).resolves.toEqual([1, 2, 3, 4, 5, 6]);
       await expect(assertMigrations(db)).resolves.toBeUndefined();
       await db`UPDATE codethread.schema_migration
         SET checksum=${'0'.repeat(64)} WHERE version=3`;

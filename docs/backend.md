@@ -46,6 +46,9 @@ Current migrations provide:
   fencing.
 - `005_symbol_payload.sql`: immutable complete symbol projections for bounded
   search, backfilled from and checked against stored facts.
+- `006_active_scan_queue.sql`: a partial index for bounded queue admission. At
+  most 32 scans may be queued or running globally; excess requests receive
+  `429 SCAN_QUEUE_FULL` without advancing repository generation.
 
 Use a dedicated migration owner for DDL. `pnpm backend:roles` applies the
 idempotent `db/roles.sql` grants for `codethread_runtime` and
@@ -81,29 +84,33 @@ pnpm backend:start
 
 The service binds `127.0.0.1:8765`, requires a bearer token, validates Host and
 Origin, requires JSON for POST bodies, caps request bodies at 64 KiB and
-responses at 1 MiB, and applies database statement/lock/idle-transaction
-timeouts. Health reports API, database and worker readiness separately. One
-serial worker runs per backend process; the database lock prevents a second
-worker process from silently competing. This is not a team, multi-user or remote
-service.
+responses at 1 MiB, accepts at most 64 concurrent connections, limits headers to
+10 seconds and complete requests to 30 seconds, and closes keep-alive sockets
+after 5 seconds or 100 requests. Database pools and statement/lock/idle-
+transaction timeouts are bounded. At most 32 scan jobs may be queued or running
+globally; excess new submissions return 429 `SCAN_QUEUE_FULL` without advancing
+generation, while idempotent retries still reuse their original job. Health
+reports API, database and worker readiness separately. One serial worker runs
+per backend process; the database lock prevents a second worker process from
+silently competing. This is not a team, multi-user or remote service.
 
 ## Routes
 
-| Request                                            | Behavior                                                                               |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | API, database and worker readiness.                                                    |
-| `POST /v1/repositories`                            | Register an existing Git repository beneath the configured root.                       |
-| `GET /v1/repositories` and `/v1/repositories/:id`  | List or inspect registered repositories and active scan.                               |
-| `POST /v1/repositories/:id/scans`                  | Queue a pinned revision with repository-scoped idempotency.                            |
-| `GET /v1/scans/:id`                                | Job state, attempt, pinned commit/tree and activation result.                          |
-| `POST /v1/scans/:id/cancel`                        | Cancel queued or running work.                                                         |
-| `GET /v1/scans/:id/projects`                       | Project readiness, diagnostics and snapshot IDs.                                       |
-| `GET /v1/scans/:id/files?offset=0`                 | Bounded page of committed source provenance.                                           |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped, deterministic 50-row symbol search with `query` and bounded `offset`. |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated, bounded graph-neighbor projection.                                          |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated, bounded exact-symbol path projection.                                       |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                   |
-| `POST /v1/scans/:id/viewer`                        | Open the existing local viewer from a persisted investigation.                         |
+| Request                                            | Behavior                                                                                                              |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | API, database and worker readiness.                                                                                   |
+| `POST /v1/repositories`                            | Register an existing Git repository beneath the configured root.                                                      |
+| `GET /v1/repositories` and `/v1/repositories/:id`  | List or inspect registered repositories and active scan.                                                              |
+| `POST /v1/repositories/:id/scans`                  | Queue a pinned revision with repository-scoped idempotency; 429 `SCAN_QUEUE_FULL` applies at the global 32-job bound. |
+| `GET /v1/scans/:id`                                | Job state, attempt, pinned commit/tree and activation result.                                                         |
+| `POST /v1/scans/:id/cancel`                        | Cancel queued or running work.                                                                                        |
+| `GET /v1/scans/:id/projects`                       | Project readiness, diagnostics and snapshot IDs.                                                                      |
+| `GET /v1/scans/:id/files?offset=0`                 | Bounded page of committed source provenance.                                                                          |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped, deterministic 50-row symbol search with `query` and bounded `offset`.                                |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated, bounded graph-neighbor projection.                                                                         |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated, bounded exact-symbol path projection.                                                                      |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                  |
+| `POST /v1/scans/:id/viewer`                        | Open the existing local viewer from a persisted investigation.                                                        |
 
 Graph and evidence bodies use the corresponding `@codethread/contracts` request
 and returned `snapshotId`. The query application service checks that the
