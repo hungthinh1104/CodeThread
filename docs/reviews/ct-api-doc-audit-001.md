@@ -151,6 +151,17 @@ without a SHA-256 and byte length. Producer file rows carry both values for all
 included committed sources; response-schema negative controls cover both
 statuses and prevent missing source provenance from passing validation.
 
+Key implementation and regression locations: `scripts/backend/http.ts:80` (route
+validation, query allowlists and bodyless POSTs), `scripts/backend/http.ts:325`
+(response-size fallback), `scripts/backend/http-contracts.ts:149` (backend
+response-schema map), `scripts/viewer-api.ts:95` (catalog snapshot identity),
+`scripts/viewer-api.ts:145` (included/excluded file provenance),
+`scripts/viewer-projection.ts:62` (page consistency) and `:73` (symbol snapshot
+identity), `scripts/viewer-page-contract.ts:9` (shared pagination invariant),
+`tests/api-documentation.test.ts:221` (route/schema/test/doc parity),
+`tests/backend-api-contract.test.ts:414` (real HTTP response-cap assertion), and
+`tests/viewer-pagination-contract.test.ts:48` (HTTP page-boundary tests).
+
 | Finding                                                                                                                | Root cause                                                                                              | Resolution and regression evidence                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Catalog and symbol-page response schemas did not compare nested symbol snapshot IDs with their enclosing snapshot IDs. | Field schemas validated each UUID independently, so cross-snapshot rows could pass response validation. | `scripts/viewer-api.ts` and `scripts/viewer-projection.ts` now enforce equality; `tests/viewer-api-response-contract.test.ts` rejects forged catalog and symbol pages.                                                           |
@@ -170,6 +181,10 @@ first broad run exposed an unsupported TypeScript parameter property when Node
 started the backend child process; that syntax was replaced and the failing
 process-restart, partial-session and persistent-browser tests passed
 individually.
+
+The first table below is historical evidence from earlier candidate trees. The
+implementation commit evidence in the following table supersedes it for this API
+audit follow-up.
 
 | Command / suite                                                                                                                                                                               | Observed result                                                         | Evidence boundary                                                                                                                                                                                                              |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -198,17 +213,36 @@ audit and hosted CI are tracked separately below.
 | First ordered backend attempt on the previously used task database                                                                                                   | 2 tests failed; corrected targeted rerun passed.                       | `backend-persistent-browser` and `backend-queue-limit` sent `{}` to bodyless routes. The server correctly returned 400; callers were fixed to omit body bytes. Fresh-database ordered suite then passed with only the five platform skips above.             |
 | First response-cap negative-control design                                                                                                                           | Rejected by PostgreSQL immutability trigger before the HTTP assertion. | The attempt to rewrite a published project's diagnostics failed with `scan project provenance is immutable`. The test now uses a separate disposable database and an insert-valid running-job/project row; it never disables guards or edits published data. |
 
+### Verification on the API implementation commit
+
+Implementation commit: `5b7f576ceb2a9102db583fd6610fbfc832e91ca9`. The following
+checks were run against the complete committed implementation on this SHA. The
+final handoff records any subsequent report-only commit and its exact
+current-head CI state; no hosted result from an earlier SHA is reused.
+
+| Command / suite                                         | Observed result                                                                                            | Evidence boundary                                                                                                                                                                       |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm check`                                            | Exit 0; 49 files passed, 18 skipped; 550 tests passed, 88 skipped.                                         | Clean committed worktree. Format, lint, requirements, architecture, build, study validation and typecheck passed. Database suites skip here because this command had no PostgreSQL URL. |
+| `pnpm eval:semantic`                                    | Exit 0; 13/13 eligible exact, 0 incorrect, 17/30 supported.                                                | Gold labels are Codex-authored and not independently reviewed; support coverage is 56.7%, exact coverage 43.3%.                                                                         |
+| `pnpm eval:external`                                    | Exit 0; all emitted evaluation gates passed.                                                               | External labels are not independently reviewed; some contexts are incomplete. Output is static evidence and not a runtime or repository-wide accuracy claim.                            |
+| `pnpm test:browser`                                     | Exit 0; pinned Git discovery and repository navigation passed; ufo 5/5 and sourcemaps 6/6 tasks completed. | Workflow labels are not independently reviewed and do not establish comprehension improvement.                                                                                          |
+| `pnpm security:check`                                   | Exit 0; no known vulnerabilities found.                                                                    | Native pinned pnpm advisory audit.                                                                                                                                                      |
+| Focused API/doc suite (`--maxWorkers=1`)                | 6 files, 87 tests passed.                                                                                  | Real HTTP contract matrix; backend routes use disposable PostgreSQL 17. Includes response schemas, negative controls, pagination, response cap and route/docs parity.                   |
+| Ordered backend PostgreSQL suite (`--maxWorkers=1`)     | 16 files passed, 1 skipped; 80 passed, 5 skipped.                                                          | Fresh disposable PostgreSQL 17 container. Five Windows skips are POSIX signal-shutdown cases; no other listed integration suite skipped.                                                |
+| `tests/backend-database-restart.test.ts --maxWorkers=1` | 1 file, 3 tests passed.                                                                                    | Dedicated disposable PostgreSQL 17 restart-only container; input, publication and activation rollback/recovery.                                                                         |
+| Hosted Ubuntu, Windows and PostgreSQL CI                | NOT VERIFIED for this implementation SHA at report time.                                                   | The old run #175 validates only `2237e699...`; the current implementation must be pushed and checked on the actual PR head.                                                             |
+
 ## Acceptance matrix
 
-| Gate                                                                                               | Result                                                           | Evidence / limitation                                                                                                                                                                                                                          |
-| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every implemented backend/viewer/static route is inventoried and documented.                       | PASS                                                             | 14 backend routes, eight viewer APIs and seven static assets; route census checks docs and source.                                                                                                                                             |
-| Every dynamic API has a positive and applicable negative real HTTP contract case.                  | PASS on local candidate; final-SHA rerun pending.                | 14 backend routes use disposable PostgreSQL; all eight viewer routes run in repository and selected modes. Static asset tests fetch exact bytes and check Host rejection per asset.                                                            |
-| Success projections are validated by strict response schemas before serialization.                 | PASS on local candidate; final-SHA rerun pending.                | Route-keyed backend schemas, viewer schemas, schema-map parity and malformed-response controls.                                                                                                                                                |
-| Retry/idempotency, concurrency, cancellation, provenance, persistence and recovery remain correct. | PASS on local PostgreSQL candidate; final-SHA rerun pending.     | Contract matrix, ordered backend integration suite and dedicated restart stages passed. Tests use disposable PostgreSQL 17 only.                                                                                                               |
-| Zero unresolved P0/P1 defect in the inspected API contract scope.                                  | PASS for the reviewed code scope; independent re-review pending. | Independent review reproduced P2 contract/test gaps (excluded-file provenance, page count/continuation, follow-choice invariants, selected-mode stale-case false positive, query allowlist); fixes and negative controls are in the candidate. |
-| Required local checks and hosted Ubuntu, Windows and PostgreSQL CI pass on one exact final SHA.    | NOT VERIFIED yet.                                                | Final commit, clean-worktree checks and exact-head hosted runs remain necessary. Earlier Actions runs are historical and do not validate this candidate.                                                                                       |
-| Human review/approval and merge authorization.                                                     | NOT VERIFIED; merge remains NO-GO.                               | PR #36 stays draft and unmerged. This implementation task does not request merge or bypass protection.                                                                                                                                         |
+| Gate                                                                                               | Result                                  | Evidence / limitation                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every implemented backend/viewer/static route is inventoried and documented.                       | PASS                                    | 14 backend routes, eight viewer APIs and seven static assets; route census checks docs and source.                                                                                     |
+| Every dynamic API has a positive and applicable negative real HTTP contract case.                  | PASS on implementation commit.          | 14 backend routes use disposable PostgreSQL; all eight viewer routes run in repository and selected modes. Static asset tests fetch exact bytes and check Host rejection per asset.    |
+| Success projections are validated by strict response schemas before serialization.                 | PASS on implementation commit.          | Route-keyed backend schemas, viewer schemas, schema-map parity, page/snapshot/source identity and malformed-response controls.                                                         |
+| Retry/idempotency, concurrency, cancellation, provenance, persistence and recovery remain correct. | PASS on implementation commit.          | Focused contract matrix, ordered backend PostgreSQL suite and dedicated restart suite passed using disposable PostgreSQL 17 only.                                                      |
+| Zero unresolved P0/P1 defect in the inspected API contract scope.                                  | PASS in reviewed scope.                 | Confirmed contract gaps were corrected and retested; final spec and standards re-reviews found no remaining contract gap or hard standards violation. Human approval remains separate. |
+| Required local checks and hosted Ubuntu, Windows and PostgreSQL CI pass on one exact final SHA.    | NOT VERIFIED for a pushed current head. | Local required commands pass on `5b7f576ceb2a9102db583fd6610fbfc832e91ca9`; the report-only update and current-head hosted run are recorded in the final PR handoff.                   |
+| Human review/approval and merge authorization.                                                     | NOT VERIFIED; merge remains NO-GO.      | PR #36 stays draft and unmerged. This implementation task does not request merge or bypass protection.                                                                                 |
 
 ## Residual risks and merge recommendation
 
@@ -219,10 +253,13 @@ audit and hosted CI are tracked separately below.
 - There is no stable external API compatibility promise or OpenAPI document.
 - Semantic labels and external evaluation remain outside this API contract gate;
   no human study or production behavior is claimed.
-- Final-SHA local checks, hosted Ubuntu/Windows/PostgreSQL CI and human approval
-  are still merge prerequisites.
+- Local verification is recorded for implementation SHA
+  `5b7f576ceb2a9102db583fd6610fbfc832e91ca9`; the final handoff records any
+  report-only commit and the exact current-head hosted CI state.
+- Human review/approval remains a separate merge prerequisite; the user has not
+  authorized a merge or a branch-protection bypass.
 
-**Decision: BLOCKED / NO-GO for merge.** The current route/schema/matrix work
-passes its focused local and real-PostgreSQL checks, but final-SHA verification
-and hosted CI have not yet been run for the completed change. Keep PR #36 draft
-and unmerged until those gates and independent human review are present.
+**Decision: BLOCKED / NO-GO for merge.** The implementation commit passed the
+local and real-PostgreSQL gates above. At this report snapshot, hosted CI has
+not yet run on the current PR head and no human approval is present. Keep PR #36
+draft and unmerged until current-head CI and human review are confirmed.
