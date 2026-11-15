@@ -118,25 +118,15 @@ export function makeApi(
           uuid.parse(p[2]),
           queryInventory.parse({ offset }).offset,
         );
-      } else if (
-        p.length === 6 &&
-        p[0] === 'v1' &&
-        p[1] === 'scans' &&
-        p[3] === 'projects' &&
-        req.method === 'GET' &&
-        p[5] === 'symbols'
-      ) {
+      } else if (is('GET', 'v1', 'scans', '*', 'projects', '*', 'symbols')) {
         result = await queries.symbols(uuid.parse(p[2]), p[4]!, {
           query: url.searchParams.get('query') ?? '',
           offset: Number(url.searchParams.get('offset') ?? 0),
         });
       } else if (
-        p.length === 6 &&
-        p[0] === 'v1' &&
-        p[1] === 'scans' &&
-        p[3] === 'projects' &&
-        req.method === 'POST' &&
-        ['neighbors', 'paths', 'evidence'].includes(p[5]!)
+        is('POST', 'v1', 'scans', '*', 'projects', '*', 'neighbors') ||
+        is('POST', 'v1', 'scans', '*', 'projects', '*', 'paths') ||
+        is('POST', 'v1', 'scans', '*', 'projects', '*', 'evidence')
       ) {
         result = await queries.project(
           uuid.parse(p[2]),

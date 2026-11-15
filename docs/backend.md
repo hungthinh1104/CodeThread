@@ -155,35 +155,50 @@ key returns the original terminal job.
 
 ## Routes
 
-| Request                                            | Behavior                                                                                                              |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | API, database and worker readiness.                                                                                   |
-| `POST /v1/repositories`                            | Register an existing Git repository beneath the configured root.                                                      |
-| `GET /v1/repositories` and `/v1/repositories/:id`  | List or inspect registered repositories and active scan.                                                              |
-| `POST /v1/repositories/:id/scans`                  | Queue a pinned revision with repository-scoped idempotency; 429 `SCAN_QUEUE_FULL` applies at the global 32-job bound. |
-| `GET /v1/scans/:id`                                | Job state, attempt, pinned commit/tree and activation result.                                                         |
-| `POST /v1/scans/:id/cancel`                        | Cancel queued or running work.                                                                                        |
-| `GET /v1/scans/:id/projects`                       | Project readiness, diagnostics and snapshot IDs.                                                                      |
-| `GET /v1/scans/:id/files?offset=0`                 | Bounded page of committed source and metadata provenance.                                                             |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped, deterministic 50-row symbol search with `query` and bounded `offset`.                                |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated, bounded graph-neighbor projection.                                                                         |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated, bounded exact-symbol path projection.                                                                      |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                  |
-| `POST /v1/scans/:id/viewer`                        | Open the existing local viewer from a persisted investigation.                                                        |
+| Request                                            | Behavior                                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | No body; returns API/database/worker readiness and status 503 when not ready.                                                                     |
+| `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                 |
+| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                             |
+| `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                  |
+| `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                         |
+| `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                    |
+| `POST /v1/scans/:id/cancel`                        | Cancels queued/running work; missing or terminal jobs return 409.                                                                                 |
+| `POST /v1/scans/:id/viewer`                        | Opens a viewer from persisted state; up to 4 active for 30 minutes; full capacity returns 429 `VIEWER_CAPACITY`, unavailable adapter returns 503. |
+| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows and diagnostics.                                                                                            |
+| `GET /v1/scans/:id/files?offset=0`                 | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                   |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                              |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated bounded graph-neighbor projection.                                                                                                      |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated bounded exact-symbol path projection.                                                                                                   |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                                              |
 
-Graph and evidence bodies use the corresponding `@codethread/contracts` request
-and returned `snapshotId`. The query application service checks that the
-snapshot belongs to the selected completed scan and validates the result against
-the original request before transport. The symbol route streams at most the
-bounded snapshot's symbol names for nonempty searches, applies JavaScript's
-Unicode matching rules, and reads full payloads only for the selected page. It
-returns coverage and truncation metadata. Other graph/evidence requests still
-hydrate and validate the complete snapshot and its retained bytes.
+Every route requires the bearer token and exact loopback `Host`; if `Origin` is
+present it must match the API origin. POST routes that consume JSON require
+`application/json`. Requests are capped at 64 KiB and responses at 1 MiB. Shared
+errors use `{error:{code,message}}`; status classes include 400 invalid input,
+401 missing/invalid token, 403 Host/Origin rejection, 404 missing route/entity,
+409 state/idempotency/snapshot conflicts, 413 size limits, 415 media type, 429
+queue/query admission, 500 sanitized internal failure and 503 unavailable
+service. Unknown paths or method/path combinations currently return 404.
+
+The repository/scan control and list routes return JSON projections from
+application results or selected PostgreSQL rows; they do not have dedicated Zod
+response schemas. Symbol, neighbor, path and evidence query results are
+validated against shared request-aware contracts before transport. The health
+route returns its readiness object directly, including on HTTP 503. Graph and
+evidence bodies use the corresponding `@codethread/contracts` request and
+returned `snapshotId`. The query application service checks that the snapshot
+belongs to the selected completed scan and validates the result against the
+original request before transport. The symbol route streams at most the bounded
+snapshot's symbol names for nonempty searches, applies JavaScript's Unicode
+matching rules, and reads full payloads only for the selected page. It returns
+coverage and truncation metadata. Other graph/evidence requests still hydrate
+and validate the complete snapshot and its retained bytes.
 
 The viewer adapter reconstructs the existing viewer from persisted data. It does
 not send the backend bearer token to browser JavaScript. The viewer gets a
-separate short-lived loopback token in its URL fragment; the server limits
-active viewers and closes expired sessions.
+separate short-lived loopback token in its URL fragment; the server limits at
+most four active viewers and closes each session after 30 minutes.
 
 ## Retention and backup
 
