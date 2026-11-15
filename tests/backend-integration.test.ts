@@ -731,7 +731,12 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
             body: JSON.stringify(value),
           });
 
-      const health = await fetch(`${base}/health`, { headers: auth });
+      let health = await fetch(`${base}/health`, { headers: auth });
+      const readinessDeadline = Date.now() + 20_000;
+      while (health.status === 503 && Date.now() < readinessDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        health = await fetch(`${base}/health`, { headers: auth });
+      }
       expect(health.status).toBe(200);
       expect(await health.json()).toMatchObject({ ready: true });
       const badHostStatus = await new Promise<number>((resolve, reject) => {
@@ -1190,7 +1195,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_publication
         BEFORE UPDATE OF state ON codethread.repository_snapshot
-        FOR EACH ROW WHEN (NEW.state='published')
+        FOR EACH ROW WHEN (NEW.state='published' AND NEW.repository_id='${registered.id}'::uuid)
         EXECUTE FUNCTION codethread.test_pause_publication()`);
       triggerInstalled = true;
 
@@ -1229,6 +1234,11 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedAtPublication).toBe(true);
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: fixture.commit,
+      });
       child.send('crash');
       await waitForProcessMessage(child, 'crash-received');
       await waitForProcessExit(child);
@@ -1334,7 +1344,8 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_activation
         BEFORE UPDATE OF active_job_id ON codethread.repository
-        FOR EACH ROW EXECUTE FUNCTION codethread.test_pause_activation()`);
+        FOR EACH ROW WHEN (NEW.active_job_id='${next.id}'::uuid)
+        EXECUTE FUNCTION codethread.test_pause_activation()`);
       activationTriggerInstalled = true;
 
       activationWorker = spawn(process.execPath, [workerPath], {
@@ -1357,6 +1368,11 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedAtActivation).toBe(true);
+      expect(await service.job(next.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: nextCommit,
+      });
       activationWorker.send('crash');
       await waitForProcessMessage(activationWorker, 'crash-received');
       await waitForProcessExit(activationWorker);
@@ -1486,7 +1502,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_pin
         BEFORE UPDATE OF git_commit_oid ON codethread.scan_job
-        FOR EACH ROW WHEN (NEW.git_commit_oid IS NOT NULL)
+        FOR EACH ROW WHEN (NEW.git_commit_oid IS NOT NULL AND NEW.id='${queued.id}'::uuid)
         EXECUTE FUNCTION codethread.test_pause_pin()`);
       triggerInstalled = true;
 
@@ -1519,6 +1535,11 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedBeforePinCommit).toBe(true);
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: null,
+      });
       child.send('crash');
       await waitForProcessMessage(child, 'crash-received');
       await waitForProcessExit(child);

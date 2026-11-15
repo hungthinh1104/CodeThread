@@ -220,7 +220,7 @@ describe.skipIf(!databaseUrl || !container)(
             publication: {
               table: 'repository_snapshot',
               event: 'UPDATE OF state',
-              condition: "NEW.state='published'",
+              condition: `NEW.state='published' AND NEW.repository_id='${registered.id}'::uuid`,
               query: '%UPDATE codethread.repository_snapshot%',
             },
             activation: {

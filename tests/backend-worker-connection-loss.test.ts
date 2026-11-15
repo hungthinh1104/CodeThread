@@ -166,6 +166,7 @@ async function installPause(
   db: Database,
   stage: Stage,
   jobId: string,
+  repositoryId: string,
   seconds: number,
 ) {
   const spec = {
@@ -178,7 +179,7 @@ async function installPause(
     publication: {
       table: 'repository_snapshot',
       event: 'UPDATE OF state',
-      condition: "NEW.state='published'",
+      condition: `NEW.state='published' AND NEW.repository_id='${repositoryId}'::uuid`,
       query: '%UPDATE codethread.repository_snapshot%',
     },
     activation: {
@@ -248,6 +249,7 @@ describe.skipIf(!databaseUrl)('worker transaction connection loss', () => {
             db,
             stage,
             queued.id,
+            registered.id,
             mode === 'network' ? 8 : 60,
           );
           if (mode === 'network') proxy = await createProxy(databaseUrl!);
