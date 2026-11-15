@@ -195,6 +195,9 @@ matching rules, and reads full payloads only for the selected page. It returns
 coverage and truncation metadata. Other graph/evidence requests still hydrate
 and validate the complete snapshot and its retained bytes.
 
+Successful routes return HTTP 200, including repository creation and scan queue
+acceptance; this candidate does not return 201 or 202.
+
 The viewer adapter reconstructs the existing viewer from persisted data. It does
 not send the backend bearer token to browser JavaScript. The viewer gets a
 separate short-lived loopback token in its URL fragment; the server limits at

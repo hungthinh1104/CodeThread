@@ -160,6 +160,19 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
           return response.body.id as string;
         }),
       );
+      const listed = await get('/repositories');
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: repositories[0] }),
+          expect.objectContaining({ id: repositories[1] }),
+        ]),
+      );
+      const unauthenticatedList = await fetch(`${base}/repositories`);
+      expect(unauthenticatedList.status).toBe(401);
+      expect(await unauthenticatedList.json()).toMatchObject({
+        error: { code: 'UNAUTHORIZED' },
+      });
       const accepted: { id: string; repositoryId: string; key: string }[] = [];
       for (let index = 0; index < MAX_OUTSTANDING_SCANS - 1; index++) {
         const repositoryId = repositories[index % repositories.length]!,

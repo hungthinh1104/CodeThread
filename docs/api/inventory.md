@@ -155,6 +155,10 @@ ephemeral viewer above. Detailed setup and route behavior live in
 | `POST /v1/scans/:id/projects/:projectId/paths`     | `findSymbolPathsRequestSchema` → request-aware shared path result, scoped to the completed project snapshot.                                                                                                      |
 | `POST /v1/scans/:id/projects/:projectId/evidence`  | `getSourceEvidenceRequestSchema` → request-aware shared evidence result; retained source hashes and ranges are verified.                                                                                          |
 
+Successful persistent-backend routes currently return HTTP 200, including
+repository registration and scan queue acceptance; the adapter does not use 201
+or 202. `GET /v1/health` also returns 200 when ready and 503 when unavailable.
+
 This candidate does not expose the contract-only test/diagnostic operations or
 provide a general persistent frontend. The graph and evidence endpoints
 currently hydrate the complete verified snapshot. Symbol search scans bounded
