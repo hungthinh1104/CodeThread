@@ -10,6 +10,11 @@ import type { Database } from './database.ts';
 import { ScanService, ServiceError } from './service.ts';
 import { BackendQueryService } from './query-service.ts';
 import type { PersistentViewerManager } from './viewer-adapter.ts';
+import {
+  parseBackendErrorResponse,
+  parseBackendResponse,
+} from './http-contracts.ts';
+import type { BackendApiRoute } from './http-contracts.ts';
 
 const MAX_BODY = 64 * 1024;
 const MAX_RESPONSE = 1024 * 1024;
@@ -72,8 +77,10 @@ export function makeApi(
         p.length === components.length &&
         p.every((part, i) => components[i] === '*' || part === components[i]);
       let result: unknown;
+      let responseRoute: BackendApiRoute | undefined;
       let responseStatus = 200;
       if (is('GET', 'v1', 'health')) {
+        assertQueryParameters(url);
         let database: 'ready' | 'unavailable' = 'ready';
         try {
           await db`SELECT 1`;
@@ -83,24 +90,37 @@ export function makeApi(
         const worker = service.workerReady ? 'ready' : 'unavailable',
           ready = database === 'ready' && worker === 'ready';
         result = { api: 'ready', database, worker, ready };
+        responseRoute = 'GET /v1/health';
         if (!ready) responseStatus = 503;
       } else if (is('POST', 'v1', 'repositories')) {
+        assertQueryParameters(url);
         const input = registerRepository.parse(await readJson(req));
         result = await service.register(input.locator);
-      } else if (is('GET', 'v1', 'repositories'))
+        responseRoute = 'POST /v1/repositories';
+      } else if (is('GET', 'v1', 'repositories')) {
+        assertQueryParameters(url);
         result = await service.repositories();
-      else if (is('GET', 'v1', 'repositories', '*'))
+        responseRoute = 'GET /v1/repositories';
+      } else if (is('GET', 'v1', 'repositories', '*')) {
+        assertQueryParameters(url);
         result = await service.repository(uuid.parse(p[2]));
-      else if (is('POST', 'v1', 'repositories', '*', 'scans')) {
+        responseRoute = 'GET /v1/repositories/:id';
+      } else if (is('POST', 'v1', 'repositories', '*', 'scans')) {
+        assertQueryParameters(url);
         const input = requestScan.parse(await readJson(req));
         result = await service.accept(
           uuid.parse(p[2]),
           input.revision,
           input.idempotencyKey,
         );
-      } else if (is('GET', 'v1', 'scans', '*'))
+        responseRoute = 'POST /v1/repositories/:id/scans';
+      } else if (is('GET', 'v1', 'scans', '*')) {
+        assertQueryParameters(url);
         result = await service.job(uuid.parse(p[2]));
-      else if (is('POST', 'v1', 'scans', '*', 'viewer')) {
+        responseRoute = 'GET /v1/scans/:id';
+      } else if (is('POST', 'v1', 'scans', '*', 'viewer')) {
+        assertQueryParameters(url);
+        await assertNoBody(req);
         if (!viewers)
           throw new ServiceError(
             503,
@@ -108,49 +128,82 @@ export function makeApi(
             'Persistent viewer adapter is not configured.',
           );
         result = await viewers.open(uuid.parse(p[2]));
-      } else if (is('POST', 'v1', 'scans', '*', 'cancel'))
+        responseRoute = 'POST /v1/scans/:id/viewer';
+      } else if (is('POST', 'v1', 'scans', '*', 'cancel')) {
+        assertQueryParameters(url);
+        await assertNoBody(req);
         result = await service.cancel(uuid.parse(p[2]));
-      else if (is('GET', 'v1', 'scans', '*', 'projects'))
+        responseRoute = 'POST /v1/scans/:id/cancel';
+      } else if (is('GET', 'v1', 'scans', '*', 'projects')) {
+        assertQueryParameters(url);
         result = await service.projects(uuid.parse(p[2]));
-      else if (is('GET', 'v1', 'scans', '*', 'files')) {
-        const offset = Number(url.searchParams.get('offset') ?? 0);
+        responseRoute = 'GET /v1/scans/:id/projects';
+      } else if (is('GET', 'v1', 'scans', '*', 'files')) {
+        assertQueryParameters(url, ['offset']);
+        const offset = queryOffset(url);
         result = await service.files(
           uuid.parse(p[2]),
           queryInventory.parse({ offset }).offset,
         );
+        responseRoute = 'GET /v1/scans/:id/files';
       } else if (is('GET', 'v1', 'scans', '*', 'projects', '*', 'symbols')) {
+        assertQueryParameters(url, ['query', 'offset']);
         result = await queries.symbols(uuid.parse(p[2]), p[4]!, {
           query: url.searchParams.get('query') ?? '',
-          offset: Number(url.searchParams.get('offset') ?? 0),
+          offset: queryOffset(url),
         });
+        responseRoute = 'GET /v1/scans/:id/projects/:projectId/symbols';
       } else if (
         is('POST', 'v1', 'scans', '*', 'projects', '*', 'neighbors') ||
         is('POST', 'v1', 'scans', '*', 'projects', '*', 'paths') ||
         is('POST', 'v1', 'scans', '*', 'projects', '*', 'evidence')
       ) {
+        assertQueryParameters(url);
         result = await queries.project(
           uuid.parse(p[2]),
           p[4]!,
           p[5] as 'neighbors' | 'paths' | 'evidence',
           await readJson(req),
         );
+        responseRoute =
+          p[5] === 'neighbors'
+            ? 'POST /v1/scans/:id/projects/:projectId/neighbors'
+            : p[5] === 'paths'
+              ? 'POST /v1/scans/:id/projects/:projectId/paths'
+              : 'POST /v1/scans/:id/projects/:projectId/evidence';
       } else throw new ServiceError(404, 'NOT_FOUND', 'Endpoint not found');
-      send(res, responseStatus, result);
+      if (!responseRoute)
+        throw new Error('Matched route has no response contract');
+      send(res, responseStatus, parseBackendResponse(responseRoute, result));
     } catch (e) {
       if (e instanceof ZodError)
-        send(res, 400, {
-          error: {
-            code: 'INVALID_REQUEST',
-            message: 'Invalid request payload',
-          },
-        });
+        send(
+          res,
+          400,
+          parseBackendErrorResponse({
+            error: {
+              code: 'INVALID_REQUEST',
+              message: 'Invalid request payload',
+            },
+          }),
+        );
       else if (e instanceof ServiceError)
-        send(res, e.status, { error: { code: e.code, message: e.message } });
+        send(
+          res,
+          e.status,
+          parseBackendErrorResponse({
+            error: { code: e.code, message: e.message },
+          }),
+        );
       else {
         console.error('API error', e);
-        send(res, 500, {
-          error: { code: 'INTERNAL_ERROR', message: 'Request failed' },
-        });
+        send(
+          res,
+          500,
+          parseBackendErrorResponse({
+            error: { code: 'INTERNAL_ERROR', message: 'Request failed' },
+          }),
+        );
       }
     }
   };
@@ -204,6 +257,60 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
     throw new ServiceError(400, 'INVALID_JSON', 'Malformed JSON');
   }
 }
+
+function assertQueryParameters(url: URL, allowed: readonly string[] = []) {
+  const seen = new Set<string>();
+  for (const key of url.searchParams.keys()) {
+    if (!allowed.includes(key) || seen.has(key))
+      throw new ServiceError(
+        400,
+        'INVALID_REQUEST',
+        'Unexpected or repeated query parameter',
+      );
+    seen.add(key);
+  }
+}
+
+function queryOffset(url: URL): number {
+  const value = url.searchParams.get('offset');
+  if (value === null) return 0;
+  if (!/^(0|[1-9][0-9]*)$/.test(value))
+    throw new ServiceError(
+      400,
+      'INVALID_REQUEST',
+      'Offset must be a base-10 integer',
+    );
+  return Number(value);
+}
+
+async function assertNoBody(req: IncomingMessage): Promise<void> {
+  const declared = Number(req.headers['content-length'] ?? 0);
+  if (declared > MAX_BODY)
+    throw new ServiceError(
+      413,
+      'REQUEST_TOO_LARGE',
+      'Request exceeds size limit',
+    );
+  let used = 0;
+  for await (const chunk of req) {
+    used += Buffer.isBuffer(chunk)
+      ? chunk.byteLength
+      : Buffer.byteLength(chunk);
+    if (used > MAX_BODY)
+      throw new ServiceError(
+        413,
+        'REQUEST_TOO_LARGE',
+        'Request exceeds size limit',
+      );
+  }
+  if (used > 0)
+    throw new ServiceError(
+      400,
+      'INVALID_REQUEST',
+      'Request body is not accepted',
+    );
+}
+
 function send(res: ServerResponse, status: number, data: unknown) {
   if (res.headersSent) {
     res.destroy();

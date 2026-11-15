@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { backendApiResponseSchemas } from '../scripts/backend/http-contracts.ts';
+import { viewerApiResponseSchemas } from '../scripts/viewer-api.ts';
 
 const repositoryRoot = new URL('../', import.meta.url);
 function readRepositoryFile(path: string): string {
@@ -100,6 +102,59 @@ function staticViewerRoutes(): Set<string> {
   return routes;
 }
 
+function contractMatrixRoutes(
+  path: string,
+  name: string,
+  requireCases: boolean,
+  positiveKey = 'positive',
+  negativeKey = 'negative',
+): Set<string> {
+  const source = parseSource(path),
+    routes = new Set<string>();
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name &&
+      node.initializer &&
+      ts.isArrayLiteralExpression(node.initializer)
+    ) {
+      found = true;
+      for (const element of node.initializer.elements) {
+        if (!ts.isObjectLiteralExpression(element)) continue;
+        let route: string | null = null,
+          positive = false,
+          negative = false;
+        for (const property of element.properties) {
+          if (!ts.isPropertyAssignment(property)) continue;
+          const key = ts.isIdentifier(property.name)
+            ? property.name.text
+            : stringValue(property.name);
+          if (key === 'route') route = stringValue(property.initializer);
+          if (key === positiveKey)
+            positive = ts.isArrowFunction(property.initializer);
+          if (key === negativeKey)
+            negative =
+              ts.isArrowFunction(property.initializer) ||
+              (ts.isArrayLiteralExpression(property.initializer) &&
+                property.initializer.elements.length > 0);
+        }
+        if (route) routes.add(route);
+        if (requireCases)
+          expect({ route, positive, negative }).toMatchObject({
+            positive: true,
+            negative: true,
+          });
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  expect(found, `${path} must declare ${name}`).toBe(true);
+  return routes;
+}
+
 function documentationRoutes(markdown: string): Set<string> {
   const routes = new Set<string>();
   for (const match of markdown.matchAll(/`(GET|POST) (\/[^`\s]*)`/g)) {
@@ -160,5 +215,55 @@ describe('implemented HTTP route documentation', () => {
     expect(staticRoutes.size).toBe(7);
     expectDocumented(apiRoutes, viewerSection);
     expectDocumented(staticRoutes, viewerSection);
+  });
+
+  it('requires executable positive and negative cases for every response schema route', () => {
+    const routeKeys = (routes: Set<string>) =>
+      new Set([...routes].map((route) => route.replace(/:[^/]+/g, ':param')));
+    const backendRoutesCovered = routeKeys(
+      contractMatrixRoutes(
+        'tests/helpers/backend-api-contract-cases.ts',
+        'backendApiContractCases',
+        true,
+      ),
+    );
+    const viewerRoutesCovered = contractMatrixRoutes(
+      'tests/viewer-api-contract.test.ts',
+      'viewerApiContractCases',
+      true,
+    );
+    const selectedViewerRoutesCovered = contractMatrixRoutes(
+      'tests/viewer-selected-api-contract.test.ts',
+      'cases',
+      true,
+      'assert',
+      'invalidInputs',
+    );
+    expect(backendRoutesCovered).toEqual(routeKeys(backendRoutes()));
+    expect(routeKeys(new Set(Object.keys(backendApiResponseSchemas)))).toEqual(
+      routeKeys(backendRoutes()),
+    );
+    expect(
+      new Set([...viewerRoutesCovered].map((route) => `POST ${route}`)),
+    ).toEqual(viewerApiRoutes());
+    expect(
+      new Set([...selectedViewerRoutesCovered].map((route) => `POST ${route}`)),
+    ).toEqual(viewerApiRoutes());
+    expect(
+      new Set(
+        Object.keys(viewerApiResponseSchemas).map((route) => `POST ${route}`),
+      ),
+    ).toEqual(viewerApiRoutes());
+    expect(
+      new Set(
+        [
+          ...contractMatrixRoutes(
+            'tests/viewer-api-contract.test.ts',
+            'staticViewerAssetCases',
+            false,
+          ),
+        ].map((route) => `GET ${route}`),
+      ),
+    ).toEqual(staticViewerRoutes());
   });
 });

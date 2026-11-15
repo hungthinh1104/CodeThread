@@ -1,7 +1,10 @@
 import { analyzeGitRepository } from '../../scripts/investigation/repository-session.ts';
 import { createGitRepository, runGitFixture } from './git-fixture.ts';
 
-export async function repositoryViewerFixture(directories: string[]) {
+export async function repositoryViewerFixture(
+  directories: string[],
+  additionalSources: readonly { path: string; source: string }[] = [],
+) {
   const options = {
     target: 'ES2023',
     module: 'NodeNext',
@@ -49,6 +52,7 @@ export async function repositoryViewerFixture(directories: string[]) {
         source: 'export interface Config { value: string; }',
       },
       { path: 'src/broken.ts', source: 'export function broken( {' },
+      ...additionalSources,
     ],
     directories,
   );

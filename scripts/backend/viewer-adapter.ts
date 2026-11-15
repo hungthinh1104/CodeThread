@@ -1,7 +1,10 @@
 import { createRepositoryViewer } from '../viewer.ts';
 import type { ViewerHandle } from '../viewer.ts';
 import type { Database } from './database.ts';
-import { loadRepositorySession } from './session-persistence.ts';
+import {
+  loadRepositorySession,
+  RepositorySessionUnavailableError,
+} from './session-persistence.ts';
 import { ServiceError } from './service.ts';
 
 type ActiveViewer = {
@@ -31,8 +34,19 @@ export class PersistentViewerManager {
       );
     this.opening++;
     try {
-      const session = await loadRepositorySession(this.db, jobId),
-        handle = await createRepositoryViewer(session),
+      let session;
+      try {
+        session = await loadRepositorySession(this.db, jobId);
+      } catch (error) {
+        if (error instanceof RepositorySessionUnavailableError)
+          throw new ServiceError(
+            error.reason === 'not_found' ? 404 : 409,
+            error.reason === 'not_found' ? 'NOT_FOUND' : 'VIEWER_NOT_READY',
+            error.message,
+          );
+        throw error;
+      }
+      const handle = await createRepositoryViewer(session),
         expiresAt = Date.now() + VIEWER_TTL_MS;
       const active: ActiveViewer = {
         handle,

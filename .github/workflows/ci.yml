@@ -120,6 +120,7 @@ jobs:
       # Vitest file workers sequential to prevent cross-suite schema races.
       - run:
           pnpm exec vitest run tests/backend-integration.test.ts
+          tests/backend-api-contract.test.ts
           tests/backend-migration-integrity.test.ts
           tests/backend-http-restart.test.ts tests/backend-queue-limit.test.ts
           tests/backend-driver-loss.test.ts tests/backend-worker-lock.test.ts

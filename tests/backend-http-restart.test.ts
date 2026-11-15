@@ -61,9 +61,14 @@ async function reservePort() {
 
 function waitForMessage(child: ChildProcess, expected: string) {
   return new Promise<void>((resolve, reject) => {
+    let stderr = '';
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`HTTP worker did not send ${expected}`));
+      reject(
+        new Error(
+          `HTTP worker did not send ${expected}${stderr ? `: ${stderr.slice(-2000)}` : ''}`,
+        ),
+      );
     }, 20_000);
     const onMessage = (message: unknown) => {
       if (message !== expected) return;
@@ -73,7 +78,9 @@ function waitForMessage(child: ChildProcess, expected: string) {
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
       reject(
-        new Error(`HTTP worker exited before ${expected}: ${code ?? signal}`),
+        new Error(
+          `HTTP worker exited before ${expected}: ${code ?? signal}${stderr ? `: ${stderr.slice(-2000)}` : ''}`,
+        ),
       );
     };
     const cleanup = () => {
@@ -83,6 +90,9 @@ function waitForMessage(child: ChildProcess, expected: string) {
     };
     child.on('message', onMessage);
     child.once('exit', onExit);
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr = `${stderr}${chunk.toString()}`.slice(-2000);
+    });
   });
 }
 

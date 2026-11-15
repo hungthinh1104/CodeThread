@@ -102,14 +102,15 @@ async function request<T>(
   token: string,
   path: string,
   body?: object,
+  method?: 'GET' | 'POST',
 ): Promise<T> {
   const response = await fetch(`http://127.0.0.1:${port}${path}`, {
-    method: body ? 'POST' : 'GET',
+    method: method ?? (body ? 'POST' : 'GET'),
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   if (!response.ok)
     throw new Error(`Backend request returned ${response.status}`);
@@ -318,7 +319,8 @@ describe.skipIf(!databaseUrl)(
           port,
           token,
           `/v1/scans/${job.id}/viewer`,
-          {},
+          undefined,
+          'POST',
         );
         browser = await chromium.launch({ headless: true });
         const before = await inspectViewer(
@@ -359,7 +361,8 @@ describe.skipIf(!databaseUrl)(
           port,
           token,
           `/v1/scans/${job.id}/viewer`,
-          {},
+          undefined,
+          'POST',
         );
         expect(
           await inspectViewer(

@@ -155,22 +155,22 @@ key returns the original terminal job.
 
 ## Routes
 
-| Request                                            | Behavior                                                                                                                                          |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | No body; returns API/database/worker readiness and status 503 when not ready.                                                                     |
-| `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                 |
-| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                             |
-| `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                  |
-| `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                         |
-| `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                    |
-| `POST /v1/scans/:id/cancel`                        | Cancels queued/running work; missing or terminal jobs return 409.                                                                                 |
-| `POST /v1/scans/:id/viewer`                        | Opens a viewer from persisted state; up to 4 active for 30 minutes; full capacity returns 429 `VIEWER_CAPACITY`, unavailable adapter returns 503. |
-| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows and diagnostics.                                                                                            |
-| `GET /v1/scans/:id/files?offset=0`                 | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                   |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                              |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated bounded graph-neighbor projection.                                                                                                      |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated bounded exact-symbol path projection.                                                                                                   |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                                              |
+| Request                                            | Behavior                                                                                                                                                                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | No body; returns API/database/worker readiness and status 503 when not ready.                                                                                                                                                    |
+| `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                                                                                                |
+| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                                            |
+| `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                                                                                                 |
+| `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                                                                                                        |
+| `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                                                                                                   |
+| `POST /v1/scans/:id/cancel`                        | Requires an empty body; cancels queued/running work; missing or terminal jobs return 409.                                                                                                                                        |
+| `POST /v1/scans/:id/viewer`                        | Requires an empty body; opens a viewer from a succeeded, pinned scan; missing scan returns 404, a non-ready scan returns 409 `VIEWER_NOT_READY`, capacity returns 429 `VIEWER_CAPACITY`, and an unavailable adapter returns 503. |
+| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows and diagnostics.                                                                                                                                                                           |
+| `GET /v1/scans/:id/files?offset=0`                 | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                                                                                                  |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                                                                                                             |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated bounded graph-neighbor projection.                                                                                                                                                                                     |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated bounded exact-symbol path projection.                                                                                                                                                                                  |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                                                                                                                             |
 
 Every route requires the bearer token and exact loopback `Host`; if `Origin` is
 present it must match the API origin. POST routes that consume JSON require
@@ -179,21 +179,33 @@ errors use `{error:{code,message}}`; status classes include 400 invalid input,
 401 missing/invalid token, 403 Host/Origin rejection, 404 missing route/entity,
 409 state/idempotency/snapshot conflicts, 413 size limits, 415 media type, 429
 queue/query admission, 500 sanitized internal failure and 503 unavailable
-service. Unknown paths or method/path combinations currently return 404.
+service. Unknown paths or method/path combinations currently return 404. Only
+the documented `offset` and `query` keys are accepted on the paginated GET
+routes. Repeated or unknown keys return 400, and offsets must be unsigned
+base-10 integers.
 
-The repository/scan control and list routes return JSON projections from
-application results or selected PostgreSQL rows; they do not have dedicated Zod
-response schemas. Symbol, neighbor, path and evidence query results are
-validated against shared request-aware contracts before transport. The health
-route returns its readiness object directly, including on HTTP 503. Graph and
-evidence bodies use the corresponding `@codethread/contracts` request and
-returned `snapshotId`. The query application service checks that the snapshot
-belongs to the selected completed scan and validates the result against the
-original request before transport. The symbol route streams at most the bounded
-snapshot's symbol names for nonempty searches, applies JavaScript's Unicode
-matching rules, and reads full payloads only for the selected page. It returns
-coverage and truncation metadata. Other graph/evidence requests still hydrate
-and validate the complete snapshot and its retained bytes.
+All 14 persistent routes validate successful responses through the route-keyed
+schemas in `scripts/backend/http-contracts.ts`. Repository and scan queries are
+projected into explicit public DTOs, including ISO timestamps and decimal
+generation strings, so database driver rows are not the wire contract. Health
+readiness consistency is validated for both HTTP 200 and 503. Symbol, neighbor,
+path and evidence query results also pass the shared request-aware contracts
+before transport. Graph and evidence requests use the corresponding
+`@codethread/contracts` request and returned `snapshotId`; the query application
+service checks that the snapshot belongs to the selected completed scan and
+validates the result against the original request before transport. The symbol
+route streams at most the bounded snapshot's symbol names for nonempty searches,
+applies JavaScript's Unicode matching rules, and reads full payloads only for
+the selected page. It returns coverage and truncation metadata. Other
+graph/evidence requests still hydrate and validate the complete snapshot and its
+retained bytes.
+
+`tests/backend-api-contract.test.ts` runs real HTTP requests against disposable
+PostgreSQL 17 and a real worker. It covers every route's valid response and a
+route-specific negative case, persistent mutation readback, idempotent
+concurrent submission, conflict rollback, snapshot-scoped graph/path/evidence
+results and transport security. CI compares its route matrix with the
+implementation and response schema map.
 
 Successful routes return HTTP 200, including repository creation and scan queue
 acceptance; this candidate does not return 201 or 202.

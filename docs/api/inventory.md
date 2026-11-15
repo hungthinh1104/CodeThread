@@ -27,15 +27,19 @@ review candidate; there is no dedicated backend-release requirement ID in
   `scripts/viewer-projection.ts`. Viewer-local shapes are transport/presentation
   contracts and do not replace shared semantic contracts.
 - **Persistent local API mapping:** `scripts/backend/http.ts` is transport;
-  `scripts/backend/query-service.ts` validates snapshot scope and delegates to
-  persistence/trace-engine; `docs/backend.md` is the route/setup source.
+  `scripts/backend/http-contracts.ts` projects and validates public response
+  DTOs; `scripts/backend/query-service.ts` validates snapshot scope and
+  delegates to persistence/trace-engine; `docs/backend.md` is the route/setup
+  source.
 - **Requirements:** stable IDs and acceptance live in `requirements/*.yaml`.
   Their `accepted` lifecycle means agreed requirement, not shipped or verified
   implementation.
-- **This inventory:** route paths are checked against the backend and viewer
-  dispatchers by `tests/api-documentation.test.ts`. Request/response schema
-  details and database effects remain manually audited; the test does not claim
-  schema parity or validate response payloads.
+- **This inventory:** `tests/api-documentation.test.ts` compares implemented
+  route paths with documentation, runtime response-schema maps and executable
+  positive/negative route-case matrices. PostgreSQL route cases run in the
+  dedicated PostgreSQL 17 CI job; viewer asset tests compare exact bytes and
+  access policy. This gate does not replace independent semantic review of
+  stored evidence or establish production readiness.
 
 The local packages are private `0.0.0` workspace packages with explicit root
 exports; no released external API compatibility policy exists. Until
@@ -104,16 +108,20 @@ implemented in `scripts/viewer-api.ts`; session, symbol, neighbor and evidence
 projections are implemented in `scripts/viewer-projection.ts` and reuse
 trace-engine/shared contracts where stated.
 
-| Operation ID           | Purpose and requirement                                                                               | Method/path                | Request → response                                                                                                                                                                                | Bounds and access                                                                                                                 | Tests and limitations                                                                                                                                                                                           |
-| ---------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `viewerProjects`       | List project contexts and analysis status. `CT-VIEW-001`                                              | `POST /api/projects`       | Exact empty object → dataset projection `{mode, initialProjectId, repositoryId, commitId, source, items}`; no response Zod schema.                                                                | Dynamic API Host/peer/Origin/token gate; request 64 KiB, response 1 MiB; diagnostics capped at 10 per context.                    | `tests/repository-viewer.test.ts`; single-snapshot mode uses project ID `selected`.                                                                                                                             |
-| `viewerCatalog`        | Search declarations across repository contexts. `CT-VIEW-001`                                         | `POST /api/catalog`        | `{query?, offset?}` (`query` max 256; offset max 640,000) → `{query, offset, limit, total, nextOffset, items}`; no response Zod schema.                                                           | 50 rows/page; stable UTF-8 path/position/project/key order; case-insensitive name/path matching.                                  | `tests/repository-viewer.test.ts`; separate from snapshot-scoped semantic symbol search.                                                                                                                        |
-| `viewerFiles`          | Page source inventory and per-file status. `CT-VIEW-001`                                              | `POST /api/files`          | `{offset?}` (default 0, max 2,000) → `{offset, limit, total, nextOffset, items}`; no response Zod schema.                                                                                         | 50 rows/page; stable UTF-8 path order; analyzed, not-analyzed and excluded TypeScript entries.                                    | `tests/repository-viewer.test.ts`; excluded entries may have null hash/length.                                                                                                                                  |
-| `viewerFollowContext`  | Follow a declaration to verified project context(s). `CT-VIEW-001`                                    | `POST /api/follow-context` | Selected: `{snapshotId, symbolId}`; repository: `{projectId, request:{snapshotId, symbolId}}` → `{projectId, snapshotId, symbolId, requiresChoice, candidates}`; no response Zod schema.          | Validates context/snapshot ownership and compares destination declaration evidence and content hash.                              | `tests/repository-viewer.test.ts`; multiple exact destinations require explicit choice; missing entities map 404 and unavailable source maps 400.                                                               |
-| `viewerSession`        | Return snapshot identity, counts and coverage. `CT-VIEW-001`                                          | `POST /api/session`        | Selected: exact `{}`; repository: `{projectId, request:{}}` → `sessionResponseSchema`, wrapped as `{projectId, result}` in repository mode.                                                       | Session result Zod schema; dynamic API Host/peer/Origin/token gate.                                                               | `tests/viewer.test.ts`, `tests/viewer-browser.ts`, `tests/repository-viewer.test.ts`; no shared semantic operation equivalent.                                                                                  |
-| `viewerSearchSymbols`  | Select declarations by case-insensitive name/path substring. `CT-VIEW-001`, `CT-INV-001`              | `POST /api/symbols`        | Local `symbolSearchRequestSchema` (`query` max 256; effective offset max 2,000 selected / 20,000 repository) → `symbolSearchResponseSchema`, wrapped as `{projectId, result}` in repository mode. | 50 rows/page; stable source path/position/key order; dynamic API Host/peer/Origin/token gate.                                     | `tests/viewer.test.ts`, `tests/repository-viewer.test.ts`, `tests/viewer-browser.ts`; offset paging is presentation-local.                                                                                      |
-| `viewerGraphNeighbors` | Query bounded neighbors and root-owned unknown observations. `CT-VIEW-001`, `CT-INV-001`, `CT-DB-012` | `POST /api/neighbors`      | `graphNeighborsRequestSchema` → `{graph, unknowns}` via `viewerGraphResponseSchema`, wrapped as `{projectId, result}` in repository mode.                                                         | Reuses trace-engine neighbors; depth 2, graph nodes 50 and unknown rows 50; only `calls`/`references`; validates against request. | Zod failures 400; `RESOURCE_LIMIT` 413; missing snapshot/entity 404; other trace errors 400; sanitized failures 500. `tests/viewer.test.ts`, `tests/repository-viewer.test.ts`, browser and query-result tests. |
-| `viewerSourceEvidence` | Retrieve evidence selected from a current projection. `CT-VIEW-001`, `CT-DB-007`, `CT-DB-012`         | `POST /api/evidence`       | `getSourceEvidenceRequestSchema` → `getSourceEvidenceResponseSchema`, wrapped as `{projectId, result}` in repository mode.                                                                        | 1–100 unique IDs; excerpts max 65,536 UTF-16 units; exact retained evidence; response max 1 MiB.                                  | Missing/unavailable evidence is a typed per-item result; malformed input 400, oversized result 413. `tests/viewer.test.ts`, `tests/viewer-browser.ts`.                                                          |
+| Operation ID           | Purpose and requirement                                                                               | Method/path                | Request → response                                                                                                                                                                                   | Bounds and access                                                                                                                                                                      | Tests and limitations                                                                                                                                                              |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `viewerProjects`       | List project contexts and analysis status. `CT-VIEW-001`                                              | `POST /api/projects`       | Exact empty object → strict `viewerApiResponseSchemas['/api/projects']` projection `{mode, initialProjectId, repositoryId, commitId, source, items}`.                                                | Dynamic API Host/peer/Origin/token gate; request 64 KiB, response 1 MiB; diagnostics capped at 10 per context.                                                                         | `tests/viewer-api-contract.test.ts`; single-snapshot mode uses project ID `selected`.                                                                                              |
+| `viewerCatalog`        | Search declarations across repository contexts. `CT-VIEW-001`                                         | `POST /api/catalog`        | `{query?, offset?}` (`query` max 256; offset max 640,000) → strict catalog page response with validated continuation.                                                                                | 50 rows/page; stable UTF-8 path/position/project/key order; case-insensitive name/path matching.                                                                                       | `tests/viewer-api-contract.test.ts`; separate from snapshot-scoped semantic symbol search.                                                                                         |
+| `viewerFiles`          | Page source inventory and per-file status. `CT-VIEW-001`                                              | `POST /api/files`          | `{offset?}` (default 0, max 2,000) → strict file page response; regular repository source blobs may include Git `blobId`.                                                                            | 50 rows/page; stable UTF-8 path order; analyzed, not-analyzed and excluded TypeScript entries.                                                                                         | `tests/viewer-api-contract.test.ts`; excluded entries have null hash/length and no blob ID.                                                                                        |
+| `viewerFollowContext`  | Follow a declaration to verified project context(s). `CT-VIEW-001`                                    | `POST /api/follow-context` | Selected: `{snapshotId, symbolId}`; repository: `{projectId, request:{snapshotId, symbolId}}` → strict `{projectId, snapshotId, symbolId, requiresChoice, candidates}` response.                     | Validates context/snapshot ownership and compares destination declaration evidence and content hash; candidates are non-empty and `requiresChoice` matches whether there are multiple. | `tests/viewer-api-contract.test.ts`; multiple exact destinations require explicit choice; missing entities map 404 and unavailable source maps 400.                                |
+| `viewerSession`        | Return snapshot identity, counts and coverage. `CT-VIEW-001`                                          | `POST /api/session`        | Selected: exact `{}`; repository: `{projectId, request:{}}` → strict session response, wrapped as `{projectId, result}` in repository mode.                                                          | Dynamic API Host/peer/Origin/token gate; response schema enforced before serialization.                                                                                                | `tests/viewer-api-contract.test.ts`, `tests/viewer.test.ts`, browser tests; no shared semantic operation equivalent.                                                               |
+| `viewerSearchSymbols`  | Select declarations by case-insensitive name/path substring. `CT-VIEW-001`, `CT-INV-001`              | `POST /api/symbols`        | Local request (`query` max 256; effective offset max 2,000 selected / 20,000 repository) → strict symbol page response, wrapped in repository mode; continuation must match total and returned rows. | 50 rows/page; stable source path/position/key order; dynamic API Host/peer/Origin/token gate.                                                                                          | `tests/viewer-api-contract.test.ts`, `tests/viewer.test.ts`, browser tests; offset paging is presentation-local.                                                                   |
+| `viewerGraphNeighbors` | Query bounded neighbors and root-owned unknown observations. `CT-VIEW-001`, `CT-INV-001`, `CT-DB-012` | `POST /api/neighbors`      | `graphNeighborsRequestSchema` → strict `{graph, unknowns}` response, wrapped as `{projectId, result}` in repository mode.                                                                            | Reuses trace-engine neighbors; depth 2, graph nodes 50 and unknown rows 50; only `calls`/`references`; validates against request.                                                      | Zod failures 400; `RESOURCE_LIMIT` 413; missing snapshot/entity 404; other trace errors 400; sanitized failures 500. `tests/viewer-api-contract.test.ts` and existing query tests. |
+| `viewerSourceEvidence` | Retrieve evidence selected from a current projection. `CT-VIEW-001`, `CT-DB-007`, `CT-DB-012`         | `POST /api/evidence`       | `getSourceEvidenceRequestSchema` → strict `getSourceEvidenceResponseSchema`, wrapped in repository mode.                                                                                             | 1–100 unique IDs; excerpts max 65,536 UTF-16 units; exact retained evidence; response max 1 MiB.                                                                                       | Missing/unavailable evidence is a typed per-item result; malformed input 400, oversized result 413. `tests/viewer-api-contract.test.ts` and existing evidence tests.               |
+
+For `POST /api/files`, source provenance is status-sensitive: excluded rows have
+null SHA-256 and byte length and omit the Git blob ID; analyzed and not-analyzed
+rows retain a verified SHA-256 and byte length.
 
 ### Static viewer assets
 
@@ -131,6 +139,10 @@ or `Origin` header. These routes do not read or publish analysis data.
 | `GET /viewer-client/history.js`    | Serves browser history handling as `text/javascript`.       | `tests/viewer-browser.ts`                         |
 | `GET /viewer-client/repository.js` | Serves repository navigation as `text/javascript`.          | `tests/viewer-browser.ts`                         |
 
+`tests/viewer-api-contract.test.ts` also fetches every static asset without API
+credentials, compares exact bytes and content type with the bundled file, and
+verifies that a non-loopback `Host` is rejected for every asset.
+
 ## Persistent local backend API candidate
 
 The separate backend binds to `127.0.0.1:8765`, requires a bearer token and
@@ -138,22 +150,29 @@ checks exact Host/Origin. Its request and response bounds are independent of the
 ephemeral viewer above. Detailed setup and route behavior live in
 [`docs/backend.md`](../backend.md).
 
-| Method and route                                   | Request/response behavior                                                                                                                                                                                         |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | No body; returns `{api,database,worker,ready}` and HTTP 503 when database or worker is unavailable.                                                                                                               |
-| `POST /v1/repositories`                            | `registerRepository` (`locator`, max 4,096); returns repository ID and canonical allowed locator.                                                                                                                 |
-| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                             |
-| `GET /v1/repositories/:id`                         | Returns one repository state row; missing ID is 404.                                                                                                                                                              |
-| `POST /v1/repositories/:id/scans`                  | `requestScan` (`revision` max 1,024; `idempotencyKey` max 128); idempotent queue acceptance; global 32-job admission returns 429 `SCAN_QUEUE_FULL`.                                                               |
-| `GET /v1/scans/:id`                                | Returns scan state, attempt, pinned commit/tree, activation result and terminal error fields; missing ID is 404.                                                                                                  |
-| `POST /v1/scans/:id/cancel`                        | No body is read; queued/running jobs become cancelled; missing or terminal jobs return 409.                                                                                                                       |
-| `POST /v1/scans/:id/viewer`                        | No body is read; opens persisted state in the existing viewer with a separate short-lived token; up to 4 active viewers for 30 minutes; full capacity returns 429 `VIEWER_CAPACITY`, missing adapter returns 503. |
-| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows, diagnostics and snapshot IDs.                                                                                                                                              |
-| `GET /v1/scans/:id/files?offset=0`                 | 50-row page of pinned input provenance; integer offset 0–1,256; UTF-8 byte order.                                                                                                                                 |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | `listSymbolsRequestSchema`/`listSymbolsResponseSchema` and `parseListSymbolsResult`; query max 256; 50 rows; offset 0–20,000.                                                                                     |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | `graphNeighborsRequestSchema` → request-aware shared graph result, scoped to the completed project snapshot.                                                                                                      |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | `findSymbolPathsRequestSchema` → request-aware shared path result, scoped to the completed project snapshot.                                                                                                      |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | `getSourceEvidenceRequestSchema` → request-aware shared evidence result; retained source hashes and ranges are verified.                                                                                          |
+| Method and route                                   | Request/response behavior                                                                                                                                                                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | No body; returns `{api,database,worker,ready}` and HTTP 503 when database or worker is unavailable.                                                                                                                          |
+| `POST /v1/repositories`                            | `registerRepository` (`locator`, max 4,096); returns repository ID and canonical allowed locator.                                                                                                                            |
+| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                                        |
+| `GET /v1/repositories/:id`                         | Returns one repository state row; missing ID is 404.                                                                                                                                                                         |
+| `POST /v1/repositories/:id/scans`                  | `requestScan` (`revision` max 1,024; `idempotencyKey` max 128); idempotent queue acceptance; global 32-job admission returns 429 `SCAN_QUEUE_FULL`.                                                                          |
+| `GET /v1/scans/:id`                                | Returns scan state, attempt, pinned commit/tree, activation result and terminal error fields; missing ID is 404.                                                                                                             |
+| `POST /v1/scans/:id/cancel`                        | Requires an empty body; queued/running jobs become cancelled; missing or terminal jobs return 409.                                                                                                                           |
+| `POST /v1/scans/:id/viewer`                        | Requires an empty body; opens a succeeded, pinned scan with a separate short-lived token; missing scan is 404, non-ready scan is 409 `VIEWER_NOT_READY`, full capacity is 429 `VIEWER_CAPACITY`, and missing adapter is 503. |
+| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows, diagnostics and snapshot IDs.                                                                                                                                                         |
+| `GET /v1/scans/:id/files?offset=0`                 | 50-row page of pinned input provenance; integer offset 0–1,256; UTF-8 byte order.                                                                                                                                            |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | `listSymbolsRequestSchema`/`listSymbolsResponseSchema` and `parseListSymbolsResult`; query max 256; 50 rows; offset 0–20,000.                                                                                                |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | `graphNeighborsRequestSchema` → request-aware shared graph result, scoped to the completed project snapshot.                                                                                                                 |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | `findSymbolPathsRequestSchema` → request-aware shared path result, scoped to the completed project snapshot.                                                                                                                 |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | `getSourceEvidenceRequestSchema` → request-aware shared evidence result; retained source hashes and ranges are verified.                                                                                                     |
+
+All 14 backend success routes are projected and validated by the route-keyed
+schemas in `scripts/backend/http-contracts.ts`. Repository and scan rows become
+explicit JSON DTOs with decimal generation strings and ISO timestamps. Viewer
+responses are validated beside the viewer API mapping before serialization. The
+route census, response-schema maps, and positive/negative route matrices must
+match in CI.
 
 Successful persistent-backend routes currently return HTTP 200, including
 repository registration and scan queue acceptance; the adapter does not use 201
@@ -175,7 +194,8 @@ same-origin resource policy. Request/headers/keep-alive timeouts are 5 seconds
 and `maxConnections` is 20. The token is a local-session barrier, not user
 identity or authorization for a multi-user service. There is no rate-limit or
 durable-session layer. The browser loads no external resources and renders
-source as text.
+source as text. All viewer API inputs use JSON bodies; URL query parameters are
+rejected.
 
 The seven static viewer assets listed above are bundled local files and are not
 semantic query operations. No GET route creates analysis, and neither HTTP
@@ -198,24 +218,29 @@ unsupported media to 415 and sanitized unknown failures to 500. The backend maps
 malformed input to 400, missing/invalid bearer to 401, Host/Origin rejection to
 403, missing routes or entities to 404, state/idempotency conflicts to 409,
 request/response bounds to 413, unsupported media to 415, queue/query/viewer
-capacity to 429, internal errors to sanitized 500, and unavailable
-health/viewer/analyzer to 503. Backend method/path mismatches currently fall
-through to 404. A valid evidence lookup may return typed per-item unavailability
-with HTTP 200. Error codes also differ by adapter: viewer malformed JSON/media
-use `INVALID_REQUEST` / `UNSUPPORTED_MEDIA_TYPE`, while backend uses
-`INVALID_JSON` / `INVALID_MEDIA_TYPE`; viewer access failures are 403, while
-missing backend bearer auth is 401. These local adapter semantics do not
-establish shared HTTP error parity.
+capacity to 429, internal errors to sanitized 500, and unavailable health,
+unavailable viewer adapter or analyzer mismatch to 503. Unexpected or repeated
+backend query parameters and viewer URL query parameters return 400
+`INVALID_REQUEST`; backend offsets must be unsigned base-10 integers. Backend
+method/path mismatches currently fall through to 404. A valid evidence lookup
+may return typed per-item unavailability with HTTP 200. Error codes also differ
+by adapter: viewer malformed JSON/media use `INVALID_REQUEST` /
+`UNSUPPORTED_MEDIA_TYPE`, while backend uses `INVALID_JSON` /
+`INVALID_MEDIA_TYPE`; viewer access failures are 403, while missing backend
+bearer auth is 401. These local adapter semantics do not establish shared HTTP
+error parity.
 
 No OpenAPI document exists. The ephemeral viewer has eight tokenized POST API
 routes and seven loopback-only static GET assets; the separate persistent
 backend candidate has the routes listed above. Neither is an external stable
 API. A machine-readable document would add a second hand-maintained
-representation; current CI checks route/path coverage only, not schema, response
-or error parity. If adopted, derive or validate route/request/response/error
-metadata against runtime Zod contracts, describe only implemented routes, and
-test the generated/validated description in CI. Do not invent scan, repository
-or persistence endpoints.
+representation; current CI checks implemented route/documentation parity,
+response-schema maps and positive/negative test-matrix coverage. It does not
+establish complete shared error parity between the two local adapters. If
+adopted, derive or validate route/request/response/error metadata against
+runtime Zod contracts, describe only implemented routes, and test the
+generated/validated description in CI. Do not invent scan, repository or
+persistence endpoints.
 
 ## Change governance
 
@@ -227,8 +252,9 @@ with requirement lifecycle:
 
 `Planned → Contracted → Implemented → Verified → Released`
 
-Internal verification does not mean externally released. The route/path test
-does not establish full contract/runtime parity.
+Internal verification does not mean externally released. Route/schema/test
+matrix parity does not establish production approval or independent semantic
+review.
 
 ## References
 

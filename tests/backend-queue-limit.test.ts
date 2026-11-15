@@ -132,11 +132,14 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
         },
-        post = async (path: string, body: unknown) => {
+        post = async (path: string, body?: unknown) => {
           const response = await fetch(base + path, {
             method: 'POST',
-            headers,
-            body: JSON.stringify(body),
+            headers:
+              body === undefined
+                ? { authorization: headers.authorization }
+                : headers,
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           });
           return {
             status: response.status,
@@ -237,7 +240,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
       });
       expect(await generationTotal()).toBe(beforeConcurrentSubmit + 1n);
 
-      const cancelled = await post(`/scans/${accepted[0]!.id}/cancel`, {});
+      const cancelled = await post(`/scans/${accepted[0]!.id}/cancel`);
       expect(cancelled.status).toBe(200);
       expect(cancelled.body.state).toBe('cancelled');
       const resumed = await post(`/repositories/${repositories[1]}/scans`, {

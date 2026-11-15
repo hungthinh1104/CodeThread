@@ -220,8 +220,8 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
         403,
       );
 
-    const pathname = new URL(request.url ?? '/', `http://${expectedHost}`)
-      .pathname;
+    const url = new URL(request.url ?? '/', `http://${expectedHost}`),
+      pathname = url.pathname;
     const asset = assets.get(pathname);
     if (request.method === 'GET' && asset) {
       response.writeHead(200, {
@@ -263,6 +263,12 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
         'METHOD_NOT_ALLOWED',
         'Use the documented viewer request method.',
         405,
+      );
+    if (url.searchParams.size > 0)
+      throw new ViewerFailure(
+        'INVALID_REQUEST',
+        'Viewer API requests do not accept URL query parameters.',
+        400,
       );
     const body = await readJson(request);
     json(response, queryViewer(dataset, pathname, body));
