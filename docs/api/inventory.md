@@ -128,9 +128,10 @@ ephemeral viewer above. Detailed setup and route behavior live in
 
 This candidate does not expose the contract-only test/diagnostic operations or
 provide a general persistent frontend. The graph and evidence endpoints
-currently hydrate the complete verified snapshot; symbol search reads only its
-bounded immutable symbol page. Neighbor, path and evidence queries share a limit
-of four active requests per API instance; excess requests receive HTTP 429
+currently hydrate the complete verified snapshot. Symbol search scans bounded
+immutable names and paths for non-empty queries and reads the matching page.
+Symbol, neighbor, path and evidence queries share a limit of four active
+requests per API instance; excess requests receive HTTP 429
 `QUERY_CAPACITY_EXCEEDED`. Local implementation is not production approval.
 
 Viewer access checks in `scripts/viewer.ts:createViewer/handleRequest` require

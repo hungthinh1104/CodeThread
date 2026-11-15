@@ -115,8 +115,9 @@ silently competing. This is not a team, multi-user or remote service.
 At most four symbol, graph-neighbor, path or evidence queries may be active per
 API instance. Further requests in those families receive 429
 `QUERY_CAPACITY_EXCEEDED` and can retry; health requests are not counted against
-this admission limit. This bounds concurrent snapshot hydration, but does not
-guarantee fairness or cancel work when a client disconnects.
+this admission limit. This bounds concurrent symbol searches and snapshot
+hydration, but does not guarantee fairness or cancel work when a client
+disconnects.
 
 The worker holds its advisory lock and executes worker SQL on one dedicated
 PostgreSQL session. If the session closes, the worker stops and the backend

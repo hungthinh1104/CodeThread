@@ -124,6 +124,18 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(waiting).toBe(4);
+      const symbolResponse = await fetch(
+        `${base}/v1/scans/${job.id}/projects/${project!.project_id}/symbols?query=entry`,
+        { headers },
+      );
+      expect(symbolResponse.status).toBe(429);
+      expect(await symbolResponse.json()).toMatchObject({
+        error: {
+          code: 'QUERY_CAPACITY_EXCEEDED',
+          message:
+            'Too many symbol, graph or evidence queries are active; retry shortly.',
+        },
+      });
       const health = await fetch(base + '/v1/health', { headers });
       expect(health.status).toBe(200);
       await held`SELECT pg_advisory_unlock(1919606126, hashtext(${snapshotId}::text))`;

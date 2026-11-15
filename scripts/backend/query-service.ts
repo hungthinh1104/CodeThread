@@ -54,7 +54,7 @@ export class BackendQueryService {
       throw new ServiceError(
         429,
         'QUERY_CAPACITY_EXCEEDED',
-        'Too many graph or evidence queries are active; retry shortly.',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
       );
     this.activeHeavyQueries++;
     try {
@@ -139,7 +139,7 @@ export class BackendQueryService {
       throw new ServiceError(
         429,
         'QUERY_CAPACITY_EXCEEDED',
-        'Too many graph or evidence queries are active; retry shortly.',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
       );
     this.activeHeavyQueries++;
     try {

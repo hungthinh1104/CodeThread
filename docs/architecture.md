@@ -801,14 +801,15 @@ not persisted semantic evidence.
 
 The DB-01 statement-count budgets remain targets for future persisted test
 queries. The current backend uses PostgreSQL statement, lock and
-idle-transaction timeouts. The symbol page uses a small fixed set of statements;
+idle-transaction timeouts. A non-empty symbol search scans at most 20,000
+bounded names and paths using the result contract's case-matching rules;
 graph/evidence currently pay for full verified hydration. Query bounds are
 safety limits, not measured performance SLAs.
 
-For the local API, graph, path and evidence hydration share a four-request
-admission limit per API instance. Excess work is rejected with HTTP 429
-`QUERY_CAPACITY_EXCEEDED`; the limit does not apply to symbol or health routes.
-The 900-file synthetic benchmark has its own explicit local latency and memory
+For the local API, symbol, graph, path and evidence requests share a
+four-request admission limit per API instance. Excess work is rejected with HTTP
+429 `QUERY_CAPACITY_EXCEEDED`; the limit does not apply to the health route. The
+900-file synthetic benchmark has its own explicit local latency and memory
 budget; it does not establish a bound for arbitrary snapshots.
 
 Query errors are INVALID_REQUEST, INVALID_CURSOR, SNAPSHOT_NOT_FOUND,
