@@ -61,14 +61,7 @@ const projectsResponseSchema = z.strictObject({
       snapshotId: idSchema.nullable(),
       rootFiles: z.number().int().nonnegative(),
       diagnosticCount: z.number().int().nonnegative(),
-      diagnostics: z
-        .array(
-          z.strictObject({
-            code: z.string().min(1),
-            message: z.string().min(1),
-          }),
-        )
-        .max(10),
+      diagnostics: z.array(projectDiagnosticSchema).max(10),
       sourceDiagnosticCount: z.number().int().nonnegative(),
     }),
   ),
