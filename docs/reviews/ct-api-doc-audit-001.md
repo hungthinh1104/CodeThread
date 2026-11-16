@@ -234,7 +234,7 @@ current-head CI state; no hosted result from an earlier SHA is reused.
 
 ### Latest full verification snapshot on the API report candidate
 
-Candidate: `bc5079d4892bfd9bbea2cbe8e60735208baacdaa` on
+Candidate: `0a21d9f5e070adff361922cca100cb81dbcdb994` on
 `feat/ct-mvp-release-001`. This candidate contains the API implementation from
 `5b7f576ceb2a9102db583fd6610fbfc832e91ca9` and its review report update. The
 following local checks and hosted run were observed on this exact candidate SHA:
@@ -249,10 +249,10 @@ following local checks and hosted run were observed on this exact candidate SHA:
 | Focused API/doc suite (`--maxWorkers=1`)            | 6 files, 87 tests passed.                                                          | Real HTTP; backend routes use disposable PostgreSQL 17; includes route/docs parity and negative controls.                                                                                                                                                                                                                                                                                                                                                                                   |
 | Ordered PostgreSQL backend suite (`--maxWorkers=1`) | 16 files passed, 1 skipped; 80 passed, 5 skipped.                                  | Disposable PostgreSQL 17. Five Windows skips are POSIX signal-shutdown cases.                                                                                                                                                                                                                                                                                                                                                                                                               |
 | Dedicated PostgreSQL restart suite                  | 1 file, 3 tests passed.                                                            | Task-owned, labeled restart-only PostgreSQL 17 container.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Hosted Ubuntu, Windows and PostgreSQL               | PASS.                                                                              | [Run #179](https://github.com/hungthinh1104/CodeThread/actions/runs/43763541149): [Ubuntu](https://github.com/hungthinh1104/CodeThread/actions/runs/43763541149/job/132963443524), [Windows](https://github.com/hungthinh1104/CodeThread/actions/runs/43763541149/job/132963443626), [PostgreSQL](https://github.com/hungthinh1104/CodeThread/actions/runs/43763541149/job/132963443311) all succeeded on this exact candidate. PostgreSQL CI includes restart and isolated backup/restore. |
+| Hosted Ubuntu, Windows and PostgreSQL               | PASS.                                                                              | [Run #181](https://github.com/hungthinh1104/CodeThread/actions/runs/43870945779): [Ubuntu](https://github.com/hungthinh1104/CodeThread/actions/runs/43870945779/job/133311646586), [Windows](https://github.com/hungthinh1104/CodeThread/actions/runs/43870945779/job/133311646373), [PostgreSQL](https://github.com/hungthinh1104/CodeThread/actions/runs/43870945779/job/133311646434) all succeeded on this exact candidate. PostgreSQL CI includes restart and isolated backup/restore. |
 
 This is the latest full verification snapshot before the current report-only
-revision. Run #179 covers `bc5079d4892bfd9bbea2cbe8e60735208baacdaa`; the
+revision. Run #181 covers `0a21d9f5e070adff361922cca100cb81dbcdb994`; the
 current PR description records the exact current head and its own validation.
 
 ## Acceptance matrix
@@ -260,11 +260,11 @@ current PR description records the exact current head and its own validation.
 | Gate                                                                                               | Result                             | Evidence / limitation                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Every implemented backend/viewer/static route is inventoried and documented.                       | PASS                               | 14 backend routes, eight viewer APIs and seven static assets; route census checks docs and source.                                                                                     |
-| Every dynamic API has a positive and applicable negative real HTTP contract case.                  | PASS on candidate `bc5079d`.       | 14 backend routes use disposable PostgreSQL; all eight viewer routes run in repository and selected modes. Static asset tests fetch exact bytes and check Host rejection per asset.    |
-| Success projections are validated by strict response schemas before serialization.                 | PASS on candidate `bc5079d`.       | Route-keyed backend schemas, viewer schemas, schema-map parity, page/snapshot/source identity and malformed-response controls.                                                         |
-| Retry/idempotency, concurrency, cancellation, provenance, persistence and recovery remain correct. | PASS on candidate `bc5079d`.       | Focused contract matrix, ordered backend PostgreSQL suite and dedicated restart suite passed using disposable PostgreSQL 17 only.                                                      |
+| Every dynamic API has a positive and applicable negative real HTTP contract case.                  | PASS on candidate `0a21d9f`.       | 14 backend routes use disposable PostgreSQL; all eight viewer routes run in repository and selected modes. Static asset tests fetch exact bytes and check Host rejection per asset.    |
+| Success projections are validated by strict response schemas before serialization.                 | PASS on candidate `0a21d9f`.       | Route-keyed backend schemas, viewer schemas, schema-map parity, page/snapshot/source identity and malformed-response controls.                                                         |
+| Retry/idempotency, concurrency, cancellation, provenance, persistence and recovery remain correct. | PASS on candidate `0a21d9f`.       | Focused contract matrix, ordered backend PostgreSQL suite and dedicated restart suite passed using disposable PostgreSQL 17 only.                                                      |
 | Zero unresolved P0/P1 defect in the inspected API contract scope.                                  | PASS in reviewed scope.            | Confirmed contract gaps were corrected and retested; final spec and standards re-reviews found no remaining contract gap or hard standards violation. Human approval remains separate. |
-| Latest completed local and hosted verification on one exact SHA.                                   | PASS on candidate `bc5079d`.       | Full local and hosted results are recorded above and were run on the exact SHA `bc5079d4892bfd9bbea2cbe8e60735208baacdaa`.                                                             |
+| Latest completed local and hosted verification on one exact SHA.                                   | PASS on candidate `0a21d9f`.       | Full local and hosted results are recorded above and were run on the exact SHA `0a21d9f5e070adff361922cca100cb81dbcdb994`.                                                             |
 | Human review/approval and merge authorization.                                                     | NOT VERIFIED; merge remains NO-GO. | PR #36 stays draft and unmerged. This implementation task does not request merge or bypass protection.                                                                                 |
 
 ## Residual risks and merge recommendation
@@ -276,13 +276,13 @@ current PR description records the exact current head and its own validation.
 - There is no stable external API compatibility promise or OpenAPI document.
 - Semantic labels and external evaluation remain outside this API contract gate;
   no human study or production behavior is claimed.
-- Candidate `bc5079d4892bfd9bbea2cbe8e60735208baacdaa` passed the exact-SHA
-  local and hosted gates recorded above. Run #179 does not cover this newer
+- Candidate `0a21d9f5e070adff361922cca100cb81dbcdb994` passed the exact-SHA
+  local and hosted gates recorded above. Run #181 does not cover this newer
   report-only revision; consult the current PR description for its checks.
 - Human review/approval remains a separate merge prerequisite; the user has not
   authorized a merge or a branch-protection bypass.
 
 **Decision: GO for the scoped API-contract gate; BLOCKED / NO-GO for merge.**
-Candidate `bc5079d4892bfd9bbea2cbe8e60735208baacdaa` passed local, real-
+Candidate `0a21d9f5e070adff361922cca100cb81dbcdb994` passed local, real-
 PostgreSQL and hosted Ubuntu/Windows/PostgreSQL verification. Human review and
 approval remain outstanding; keep PR #36 draft and unmerged.
