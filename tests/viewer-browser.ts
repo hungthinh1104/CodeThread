@@ -6,6 +6,7 @@ import {
 import { openPage, assertLocalOnly, selectByName } from './browser/helpers.ts';
 import { verifyGitSourceDiscovery } from './browser/source-discovery.ts';
 import { verifyRepositoryNavigation } from './browser/repository-navigation.ts';
+import { verifyFilePaginationOrdering } from './browser/file-pagination-order.ts';
 import { verifyRepositoryCliBrowser } from './browser/repository-corpus.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -575,6 +576,7 @@ async function main(): Promise<void> {
     await verifySafeEvidence(browser);
     await verifyGitSourceDiscovery(browser);
     await verifyRepositoryNavigation(browser);
+    await verifyFilePaginationOrdering(browser);
     await verifyRepositoryCliBrowser(browser);
   } finally {
     await browser.close();
