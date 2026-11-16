@@ -20,13 +20,14 @@ behavior, or human-study validation.
 - Base: `main` at `b61a0170811f5b0a6d037314bb76bccc354f3380`
 - PR baseline: `f6ad8047809a8168b21a539531262f5e78522838`
 - Code-fix SHA measured below: `13566a6a44bebef8c6752c8f2b8b55e197c29451`
+- Final clean profile/browser SHA: `a85035150cca742befc6a7ced0955f2696cac607`
 - Source manifest SHA-256:
   `de14e354a9d2151f74736ab827cb746a534967b8f241f6dc427928aa59828de9`
 
-The working tree was clean at the measured code SHA. The local branch was one
-commit ahead of its remote before this report was added. `origin/main` remained
-`b61a0170811f5b0a6d037314bb76bccc354f3380`; the existing PR check run #183
-passed on `f6ad804...` only and is stale for this candidate.
+The working tree was clean at both measured candidate SHAs. `a850351` adds this
+review document on top of the code-fix commit and changes no product source.
+`origin/main` remained `b61a0170811f5b0a6d037314bb76bccc354f3380`; the existing
+PR check run #183 passed on `f6ad804...` only and is stale for this candidate.
 
 ## Confirmed defect and fix
 
@@ -58,17 +59,16 @@ approval.
 
 ## Pinned whole-repository profile
 
-The same three pinned Git commits were profiled at baseline `f6ad804` and code
-candidate `13566a6`. Counts and coverage status were unchanged. Profile wall
+The same three pinned Git commits were profiled at baseline `f6ad804` and clean
+candidate `a850351`. Counts and coverage status were unchanged. Profile wall
 time and peak memory are single-machine measurements, not a performance claim;
-the final Zod run was slower than the baseline run and remained close to the
-configured resource envelope.
+the final Zod run was slower than the baseline run and showed high parent RSS.
 
 | Repository and source commit                     | Inventory / source coverage                                     | Ready / total contexts | Failed / unanalyzed | Context observation memberships | Baseline → candidate wall time | Candidate result bytes |
 | ------------------------------------------------ | --------------------------------------------------------------- | ---------------------: | ------------------: | ------------------------------: | -----------------------------: | ---------------------: |
-| Hono `f6fbaf0299c48eea9e656e03e2ffe7ac755e8823`  | 399/399; complete                                               |                  20/24 |               0 / 0 |                          42,991 |                26.36s → 32.38s |             48,741,319 |
-| Zod `19c40d2072288b4cafec851e9d056a72a88e5973`   | inventory complete; source coverage incomplete (38/477 omitted) |                  16/21 |              3 / 38 |                          83,088 |              60.286s → 95.641s |            107,104,677 |
-| Pinia `4817135a25431172d363bd928476db7cdbf875c4` | 120/120; complete                                               |                    3/8 |               0 / 0 |                           4,948 |                  4.84s → 5.90s |              6,471,335 |
+| Hono `f6fbaf0299c48eea9e656e03e2ffe7ac755e8823`  | 399/399; complete                                               |                  20/24 |               0 / 0 |                          42,991 |               26.36s → 32.216s |             48,741,315 |
+| Zod `19c40d2072288b4cafec851e9d056a72a88e5973`   | inventory complete; source coverage incomplete (38/477 omitted) |                  16/21 |              3 / 38 |                          83,088 |              60.286s → 98.215s |            107,104,675 |
+| Pinia `4817135a25431172d363bd928476db7cdbf875c4` | 120/120; complete                                               |                    3/8 |               0 / 0 |                           4,948 |                 4.84s → 5.726s |              6,471,336 |
 
 For all three repositories, `analysisComplete` and `contextComplete` were false.
 A “ready” context is not a complete repository result. Membership counts sum
@@ -98,15 +98,19 @@ and
 [`scripts/investigation/repository-session.ts`](../../scripts/investigation/repository-session.ts#L147).
 The default project deadline remains 120,000 ms at
 [`packages/symbol-indexer/src/project.ts`](../../packages/symbol-indexer/src/project.ts#L9);
-the final Zod profile took 95,641 ms, so it completed inside the deadline with
-about 24 seconds of headroom.
+the final Zod profile took 98,215 ms, so it completed inside the deadline with
+about 22 seconds of headroom.
 
-The final Zod profile reached 1,005,846,528 bytes parent peak RSS and
-1,049,509,888 bytes maximum worker peak RSS (about 959 MiB and 1,001 MiB). This
-is close to a 1 GiB envelope and is one Windows run, not cross-platform capacity
-evidence. The resource failures and 38 omitted files are not hidden or treated
-as complete. No limits were raised, diagnostics removed, or relationships
-discarded to improve reported coverage.
+The final `a850351` Zod profile reached 1,190,461,440 bytes parent peak RSS and
+1,062,563,840 bytes maximum worker peak RSS (about 1,135 MiB and 1,013 MiB). The
+preceding clean profile at `13566a6` measured 1,005,846,528 parent peak bytes
+and 1,049,509,888 maximum worker peak bytes. Counts were identical, but these
+differing memory peaks mean the lower reading is not a dependable capacity
+bound. This is Windows-only evidence, and the parent high-water mark can include
+the profile process's prior repository work. The parent peak exceeds 1 GiB; the
+worker peak is about 1,013 MiB. The resource failures and 38 omitted files are
+not hidden or treated as complete. No limits were raised, diagnostics removed,
+or relationships discarded to improve reported coverage.
 
 The 38 omitted paths all report the root `tsconfig.json` resource failure:
 
@@ -210,16 +214,16 @@ non-exact because it has no body-bearing repository declaration. For Hono,
 `src/utils/accept.ts:211`, and that callback/declaration distinction is retained
 as non-exact in the negative sample.
 
-The final browser JSON artifact SHA-256 is
-`90e454c4bdfd123b4999dc90a58901269d8daa59e3a72d71952b689054cf1497`; the profile
-JSON artifact SHA-256 is
-`c7cb97a06d0da963c3ef5f1a3c21ae31d8f203c424947e7c9683edadd47e133d9`. The
+The final `a850351` browser JSON artifact SHA-256 is
+`0e9348dc3e7ed71a39dfb31fa330b8628842d86f21a30f0ca3eddb76a6611148`; the final
+profile JSON artifact SHA-256 is
+`f578a7b4ed3b014409e47b05590e47ae975b8a2316eedd556854b123c9fdb7f8`. The
 artifacts were generated in the local temporary directory and are not committed;
 the source identities and exact sample are reproduced in this report.
 
 ## Frozen semantic evaluations
 
-`pnpm eval:semantic` passed on `13566a6`: 13/13 eligible supported exact
+`pnpm eval:semantic` passed on `a850351`: 13/13 eligible supported exact
 resolutions, zero incorrect exact, zero missed resolvable, and 17/30 supported
 occurrences. The other 13 are explicitly unsupported; unresolved and ambiguous
 occurrences remain separately counted. Source evidence mismatches were zero.
@@ -233,8 +237,12 @@ static-source evidence, not repository-wide accuracy or runtime behavior.
 
 ## Verification evidence
 
-All commands below used pinned Node `24.22.2` and pnpm `12.16.1` on code SHA
-`13566a6a44bebef8c6752c8f2b8b55e197c29451`.
+Commands below used pinned Node `24.22.2` and pnpm `12.16.1`. The general
+checks, semantic/external/browser evaluations, security audit, profile, and
+real-world browser replay were rerun on clean SHA
+`a85035150cca742befc6a7ced0955f2696cac607`. The PostgreSQL suite ran on code SHA
+`13566a6a44bebef8c6752c8f2b8b55e197c29451`; `a850351` changes only this review
+document, not the tested runtime code.
 
 | Command / check                         | Result                                                                                  | Evidence boundary                                                                                                                                                                           |
 | --------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -244,9 +252,9 @@ All commands below used pinned Node `24.22.2` and pnpm `12.16.1` on code SHA
 | `pnpm test:browser`                     | PASS                                                                                    | Pinned source navigation, context separation, occurrence evidence, history/recovery, and safe rendering workflows passed; tasks are not human-study evidence.                               |
 | `pnpm security:check`                   | PASS — no known vulnerabilities found                                                   | `pnpm audit --audit-level=low`.                                                                                                                                                             |
 | PostgreSQL-backed integration selection | PASS — 16 files, 80 tests passed, 1 file and 5 tests skipped                            | PostgreSQL 17.12; isolated database `codethread_cttrace_003` in a disposable local container. Migration reached schema 7; runtime grants passed twice. Windows-specific skips are retained. |
-| Pinned real-world browser replay        | PASS — 15/15 tasks; 22 exact expected/observed; zero wrong exact; zero supported misses | Clean working tree and exact code SHA `13566a6`; Hono/Zod/Pinia source commits listed above; labels unreviewed by humans.                                                                   |
-| Pinned whole-repository profile         | PASS as a reproducible profile; Zod coverage remains incomplete                         | Clean working tree and exact code SHA `13566a6`; see profile table and Zod failure detail above.                                                                                            |
-| Hosted Ubuntu / Windows / PostgreSQL CI | NOT VERIFIED for `13566a6` at report time                                               | Run #183 passed only on stale PR head `f6ad804`. A fresh hosted run is required after publishing the final report commit.                                                                   |
+| Pinned real-world browser replay        | PASS — 15/15 tasks; 22 exact expected/observed; zero wrong exact; zero supported misses | Clean working tree and exact SHA `a850351`; Hono/Zod/Pinia source commits listed above; labels unreviewed by humans.                                                                        |
+| Pinned whole-repository profile         | PASS as a reproducible profile; Zod coverage remains incomplete                         | Clean working tree and exact SHA `a850351`; see profile table and Zod failure detail above.                                                                                                 |
+| Hosted Ubuntu / Windows / PostgreSQL CI | NOT VERIFIED for `a850351` at report time                                               | Run #183 passed only on stale PR head `f6ad804`. A fresh hosted run is required after publishing the final report commit.                                                                   |
 | Human gold review / human PR approval   | NOT VERIFIED                                                                            | PR #36 remains draft; no human approval is claimed.                                                                                                                                         |
 
 ## Acceptance matrix and residual risk
@@ -262,12 +270,12 @@ All commands below used pinned Node `24.22.2` and pnpm `12.16.1` on code SHA
 | Hosted CI on final PR SHA                                        | NOT VERIFIED at report time | Do not treat baseline run #183 as current evidence.                                                                  |
 | Human-reviewed gold and PR approval                              | NOT VERIFIED                | Neither is claimed; PR stays draft.                                                                                  |
 
-Residual risks: Zod's maximum worker peak RSS is about 1,001 MiB and the final
-profile took about 96 seconds of the 120-second deadline on this Windows host.
-Cross-platform capacity, broader TypeScript syntax, all repository
-configurations, human-reviewed labels, and runtime behavior remain unverified.
-The browser replay proves only the listed static source relationships for the
-three pinned commits.
+Residual risks: Zod's maximum worker peak RSS is about 1,013 MiB, observed
+parent peak RSS was about 1,135 MiB, and the final profile took about 98 seconds
+of the 120-second deadline on this Windows host. Cross-platform capacity,
+broader TypeScript syntax, all repository configurations, human-reviewed labels,
+and runtime behavior remain unverified. The browser replay proves only the
+listed static source relationships for the three pinned commits.
 
 **Merge recommendation: NO-GO.** Preserve the documented Zod partial coverage,
 obtain exact-SHA hosted checks and human review before reconsidering. No merge,
