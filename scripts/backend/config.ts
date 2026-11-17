@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import { relative, isAbsolute, sep } from 'node:path';
 import { z } from 'zod';
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 
 export const uuid = z.uuid();
 export const hash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -47,17 +48,17 @@ export function serviceConfig() {
   const url = process.env.CODETHREAD_DATABASE_URL;
   const secret = process.env.CODETHREAD_API_TOKEN;
   const root = process.env.CODETHREAD_ALLOWED_REPO_ROOT;
-  const analyzerBuildHash = process.env.CODETHREAD_ANALYZER_BUILD_HASH;
+  const analyzerBuildHash = currentAnalyzerBuildHash();
+  const expectedBuildHash = process.env.CODETHREAD_ANALYZER_BUILD_HASH;
   if (
     !url ||
     !secret ||
     secret.length < 32 ||
     !root ||
-    !analyzerBuildHash ||
-    !hash.safeParse(analyzerBuildHash).success
+    (expectedBuildHash !== undefined && expectedBuildHash !== analyzerBuildHash)
   )
     throw new Error(
-      'Database URL, 32+ character API token, allowed repository root and verified analyzer build hash are required',
+      'Database URL, 32+ character API token, allowed repository root and matching analyzer build identity are required',
     );
   return { url, secret, root, analyzerBuildHash, port: 8765 };
 }

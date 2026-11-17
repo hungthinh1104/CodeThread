@@ -10,6 +10,7 @@ export interface WorkerInput {
   heapLimitBytes: number;
   repositoryId: string;
   sourceFingerprint: string;
+  analyzerBuildHash: string;
   configurationHash: string;
   files: PreparedFile[];
   project?: ProjectWorkerContext;

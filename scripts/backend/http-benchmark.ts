@@ -6,6 +6,7 @@ import type { Database } from './database.ts';
 import { connect } from './database.ts';
 import { makeApi } from './http.ts';
 import { ScanService } from './service.ts';
+import { DatabaseTelemetry } from './benchmark-telemetry.ts';
 
 type QueryTotals = { count: number; durationMs: number };
 type ApiOperation = {
@@ -17,6 +18,7 @@ type ApiOperation = {
 type ApiSample = {
   latencyMs: number;
   responseBytes: number;
+  outcome: string;
   queryCount?: number;
   databaseQueryLatencyMs?: number;
 };
@@ -184,8 +186,13 @@ function percentile(values: readonly number[], fraction: number): number {
 }
 
 function summarizeSamples(samples: readonly ApiSample[]) {
+  const outcomes: Record<string, number> = {};
+  for (const sample of samples)
+    outcomes[sample.outcome] = (outcomes[sample.outcome] ?? 0) + 1;
+  const successful = samples.filter((sample) => sample.outcome === 'ok');
   return {
     sampleCount: samples.length,
+    outcomes,
     latencyMs: {
       p50: percentile(
         samples.map((sample) => sample.latencyMs),
@@ -200,6 +207,22 @@ function summarizeSamples(samples: readonly ApiSample[]) {
         0.99,
       ),
     },
+    successfulLatencyMs: successful.length
+      ? {
+          p50: percentile(
+            successful.map((sample) => sample.latencyMs),
+            0.5,
+          ),
+          p95: percentile(
+            successful.map((sample) => sample.latencyMs),
+            0.95,
+          ),
+          p99: percentile(
+            successful.map((sample) => sample.latencyMs),
+            0.99,
+          ),
+        }
+      : null,
     responseBytes: {
       p50: percentile(
         samples.map((sample) => sample.responseBytes),
@@ -296,16 +319,38 @@ async function sampleOperation(
   api: { baseUrl: string; secret: string },
   operation: ApiOperation,
 ): Promise<ApiSample> {
-  const response = await requestJson(
-    api,
-    operation.path,
-    operation.method,
-    operation.body,
-  );
-  return {
-    latencyMs: Number(response.elapsedMs.toFixed(2)),
-    responseBytes: response.bytes,
-  };
+  const started = performance.now();
+  try {
+    const response = await fetch(api.baseUrl + operation.path, {
+      method: operation.method,
+      headers: {
+        Authorization: `Bearer ${api.secret}`,
+        ...(operation.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(operation.body ? { body: JSON.stringify(operation.body) } : {}),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(30_000),
+    });
+    const text = await response.text();
+    const parsed = JSON.parse(text) as { error?: { code?: unknown } };
+    const code = parsed?.error?.code;
+    return {
+      latencyMs: Number((performance.now() - started).toFixed(2)),
+      responseBytes: Buffer.byteLength(text),
+      outcome: response.ok
+        ? 'ok'
+        : `http_${response.status}${typeof code === 'string' && /^[A-Z_]+$/.test(code) ? `:${code}` : ''}`,
+    };
+  } catch (error) {
+    return {
+      latencyMs: Number((performance.now() - started).toFixed(2)),
+      responseBytes: 0,
+      outcome:
+        error instanceof Error && error.name === 'TimeoutError'
+          ? 'timeout'
+          : 'request_error',
+    };
+  }
 }
 
 export async function benchmarkHttpApi(input: HttpBenchmarkInput) {
@@ -353,6 +398,9 @@ export async function benchmarkHttpApi(input: HttpBenchmarkInput) {
   }
 
   const timer = new DatabaseQueryTimer(),
+    telemetry = new DatabaseTelemetry(
+      decodeURIComponent(new URL(input.databaseUrl).pathname.slice(1)),
+    ),
     db = instrumentDatabase(connect(input.databaseUrl), timer),
     scans = new ScanService(db, {
       root: input.root,
@@ -361,33 +409,58 @@ export async function benchmarkHttpApi(input: HttpBenchmarkInput) {
   let api: Awaited<ReturnType<typeof listenApi>> | undefined;
   try {
     api = await listenApi(db, scans);
-    for (const operation of operations) await sampleOperation(api, operation);
+    for (const operation of operations) {
+      const warmup = await sampleOperation(api, operation);
+      if (warmup.outcome !== 'ok')
+        throw new Error(
+          `HTTP benchmark warm-up failed: ${operation.name} ${warmup.outcome}`,
+        );
+    }
     for (const operation of operations) {
       const concurrencyResults: Record<string, unknown>[] = [];
-      for (const concurrency of [1, 2, 4]) {
+      for (const concurrency of [1, 4, 8, 16, 32]) {
         const samples: ApiSample[] = [];
         timer.reset();
-        for (let batch = 0; batch < iterations; batch++) {
-          const result = await Promise.all(
-            Array.from({ length: concurrency }, () =>
-              sampleOperation(api!, operation),
-            ),
-          );
-          samples.push(...result);
+        telemetry.reset();
+        let peakRss = process.memoryUsage.rss();
+        const rssTimer = setInterval(() => {
+          peakRss = Math.max(peakRss, process.memoryUsage.rss());
+        }, 20);
+        try {
+          for (let batch = 0; batch < iterations; batch++) {
+            const result = await Promise.all(
+              Array.from({ length: concurrency }, () =>
+                sampleOperation(api!, operation),
+              ),
+            );
+            samples.push(...result);
+            peakRss = Math.max(peakRss, process.memoryUsage.rss());
+          }
+        } finally {
+          clearInterval(rssTimer);
         }
-        concurrencyResults.push({
+        const result = {
           clients: concurrency,
           ...summarizeSamples(samples),
+          peakProcessRssMiB: Number((peakRss / 1024 / 1024).toFixed(1)),
+          postgres: telemetry.result(),
           databaseQueryCount: timer.count,
           databaseQueryLatencyMsTotal: Number(timer.durationMs.toFixed(2)),
           databaseQueryLatencyMsPerRequestMean: Number(
             (timer.durationMs / samples.length).toFixed(2),
           ),
-        });
+        };
+        concurrencyResults.push(result);
+        if (process.env.CODETHREAD_HTTP_BENCH_PROGRESS === '1')
+          console.error(
+            'HTTP_BENCH',
+            JSON.stringify({ operation: operation.name, ...result }),
+          );
       }
       warm[operation.name] = concurrencyResults;
     }
   } finally {
+    telemetry.close();
     scans.stop();
     if (api) await closeServer(api.server);
     await db.end({ timeout: 5 });
@@ -399,6 +472,9 @@ export async function benchmarkHttpApi(input: HttpBenchmarkInput) {
       'Requests after one excluded warm-up per endpoint on a persistent API server and database client pool; Pxx uses nearest-rank percentiles.',
     databaseTimeDefinition:
       'Sum of instrumented tagged SQL/unsafe call durations, including client-to-database round trip and pool wait; warm values are reported per batch and as a mean per request.',
+    postgresTraceDefinition:
+      'postgres.js diagnostics: queryQueueMs is queued-to-sent (including pool, connection and pipeline wait); queryRoundTripMs is sent-to-complete (including server execution, transfer and parsing); transactionLeaseWaitMs is pool lease acquisition wait. Percentiles use nearest rank.',
+    requestTimeoutMs: 30_000,
     coldSamplesPerEndpoint: coldSamples,
     warmIterationsPerConcurrency: iterations,
     cold,

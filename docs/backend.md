@@ -49,6 +49,8 @@ Current migrations provide:
 - `006_active_scan_queue.sql`: a partial index for bounded queue admission. At
   most 32 scans may be queued or running globally; excess requests receive
   `429 SCAN_QUEUE_FULL` without advancing repository generation.
+- `007_fence_scan_inputs.sql`: prevents new input or project provenance on a
+  terminal job and freezes its result fields. Existing rows are not rewritten.
 
 Use a dedicated migration owner for DDL. `pnpm backend:roles` applies the
 idempotent `db/roles.sql` grants for `codethread_runtime` and
@@ -70,17 +72,33 @@ pinned Node 24.22.2 and pnpm 12.16.1.
 
 Provision a disposable PostgreSQL 17 database and use separate migration and
 runtime logins. Supply the API token through the environment; it must contain at
-least 32 characters. The analyzer build hash must be a verified lowercase
-SHA-256 fingerprint from the build process.
+least 32 characters. The backend computes the analyzer build fingerprint from
+the installed build; a supplied `CODETHREAD_ANALYZER_BUILD_HASH` is an optional
+expected value and a mismatch prevents startup.
 
 ```sh
 export CODETHREAD_DATABASE_URL='postgres://runtime-login:...@127.0.0.1:5432/codethread'
 export CODETHREAD_API_TOKEN='a-random-secret-at-least-32-characters'
 export CODETHREAD_ALLOWED_REPO_ROOT='/absolute/path/to/allowed/repos'
-export CODETHREAD_ANALYZER_BUILD_HASH='<verified lowercase SHA-256 build fingerprint>'
 pnpm build
 pnpm backend:start
 ```
+
+The SHA-256 build fingerprint covers raw bytes of the installed symbol-indexer
+and code-model JavaScript, the installed Zod runtime, TypeScript 6.0.3's
+compiler and standard-library files, and the Node version. Names are sorted and
+relative to their package roots, so installation paths do not affect the digest.
+Project-specific source and configuration remain separate identity inputs. The
+service checks the accepted version and build again before executing work and
+inside the publication transaction; each produced snapshot must match. An
+unavailable build fails with `ANALYZER_BUILD_MISMATCH`. Idempotent requests
+still return the original job after a build change.
+
+This is a fingerprint of the specified files on disk, not complete runtime
+attestation. In particular, it does not prove the contents of modules already
+loaded into memory or cover Git acquisition and session orchestration scripts.
+It assumes the local runtime, compiler and installed files are trusted. Do not
+replace a running build in place.
 
 The service binds `127.0.0.1:8765`, requires a bearer token, validates Host and
 Origin, requires JSON for POST bodies, caps request bodies at 64 KiB and
@@ -94,36 +112,108 @@ reports API, database and worker readiness separately. One serial worker runs
 per backend process; the database lock prevents a second worker process from
 silently competing. This is not a team, multi-user or remote service.
 
+At most four symbol, graph-neighbor, path or evidence queries may be active per
+API instance. Further requests in those families receive 429
+`QUERY_CAPACITY_EXCEEDED` and can retry; health requests are not counted against
+this admission limit. This bounds concurrent symbol searches and snapshot
+hydration, but does not guarantee fairness or cancel work when a client
+disconnects.
+
+The worker holds its advisory lock and executes worker SQL on one dedicated
+PostgreSQL session. If the session closes, the worker stops and the backend
+exits with an error instead of silently continuing on another session. On
+SIGINT/SIGTERM, the backend stops the worker, cancels a statement on the
+lock-holding session through its normal database role, closes that session, and
+gives active HTTP connections a bounded grace period. A failed or timed-out
+shutdown exits nonzero. PostgreSQL can retain a disconnected session until it
+detects the connection loss; a new worker must wait for that lock to disappear.
+On recovery, interrupted pinned jobs are requeued with their original commit;
+interrupted jobs without a persisted pin fail with `REVISION_NOT_PINNED`.
+Explicit cancellation remains `cancelled`, and analysis errors remain failures.
+
+Readiness requires a successful initial poll, a rollback-only write probe and an
+active lease. Three consecutive operational failures, a claim or failure
+settlement blocked for seven seconds, or a database write phase blocked for
+fifteen seconds make the worker unavailable. Polling is spaced by 500 ms.
+Expected user scan failures do not count as operational failures. A pinned job
+with a PostgreSQL error is retried at its original commit up to five attempts;
+an unpinned job fails instead of resolving a moving ref again. A failed terminal
+update is retried at most five times before the worker stops. A successful scan
+clears processing failures; idle polls clear claim failures. After processing
+failures, an idle worker can restore readiness through a rate-limited synthetic
+transaction that exercises representative claim, input, snapshot, project and
+activation writes and forces deferred constraints before it always rolls back.
+It runs before initial readiness, every 30 seconds while idle, and at most once
+every five seconds during recovery; it does not prove that every
+repository-specific write will succeed. A changed installed analyzer also
+disables readiness until the original installed files are restored.
+
+The five-attempt limit also applies across worker restarts. An exhausted pinned
+job fails with `RETRY_LIMIT_EXCEEDED`; to analyze the same source again, submit
+its recorded `git_commit_oid` with a new idempotency key. Reusing the original
+key returns the original terminal job.
+
 ## Routes
 
-| Request                                            | Behavior                                                                                                              |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | API, database and worker readiness.                                                                                   |
-| `POST /v1/repositories`                            | Register an existing Git repository beneath the configured root.                                                      |
-| `GET /v1/repositories` and `/v1/repositories/:id`  | List or inspect registered repositories and active scan.                                                              |
-| `POST /v1/repositories/:id/scans`                  | Queue a pinned revision with repository-scoped idempotency; 429 `SCAN_QUEUE_FULL` applies at the global 32-job bound. |
-| `GET /v1/scans/:id`                                | Job state, attempt, pinned commit/tree and activation result.                                                         |
-| `POST /v1/scans/:id/cancel`                        | Cancel queued or running work.                                                                                        |
-| `GET /v1/scans/:id/projects`                       | Project readiness, diagnostics and snapshot IDs.                                                                      |
-| `GET /v1/scans/:id/files?offset=0`                 | Bounded page of committed source provenance.                                                                          |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped, deterministic 50-row symbol search with `query` and bounded `offset`.                                |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated, bounded graph-neighbor projection.                                                                         |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated, bounded exact-symbol path projection.                                                                      |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                  |
-| `POST /v1/scans/:id/viewer`                        | Open the existing local viewer from a persisted investigation.                                                        |
+| Request                                            | Behavior                                                                                                                                                                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                   | No body; returns API/database/worker readiness and status 503 when not ready.                                                                                                                                                    |
+| `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                                                                                                |
+| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                                            |
+| `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                                                                                                 |
+| `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                                                                                                        |
+| `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                                                                                                   |
+| `POST /v1/scans/:id/cancel`                        | Requires an empty body; cancels queued/running work; missing or terminal jobs return 409.                                                                                                                                        |
+| `POST /v1/scans/:id/viewer`                        | Requires an empty body; opens a viewer from a succeeded, pinned scan; missing scan returns 404, a non-ready scan returns 409 `VIEWER_NOT_READY`, capacity returns 429 `VIEWER_CAPACITY`, and an unavailable adapter returns 503. |
+| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows and diagnostics.                                                                                                                                                                           |
+| `GET /v1/scans/:id/files?offset=0`                 | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                                                                                                  |
+| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                                                                                                             |
+| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated bounded graph-neighbor projection.                                                                                                                                                                                     |
+| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated bounded exact-symbol path projection.                                                                                                                                                                                  |
+| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                                                                                                                             |
 
-Graph and evidence bodies use the corresponding `@codethread/contracts` request
-and returned `snapshotId`. The query application service checks that the
-snapshot belongs to the selected completed scan and validates the result against
-the original request before transport. The symbol route reads only its bounded
-page from immutable `symbol_json` rows and returns coverage and truncation
-metadata. Other graph/evidence requests still hydrate and validate the complete
-snapshot and its retained bytes.
+Every route requires the bearer token and exact loopback `Host`; if `Origin` is
+present it must match the API origin. POST routes that consume JSON require
+`application/json`. Requests are capped at 64 KiB and responses at 1 MiB. Shared
+errors use `{error:{code,message}}`; status classes include 400 invalid input,
+401 missing/invalid token, 403 Host/Origin rejection, 404 missing route/entity,
+409 state/idempotency/snapshot conflicts, 413 size limits, 415 media type, 429
+queue/query admission, 500 sanitized internal failure and 503 unavailable
+service. Unknown paths or method/path combinations currently return 404. Only
+the documented `offset` and `query` keys are accepted on the paginated GET
+routes. Repeated or unknown keys return 400, and offsets must be unsigned
+base-10 integers.
+
+All 14 persistent routes validate successful responses through the route-keyed
+schemas in `scripts/backend/http-contracts.ts`. Repository and scan queries are
+projected into explicit public DTOs, including ISO timestamps and decimal
+generation strings, so database driver rows are not the wire contract. Health
+readiness consistency is validated for both HTTP 200 and 503. Symbol, neighbor,
+path and evidence query results also pass the shared request-aware contracts
+before transport. Graph and evidence requests use the corresponding
+`@codethread/contracts` request and returned `snapshotId`; the query application
+service checks that the snapshot belongs to the selected completed scan and
+validates the result against the original request before transport. The symbol
+route streams at most the bounded snapshot's symbol names for nonempty searches,
+applies JavaScript's Unicode matching rules, and reads full payloads only for
+the selected page. It returns coverage and truncation metadata. Other
+graph/evidence requests still hydrate and validate the complete snapshot and its
+retained bytes.
+
+`tests/backend-api-contract.test.ts` runs real HTTP requests against disposable
+PostgreSQL 17 and a real worker. It covers every route's valid response and a
+route-specific negative case, persistent mutation readback, idempotent
+concurrent submission, conflict rollback, snapshot-scoped graph/path/evidence
+results and transport security. CI compares its route matrix with the
+implementation and response schema map.
+
+Successful routes return HTTP 200, including repository creation and scan queue
+acceptance; this candidate does not return 201 or 202.
 
 The viewer adapter reconstructs the existing viewer from persisted data. It does
 not send the backend bearer token to browser JavaScript. The viewer gets a
-separate short-lived loopback token in its URL fragment; the server limits
-active viewers and closes expired sessions.
+separate short-lived loopback token in its URL fragment; the server limits at
+most four active viewers and closes each session after 30 minutes.
 
 ## Retention and backup
 
@@ -170,7 +260,8 @@ not forward URL passwords.
    archive path and isolated restore URL. It restores the `codethread` schema,
    verifies migration checksums and all published snapshots/source hashes,
    compares representative symbol/graph/evidence outputs and active sessions,
-   reapplies the reviewed NOLOGIN roles, and checks runtime/retention grants.
+   including project failure and timeout reasons, reapplies the reviewed NOLOGIN
+   roles, and checks runtime/retention grants.
 4. Proceed with a local restore only when the verifier reports
    `status=verified`; record its verification digest and role checks. Confirm
    the restored API's health, job state and pinned commit/tree before directing
@@ -196,15 +287,24 @@ worktree).
 The report includes full scan lifecycle and phase timings, snapshot hydration,
 symbol search, graph-query timing, checksums, host/software versions, peak RSS,
 source bytes and before/after PostgreSQL query plans. Actual HTTP symbol,
-neighbor, path and evidence requests report response bytes and P50/P95/P99 at
-concurrency 1/2/4. Cold samples use a new API server and database client pool;
-PostgreSQL shared-buffer and operating-system caches are not flushed. Warm
-samples follow one excluded warm-up on a persistent server/pool. Database time
-is summed tagged-SQL client round-trip latency, including pool wait, not a claim
-about server-only execution time. Defaults are 10 cold samples and 20 warm
-iterations per concurrency; set `CODETHREAD_HTTP_BENCH_COLD_SAMPLES` and
+neighbor, path and evidence requests report response bytes, outcomes and
+P50/P95/P99 at concurrency 1/4/8/16/32. Cold samples use a new API server and
+database client pool; PostgreSQL shared-buffer and operating-system caches are
+not flushed. Warm samples follow one excluded warm-up on a persistent
+server/pool. Database time is summed tagged-SQL client round-trip latency.
+Driver diagnostics separately report transaction pool-lease wait, queued-to-sent
+time and sent-to-completion round trips; none is a server-only execution
+measurement. Each request has a 30-second client timeout, and outcomes and
+sampled peak process RSS are reported. Successful-request latency percentiles
+are separate from immediate overload responses. For the local 900-file synthetic
+stress fixture, the candidate budget is P99 at most 10 seconds for admitted
+requests and sampled process RSS at most 1 GiB; this is a workload-specific
+gate, not a general service-level promise. Defaults are 10 cold samples and 20
+warm iterations per concurrency; set `CODETHREAD_HTTP_BENCH_COLD_SAMPLES` and
 `CODETHREAD_HTTP_BENCH_ITERATIONS` to repeat the run with different sample
-counts.
+counts. Set `CODETHREAD_BENCH_PROFILES` to a comma-separated subset of `small`,
+`medium`, `large` and `pinned-hono` when measuring a named subset; the default
+includes all four.
 
 The 900-file synthetic profile stays below the current repository-scope cap of
 1,000 files. The before path models full snapshot hydration; the after path uses
@@ -220,6 +320,17 @@ script twice, adversarial integration tests and an isolated backup/restore
 verification. The Windows and Ubuntu jobs run `pnpm check`, semantic and pinned
 external evaluation, browser tests and the dependency audit. Local PostgreSQL
 tests and local benchmarks do not replace hosted CI or independent review.
+
+The driver-loss and worker-loss suites exercise terminated sessions and forced
+TCP closure. The dedicated, explicitly labelled PostgreSQL restart service is
+restarted during input persistence, publication and activation. POSIX tests send
+real SIGINT/SIGTERM while a scan is pinned or unpinned and while an HTTP body is
+still arriving. The partial-session suite injects a project timeout or resource
+error while using real Git inputs, PostgreSQL publication and API reopening; the
+injected limit is not a maximum-size performance result. The persistent-browser
+test opens a real partial PostgreSQL session in Chromium, checks
+CALLS/REFERENCES and source hashes, then reopens it after moving HEAD, removing
+the fixture repository and restarting the backend.
 
 Persisted test-case/test-step analysis is not exposed by the backend routes.
 Full graph/evidence queries currently hydrate and verify all facts/source bytes;

@@ -18,6 +18,7 @@ import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import type { createInvestigation } from '@codethread/trace-engine';
 import { z } from 'zod';
 import { ViewerFailure } from './viewer-errors.ts';
+import { viewerPageConsistencyIssues } from './viewer-page-contract.ts';
 
 const MAX_SYMBOLS_PER_PAGE = 50;
 const MAX_GRAPH_DEPTH = 2;
@@ -36,7 +37,7 @@ const analysisCountsSchema = z.strictObject({
   unsupported: z.number().int().nonnegative(),
   notAnalyzedInputs: z.number().int().nonnegative(),
 });
-const sessionResponseSchema = z.strictObject({
+export const sessionResponseSchema = z.strictObject({
   snapshotId: idSchema,
   identity: snapshotIdentitySchema,
   counts: analysisCountsSchema,
@@ -47,21 +48,38 @@ const symbolSearchRequestSchema = z.strictObject({
   query: z.string().max(256).default(''),
   offset: z.number().int().min(0).max(20000).default(0),
 });
-const symbolSearchResponseSchema = z.strictObject({
-  snapshotId: idSchema,
-  query: z.string().max(256),
-  offset: z.number().int().min(0).max(20000),
-  limit: z.literal(MAX_SYMBOLS_PER_PAGE),
-  total: z.number().int().nonnegative(),
-  nextOffset: z.number().int().min(0).max(20000).nullable(),
-  items: z.array(symbolSchema).max(MAX_SYMBOLS_PER_PAGE),
-});
+export const symbolSearchResponseSchema = z
+  .strictObject({
+    snapshotId: idSchema,
+    query: z.string().max(256),
+    offset: z.number().int().min(0).max(20000),
+    limit: z.literal(MAX_SYMBOLS_PER_PAGE),
+    total: z.number().int().nonnegative(),
+    nextOffset: z.number().int().min(0).max(20000).nullable(),
+    items: z.array(symbolSchema).max(MAX_SYMBOLS_PER_PAGE),
+  })
+  .superRefine((page, context) => {
+    for (const issue of viewerPageConsistencyIssues(page))
+      context.addIssue({
+        code: 'custom',
+        path: [issue.path],
+        message: issue.message,
+      });
+    page.items.forEach((symbol, index) => {
+      if (symbol.snapshotId !== page.snapshotId)
+        context.addIssue({
+          code: 'custom',
+          path: ['items', index, 'snapshotId'],
+          message: 'Symbol must belong to the declared page snapshot.',
+        });
+    });
+  });
 const unsupportedObservationSchema = z.strictObject({
   evidenceId: idSchema,
   status: z.enum(['ambiguous', 'unresolved', 'unsupported']),
   diagnostic: diagnosticSchema.nullable(),
 });
-const viewerGraphResponseSchema = z.strictObject({
+export const viewerGraphResponseSchema = z.strictObject({
   graph: graphNeighborsResponseSchema,
   unknowns: z.strictObject({
     total: z.number().int().nonnegative(),

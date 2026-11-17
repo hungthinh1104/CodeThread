@@ -9,7 +9,8 @@ v0:
     A standard local Git checkout supplies one pinned commit. The repository
     scope admits all regular .ts blobs and bounded compiler/workspace metadata;
     the selected-file and metadata-only browse workflows remain available.
-    Original verified bytes live only in the in-memory session.
+    Original verified bytes remain in memory for ephemeral sessions; the
+    optional local PostgreSQL backend also retains verified bytes durably.
   language: >-
     TypeScript .ts files only. .tsx, JavaScript, ambient machine types and
     repository-installed dependencies are outside this MVP.

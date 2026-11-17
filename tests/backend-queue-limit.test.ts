@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
   createConnection,
@@ -56,7 +57,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
       await applyMigrations(db);
       service = new ScanService(db, {
         root,
-        analyzerBuildHash: 'a'.repeat(64),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
       const port = await reservePort(),
         token = randomBytes(32).toString('hex');
@@ -131,11 +132,14 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
           authorization: `Bearer ${token}`,
           'content-type': 'application/json',
         },
-        post = async (path: string, body: unknown) => {
+        post = async (path: string, body?: unknown) => {
           const response = await fetch(base + path, {
             method: 'POST',
-            headers,
-            body: JSON.stringify(body),
+            headers:
+              body === undefined
+                ? { authorization: headers.authorization }
+                : headers,
+            ...(body === undefined ? {} : { body: JSON.stringify(body) }),
           });
           return {
             status: response.status,
@@ -159,6 +163,19 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
           return response.body.id as string;
         }),
       );
+      const listed = await get('/repositories');
+      expect(listed.status).toBe(200);
+      expect(listed.body).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: repositories[0] }),
+          expect.objectContaining({ id: repositories[1] }),
+        ]),
+      );
+      const unauthenticatedList = await fetch(`${base}/repositories`);
+      expect(unauthenticatedList.status).toBe(401);
+      expect(await unauthenticatedList.json()).toMatchObject({
+        error: { code: 'UNAUTHORIZED' },
+      });
       const accepted: { id: string; repositoryId: string; key: string }[] = [];
       for (let index = 0; index < MAX_OUTSTANDING_SCANS - 1; index++) {
         const repositoryId = repositories[index % repositories.length]!,
@@ -223,7 +240,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend scan queue bounds', () => {
       });
       expect(await generationTotal()).toBe(beforeConcurrentSubmit + 1n);
 
-      const cancelled = await post(`/scans/${accepted[0]!.id}/cancel`, {});
+      const cancelled = await post(`/scans/${accepted[0]!.id}/cancel`);
       expect(cancelled.status).toBe(200);
       expect(cancelled.body.state).toBe('cancelled');
       const resumed = await post(`/repositories/${repositories[1]}/scans`, {

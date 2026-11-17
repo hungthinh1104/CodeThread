@@ -1,3 +1,4 @@
+import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
 import { describe, it, expect } from 'vitest';
 import {
   mkdtemp,
@@ -14,11 +15,11 @@ import { request as httpRequest } from 'node:http';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { connect, assertMigrations } from '../scripts/backend/database.ts';
 import {
-  acquireServiceLock,
-  connect,
-  assertMigrations,
-} from '../scripts/backend/database.ts';
+  acquireWorkerLease,
+  type WorkerLease,
+} from '../scripts/backend/worker-lease.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
 import { ScanService } from '../scripts/backend/service.ts';
 import { persistScan } from '../scripts/backend/scan-persistence.ts';
@@ -232,6 +233,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
     const commit = git('rev-parse', 'HEAD').trim();
     const db = connect(dbUrl!);
     let service: ScanService | undefined;
+    let lease: WorkerLease | undefined;
     let server: ReturnType<typeof makeApi> | undefined;
     let viewers: PersistentViewerManager | undefined;
     try {
@@ -260,10 +262,12 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         can_prune: false,
         retention_can_prune: true,
       });
-      service = new ScanService(db, {
-        root: parent,
-        analyzerBuildHash: digest('integration-build'),
-      });
+      lease = await acquireWorkerLease(dbUrl!);
+      service = new ScanService(
+        db,
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
+        lease,
+      );
       const repo = await service.register(folder);
       await db`UPDATE codethread.repository
         SET desired_generation='9007199254740991' WHERE id=${repo.id}`;
@@ -581,6 +585,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       if (server)
         await new Promise<void>((resolve) => server!.close(() => resolve()));
       await viewers?.closeAll();
+      await lease?.close();
       await db.end({ timeout: 5 });
       await rm(parent, { recursive: true, force: true });
     }
@@ -599,7 +604,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('path-order-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let jobId: string | undefined;
     try {
@@ -641,7 +646,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       service: ScanService | undefined,
       server: ReturnType<typeof makeApi> | undefined,
       worker: Promise<void> | undefined,
-      unlock: (() => Promise<void>) | undefined;
+      lease: WorkerLease | undefined;
     try {
       await applyMigrations(db);
       await db.unsafe(
@@ -672,7 +677,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       runtimeUrl.password = rolePassword;
       runtimeDb = connect(runtimeUrl.toString());
       await assertMigrations(runtimeDb);
-      unlock = await acquireServiceLock(runtimeDb);
+      lease = await acquireWorkerLease(runtimeUrl.toString());
       const role = await runtimeDb`SELECT current_user,
         pg_has_role(current_user,'codethread_runtime','member') AS runtime_member,
         r.rolsuper,r.rolcreaterole,r.rolcreatedb,
@@ -688,10 +693,14 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         can_delete: false,
         can_create: false,
       });
-      service = new ScanService(runtimeDb, {
-        root: allowedRoot,
-        analyzerBuildHash: digest('least-privilege-runtime-build'),
-      });
+      service = new ScanService(
+        runtimeDb,
+        {
+          root: allowedRoot,
+          analyzerBuildHash: currentAnalyzerBuildHash(),
+        },
+        lease,
+      );
       await service.recover();
 
       const probe = createPortProbe();
@@ -722,7 +731,12 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
             body: JSON.stringify(value),
           });
 
-      const health = await fetch(`${base}/health`, { headers: auth });
+      let health = await fetch(`${base}/health`, { headers: auth });
+      const readinessDeadline = Date.now() + 20_000;
+      while (health.status === 503 && Date.now() < readinessDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        health = await fetch(`${base}/health`, { headers: auth });
+      }
       expect(health.status).toBe(200);
       expect(await health.json()).toMatchObject({ ready: true });
       const badHostStatus = await new Promise<number>((resolve, reject) => {
@@ -877,7 +891,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       await worker?.catch(() => {});
       if (server)
         await new Promise<void>((resolve) => server!.close(() => resolve()));
-      await unlock?.();
+      await lease?.close();
       await runtimeDb?.end({ timeout: 5 });
       await migrationDb?.end({ timeout: 5 });
       await db
@@ -907,7 +921,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       ],
       fixture = await createGitFixture(parent, inputSources),
       db = connect(dbUrl!),
-      buildHash = digest('source-input-crash-build'),
+      buildHash = currentAnalyzerBuildHash(),
       service = new ScanService(db, {
         root: parent,
         analyzerBuildHash: buildHash,
@@ -941,7 +955,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       let blockedDuringInputPersistence = false;
       while (Date.now() < deadline) {
         const rows = await db`SELECT count(*)::integer AS total
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
         if (Number(rows[0]?.total) > 0) {
@@ -980,7 +994,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       await waitForProcessExit(child);
       expect(child.exitCode).toBe(86);
       const blocked = await db`SELECT pid FROM pg_stat_activity
-        WHERE application_name='codethread-backend' AND state='active'
+        WHERE application_name='codethread-worker' AND state='active'
           AND wait_event='PgSleep'
           AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
       if (blocked.length)
@@ -994,7 +1008,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         (SELECT count(*)::integer FROM codethread.scan_input_file
           WHERE scan_job_id=${queued.id}) AS inputs,
         (SELECT count(*)::integer FROM codethread.source_object
-          WHERE sha256=ANY(${db.array(inputHashes)}::text[])) AS objects`;
+          WHERE sha256=ANY(${inputHashes}::text[])) AS objects`;
       expect(rolledBack[0]).toMatchObject({ inputs: 0, objects: 0 });
       restartWorker = startScanWorker(parent, buildHash);
       await waitForProcessMessage(restartWorker, 'ready');
@@ -1032,7 +1046,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }
       if (triggerInstalled) {
         await db`SELECT pg_terminate_backend(pid) AS terminated
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%INSERT INTO codethread.scan_input_file%'`;
         await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_source_input
@@ -1058,7 +1072,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }),
       fixture = await createGitFixture(parent, sources),
       db = connect(dbUrl!),
-      buildHash = digest('analysis-process-crash-build'),
+      buildHash = currentAnalyzerBuildHash(),
       service = new ScanService(db, {
         root: parent,
         analyzerBuildHash: buildHash,
@@ -1158,7 +1172,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('process-crash-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let child: ChildProcess | undefined,
       triggerInstalled = false,
@@ -1181,7 +1195,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_publication
         BEFORE UPDATE OF state ON codethread.repository_snapshot
-        FOR EACH ROW WHEN (NEW.state='published')
+        FOR EACH ROW WHEN (NEW.state='published' AND NEW.repository_id='${registered.id}'::uuid)
         EXECUTE FUNCTION codethread.test_pause_publication()`);
       triggerInstalled = true;
 
@@ -1192,7 +1206,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           ...process.env,
           CODETHREAD_DATABASE_URL: dbUrl!,
           CODETHREAD_ALLOWED_REPO_ROOT: parent,
-          CODETHREAD_ANALYZER_BUILD_HASH: digest('process-crash-build'),
+          CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
         };
       child = spawn(process.execPath, [workerPath], {
         cwd: process.cwd(),
@@ -1210,7 +1224,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       let blockedAtPublication = false;
       while (Date.now() < deadline) {
         const rows = await db`SELECT count(*)::integer AS total
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'`;
         if (Number(rows[0]?.total) > 0) {
           blockedAtPublication = true;
@@ -1220,6 +1234,11 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedAtPublication).toBe(true);
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: fixture.commit,
+      });
       child.send('crash');
       await waitForProcessMessage(child, 'crash-received');
       await waitForProcessExit(child);
@@ -1227,7 +1246,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       expect(childStderr).toBe('');
 
       const blockedBackends = await db`SELECT pid
-        FROM pg_stat_activity WHERE application_name='codethread-backend'
+        FROM pg_stat_activity WHERE application_name='codethread-worker'
           AND state='active' AND wait_event='PgSleep'
           AND query LIKE '%UPDATE codethread.repository_snapshot%'`;
       if (blockedBackends.length)
@@ -1237,7 +1256,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       let publicationLockReleased = false;
       while (Date.now() < rollbackDeadline) {
         const active = await db`SELECT count(*)::integer AS total
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'`;
         if (Number(active[0]?.total) === 0) {
           publicationLockReleased = true;
@@ -1325,7 +1344,8 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_activation
         BEFORE UPDATE OF active_job_id ON codethread.repository
-        FOR EACH ROW EXECUTE FUNCTION codethread.test_pause_activation()`);
+        FOR EACH ROW WHEN (NEW.active_job_id='${next.id}'::uuid)
+        EXECUTE FUNCTION codethread.test_pause_activation()`);
       activationTriggerInstalled = true;
 
       activationWorker = spawn(process.execPath, [workerPath], {
@@ -1338,7 +1358,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       let blockedAtActivation = false;
       while (Date.now() < activationDeadline) {
         const rows = await db`SELECT count(*)::integer AS total
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%UPDATE codethread.repository%'`;
         if (Number(rows[0]?.total) > 0) {
@@ -1348,12 +1368,17 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedAtActivation).toBe(true);
+      expect(await service.job(next.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: nextCommit,
+      });
       activationWorker.send('crash');
       await waitForProcessMessage(activationWorker, 'crash-received');
       await waitForProcessExit(activationWorker);
       expect(activationWorker.exitCode).toBe(86);
       const activationBackend = await db`SELECT pid FROM pg_stat_activity
-        WHERE application_name='codethread-backend' AND state='active'
+        WHERE application_name='codethread-worker' AND state='active'
           AND wait_event='PgSleep'
           AND query LIKE '%UPDATE codethread.repository%'`;
       if (activationBackend.length)
@@ -1421,7 +1446,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }
       if (triggerInstalled) {
         await db`SELECT pg_terminate_backend(pid) AS terminated
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%UPDATE codethread.repository_snapshot%'`;
         await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_publication
@@ -1432,7 +1457,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }
       if (activationTriggerInstalled) {
         await db`SELECT pg_terminate_backend(pid) AS terminated
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%UPDATE codethread.repository%'`;
         await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_activation
@@ -1456,7 +1481,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('unpinned-crash-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let child: ChildProcess | undefined,
       restartWorker: ChildProcess | undefined,
@@ -1477,7 +1502,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         END $$`);
       await db.unsafe(`CREATE TRIGGER test_pause_pin
         BEFORE UPDATE OF git_commit_oid ON codethread.scan_job
-        FOR EACH ROW WHEN (NEW.git_commit_oid IS NOT NULL)
+        FOR EACH ROW WHEN (NEW.git_commit_oid IS NOT NULL AND NEW.id='${queued.id}'::uuid)
         EXECUTE FUNCTION codethread.test_pause_pin()`);
       triggerInstalled = true;
 
@@ -1488,7 +1513,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           ...process.env,
           CODETHREAD_DATABASE_URL: dbUrl!,
           CODETHREAD_ALLOWED_REPO_ROOT: parent,
-          CODETHREAD_ANALYZER_BUILD_HASH: digest('unpinned-crash-build'),
+          CODETHREAD_ANALYZER_BUILD_HASH: currentAnalyzerBuildHash(),
         };
       child = spawn(process.execPath, [workerPath], {
         cwd: process.cwd(),
@@ -1500,7 +1525,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       let blockedBeforePinCommit = false;
       while (Date.now() < deadline) {
         const rows = await db`SELECT count(*)::integer AS total
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%UPDATE codethread.scan_job%'`;
         if (Number(rows[0]?.total) > 0) {
@@ -1510,12 +1535,17 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       expect(blockedBeforePinCommit).toBe(true);
+      expect(await service.job(queued.id)).toMatchObject({
+        state: 'running',
+        attempt: 1,
+        git_commit_oid: null,
+      });
       child.send('crash');
       await waitForProcessMessage(child, 'crash-received');
       await waitForProcessExit(child);
       expect(child.exitCode).toBe(86);
       const blocked = await db`SELECT pid FROM pg_stat_activity
-        WHERE application_name='codethread-backend' AND state='active'
+        WHERE application_name='codethread-worker' AND state='active'
           AND wait_event='PgSleep'
           AND query LIKE '%UPDATE codethread.scan_job%'`;
       if (blocked.length)
@@ -1567,7 +1597,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       }
       if (triggerInstalled) {
         await db`SELECT pg_terminate_backend(pid) AS terminated
-          FROM pg_stat_activity WHERE application_name='codethread-backend'
+          FROM pg_stat_activity WHERE application_name='codethread-worker'
             AND state='active' AND wait_event='PgSleep'
             AND query LIKE '%UPDATE codethread.scan_job%'`;
         await db.unsafe(`DROP TRIGGER IF EXISTS test_pause_pin
@@ -1589,10 +1619,11 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       db = connect(dbUrl!);
     const firstWorker = new ScanService(db, {
       root: parent,
-      analyzerBuildHash: digest('recovery-build'),
+      analyzerBuildHash: currentAnalyzerBuildHash(),
     });
     let restartedWorker: ScanService | undefined,
-      running: Promise<void> | undefined;
+      running: Promise<void> | undefined,
+      lease: WorkerLease | undefined;
     try {
       await applyMigrations(db);
       const setup = await prepareClaimedScan(db, firstWorker, fixture);
@@ -1613,11 +1644,13 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       );
       expect(fixture.git('rev-parse', 'HEAD').trim()).not.toBe(pinnedCommit);
 
-      await firstWorker.recover();
-      restartedWorker = new ScanService(db, {
-        root: parent,
-        analyzerBuildHash: digest('recovery-build'),
-      });
+      lease = await acquireWorkerLease(dbUrl!);
+      restartedWorker = new ScanService(
+        db,
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
+        lease,
+      );
+      await restartedWorker.recover();
       running = restartedWorker.run();
       const recovered = await waitForTerminalJob(
         restartedWorker,
@@ -1644,6 +1677,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       firstWorker.stop();
       restartedWorker?.stop();
       await running;
+      await lease?.close();
       await db.end({ timeout: 5 });
       await rm(parent, { recursive: true, force: true });
     }
@@ -1655,14 +1689,18 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         parent,
         'export function version() { return 1; }\n',
       ),
-      db = connect(dbUrl!),
-      service = new ScanService(db, {
-        root: parent,
-        analyzerBuildHash: digest('rollback-build'),
-      });
-    let running: Promise<void> | undefined;
+      db = connect(dbUrl!);
+    let running: Promise<void> | undefined,
+      service: ScanService | undefined,
+      lease: WorkerLease | undefined;
     try {
       await applyMigrations(db);
+      lease = await acquireWorkerLease(dbUrl!);
+      service = new ScanService(
+        db,
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
+        lease,
+      );
       const registered = await service.register(fixture.folder),
         first = await service.accept(registered.id, fixture.commit, 'active');
       running = service.run();
@@ -1690,7 +1728,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       fixture.commit = fixture.git('rev-parse', 'HEAD').trim();
       const failedService = new ScanService(db, {
           root: parent,
-          analyzerBuildHash: digest('rollback-build'),
+          analyzerBuildHash: currentAnalyzerBuildHash(),
         }),
         setup = await prepareClaimedScan(
           db,
@@ -1747,8 +1785,9 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       });
       failedService.stop();
     } finally {
-      service.stop();
+      service?.stop();
       await running;
+      await lease?.close();
       await db.end({ timeout: 5 });
       await rm(parent, { recursive: true, force: true });
     }
@@ -1760,13 +1799,16 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         parent,
         'export function fenced() { return true; }\n',
       ),
-      db = connect(dbUrl!),
-      service = new ScanService(db, {
-        root: parent,
-        analyzerBuildHash: digest('fence-build'),
-      });
+      db = connect(dbUrl!);
+    let service: ScanService | undefined, lease: WorkerLease | undefined;
     try {
       await applyMigrations(db);
+      lease = await acquireWorkerLease(dbUrl!);
+      service = new ScanService(
+        db,
+        { root: parent, analyzerBuildHash: currentAnalyzerBuildHash() },
+        lease,
+      );
       const setup = await prepareClaimedScan(db, service, fixture),
         session = await analyzeGitRepository(
           { ...setup.request, revision: setup.acquired.commitId },
@@ -1806,7 +1848,8 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
         FROM codethread.scan_project WHERE scan_job_id=${setup.queued.id}`;
       expect(snapshots[0]?.total).toBe(0);
     } finally {
-      service.stop();
+      service?.stop();
+      await lease?.close();
       await db.end({ timeout: 5 });
       await rm(parent, { recursive: true, force: true });
     }
@@ -1822,7 +1865,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
       observer = connect(dbUrl!),
       service = new ScanService(db, {
         root: parent,
-        analyzerBuildHash: digest('cancel-race-build'),
+        analyzerBuildHash: currentAnalyzerBuildHash(),
       });
     let publishing: Promise<void> | undefined;
     try {
@@ -1910,7 +1953,7 @@ describe.skipIf(!dbUrl)('PostgreSQL backend integration', () => {
           'HEAD',${digest('legacy-config')},'legacy-analyzer',
           ${digest('legacy-build')},'queued')`;
 
-      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5, 6]);
+      expect(await applyMigrations(legacy)).toEqual([1, 2, 3, 4, 5, 6, 7]);
       await assertMigrations(legacy);
       const retained = await legacy`SELECT id,state FROM codethread.scan_job
         WHERE id=${jobId}`;

@@ -172,6 +172,7 @@ async function verifyDatabase(db: ReturnType<typeof connect>) {
       projects: session.projects.map((project) => ({
         project: project.project,
         status: project.status,
+        error: project.error ?? null,
         snapshotId: project.snapshot?.facts.snapshotId ?? null,
         factsHash: project.snapshot
           ? digest(stableJson(project.snapshot.facts))

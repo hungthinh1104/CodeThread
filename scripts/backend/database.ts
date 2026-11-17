@@ -3,37 +3,41 @@ import { createHash } from 'node:crypto';
 import { readMigrations } from './migration-set.ts';
 
 export type Database = ReturnType<typeof postgres>;
+const connectionLimits = {
+  statement_timeout: 60_000,
+  lock_timeout: 5_000,
+  idle_in_transaction_session_timeout: 30_000,
+};
+
 export function connect(url: string): Database {
   return postgres(url, {
     max: 5,
     prepare: true,
+    infer: true,
     idle_timeout: 20,
     connect_timeout: 10,
     connection: {
       application_name: 'codethread-backend',
-      statement_timeout: 60_000,
-      lock_timeout: 5_000,
-      idle_in_transaction_session_timeout: 30_000,
+      ...connectionLimits,
     },
   });
 }
-export async function acquireServiceLock(db: Database) {
-  const connection = await db.reserve();
-  try {
-    const rows =
-      await connection`SELECT pg_try_advisory_lock(1919606126, 2) AS acquired`;
-    if (!rows[0]?.acquired)
-      throw new Error(
-        'Another CodeThread backend holds the database worker lock',
-      );
-    return async () => {
-      await connection`SELECT pg_advisory_unlock(1919606126, 2)`;
-      connection.release();
-    };
-  } catch (error) {
-    connection.release();
-    throw error;
-  }
+
+export function connectWorker(url: string, onclose: () => void): Database {
+  return postgres(url, {
+    max: 1,
+    max_pipeline: 1,
+    prepare: true,
+    infer: true,
+    idle_timeout: null,
+    max_lifetime: null,
+    connect_timeout: 10,
+    onclose,
+    connection: {
+      application_name: 'codethread-worker',
+      ...connectionLimits,
+    },
+  });
 }
 export async function assertMigrations(db: Database) {
   const rows = await db`SELECT version,name,checksum

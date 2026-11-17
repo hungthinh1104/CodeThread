@@ -20,6 +20,16 @@ acceptance:
   - id: AC-03
     given: 'An active or in-use snapshot'
     then: 'Retention cannot delete its referenced data or source objects.'
+  - id: AC-04
+    given: 'A worker loses its database session or the service shuts down'
+    then:
+      'The worker is fenced, pinned interrupted scans remain recoverable at the
+      original revision, and scans interrupted before pinning fail explicitly.'
+  - id: AC-05
+    given: 'A database session is lost during input or snapshot publication'
+    then:
+      'The interrupted transaction cannot publish partial inputs, snapshots or
+      active-pointer updates.'
 depends_on:
   - CT-DB-003
   - CT-DB-011

@@ -1,4 +1,5 @@
 export { analyzeManifest } from './manifest.js';
+export { analyzerBuildHash } from './analyzer-build.js';
 export { analyzeProject } from './project.js';
 export { planRepositoryProjects } from './project-plan.js';
 export { PROJECT_LIMITS } from './project-types.js';
@@ -11,6 +12,7 @@ export type {
 } from './project-types.js';
 export type { ProjectDiagnostic } from './analysis-types.js';
 export {
+  ANALYZER_VERSION,
   ANALYSIS_LIMITS,
   COMPILER_PROFILE,
   AnalysisError,

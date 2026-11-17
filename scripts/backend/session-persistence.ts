@@ -8,6 +8,19 @@ import { loadSnapshotContentsInTransaction } from './snapshot-persistence.ts';
 
 type Sql = Database;
 
+export class RepositorySessionUnavailableError extends Error {
+  readonly reason: 'not_found' | 'not_ready';
+
+  constructor(reason: 'not_found' | 'not_ready') {
+    super(
+      reason === 'not_found'
+        ? 'Scan not found'
+        : 'A completed, pinned scan is required for persistent viewing',
+    );
+    this.reason = reason;
+  }
+}
+
 export async function loadRepositorySession(
   db: Sql,
   jobId: string,
@@ -28,15 +41,13 @@ async function loadRepositorySessionContents(
     await db`SELECT repository_id,state,git_object_format,git_commit_oid,session_json
       FROM codethread.scan_job WHERE id=${jobId}`
   )[0];
+  if (!job) throw new RepositorySessionUnavailableError('not_found');
   if (
-    !job ||
     job.state !== 'succeeded' ||
     !job.git_commit_oid ||
     (job.git_object_format !== 'sha1' && job.git_object_format !== 'sha256')
   )
-    throw new Error(
-      'A completed, pinned scan is required for persistent viewing',
-    );
+    throw new RepositorySessionUnavailableError('not_ready');
   const rows =
     await db`SELECT p.project_json,p.status,p.snapshot_id,p.diagnostics
     FROM codethread.scan_project p WHERE p.scan_job_id=${jobId}
@@ -88,7 +99,8 @@ async function loadRepositorySessionContents(
             >,
           }
         : {}),
-      ...(row.status === 'failed' && diagnostics[0]
+      ...((row.status === 'failed' || row.status === 'not_analyzed') &&
+      diagnostics[0]
         ? { error: diagnostics[0] }
         : {}),
     });

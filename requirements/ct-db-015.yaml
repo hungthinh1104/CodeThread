@@ -15,6 +15,12 @@ acceptance:
   - id: AC-02
     given: 'A proposed nonessential index or cache'
     then: 'Before and after query plans and measured benefit justify it.'
+  - id: AC-03
+    given: 'Concurrent heavy graph and evidence requests'
+    then:
+      'A named workload and resource budget report latency percentiles, peak
+      process memory, pool wait, query timing, hydration cost and any timeout or
+      rejection without extending the result to unmeasured workloads.'
 depends_on:
   - CT-DB-012
 verification:

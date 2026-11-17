@@ -38,6 +38,7 @@ let repositoryMode = false,
 let symbolChoices = [],
   pendingContextChoices = [],
   filePage = { offset: 0, nextOffset: null };
+let filePageSequence = 0;
 let symbolPage = { query: '', offset: 0, nextOffset: null, total: 0 };
 let graphResult = null;
 let symbolSearchSequence = 0;
@@ -750,11 +751,14 @@ function renderSession(session) {
 }
 
 async function loadFiles(offset = 0) {
+  const sequence = ++filePageSequence;
   try {
     const result = await api('/api/files', 'POST', { offset });
+    if (sequence !== filePageSequence) return;
     filePage = { offset: result.offset, nextOffset: result.nextOffset };
     renderSourceFiles(result, projectMetadata);
   } catch (error) {
+    if (sequence !== filePageSequence) return;
     showError(
       error instanceof Error
         ? error.message

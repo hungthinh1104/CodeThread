@@ -1,9 +1,7 @@
-import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { hash } from './identity.js';
+import { analyzerBuildHash } from './analyzer-build.js';
 import { PROJECT_LIBRARY_ROOT } from './project-filesystem.js';
 
 export function libraries(requested: readonly string[] = ['lib.es2023.d.ts']): {
@@ -31,26 +29,6 @@ export function libraries(requested: readonly string[] = ['lib.es2023.d.ts']): {
     ))
       pending.push(`lib.${match[1]}.d.ts`);
   }
-  const digest = createHash('sha256');
-  digest.update('codethread-analyzer-build-v2\0typescript-6.0.3\0');
-  for (const [name, text] of [...contents].sort(([a], [b]) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  ))
-    digest.update(name + '\0' + hash(text) + '\0');
-  digest.update(hash(readFileSync(join(directory, 'typescript.js'))));
-  const own = dirname(fileURLToPath(import.meta.url));
-  for (const name of readdirSync(own)
-    .filter((item) => item.endsWith('.js'))
-    .sort()) {
-    digest.update(
-      name +
-        '\0' +
-        hash(readFileSync(join(own, name), 'utf8').replaceAll('\r\n', '\n')) +
-        '\0',
-    );
-  }
-  const model = fileURLToPath(import.meta.resolve('@codethread/code-model'));
-  digest.update(hash(readFileSync(model, 'utf8').replaceAll('\r\n', '\n')));
   return {
     files: new Map(
       [...contents].map(([name, source]) => [
@@ -58,6 +36,6 @@ export function libraries(requested: readonly string[] = ['lib.es2023.d.ts']): {
         source,
       ]),
     ),
-    buildHash: digest.digest('hex'),
+    buildHash: analyzerBuildHash(),
   };
 }

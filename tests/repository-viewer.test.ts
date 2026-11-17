@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createRepositoryViewer } from '../scripts/viewer.ts';
 import type { ViewerHandle } from '../scripts/viewer.ts';
+import type { RepositoryProjectState } from '../scripts/investigation/repository-session.ts';
 import { repositoryViewerFixture } from './helpers/repository-viewer.ts';
 
 let data: Awaited<ReturnType<typeof repositoryViewerFixture>>,
@@ -80,6 +81,63 @@ describe('project-scoped repository viewer', () => {
       status: 'excluded',
       analysisReason: 'Git symlink entries are not regular source blobs.',
     });
+  });
+  it('preserves the config path on invalid project diagnostics over HTTP', async () => {
+    const path = 'packages/invalid/tsconfig.json';
+    const invalid: RepositoryProjectState = {
+      project: {
+        id: 'project:path-diagnostic',
+        configPath: path,
+        rootPaths: [],
+        referencePaths: [],
+        status: 'invalid',
+        diagnostics: [
+          {
+            code: 'TS_18003',
+            message: 'TypeScript configuration diagnostic 18003.',
+            path,
+          },
+        ],
+      },
+      status: 'invalid',
+    };
+    const candidate = await createRepositoryViewer({
+      ...data.session,
+      projects: [...data.session.projects, invalid],
+    });
+    try {
+      const response = await fetch(candidate.origin + '/api/projects', {
+        method: 'POST',
+        headers: {
+          origin: candidate.origin,
+          'x-codethread-token': new URL(candidate.url).hash.slice(1),
+          'content-type': 'application/json',
+        },
+        body: '{}',
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        items: {
+          id: string;
+          status: string;
+          diagnostics: { code: string; message: string; path?: string }[];
+        }[];
+      };
+      expect(
+        body.items.find((item) => item.id === invalid.project.id),
+      ).toMatchObject({
+        status: 'invalid',
+        diagnostics: [
+          {
+            code: 'TS_18003',
+            message: 'TypeScript configuration diagnostic 18003.',
+            path,
+          },
+        ],
+      });
+    } finally {
+      await candidate.close();
+    }
   });
   it('searches the entire catalog without collapsing contexts', async () => {
     const response = await post('/api/catalog', { query: 'target' }),

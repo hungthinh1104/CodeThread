@@ -473,13 +473,16 @@ installs them automatically.
 The in-memory proof accepts caller-supplied bytes, not a Git revision. Its
 versioned source fingerprint hashes the UTF-8-byte-ordered path, raw SHA-256 and
 byte length for each supplied file. Its configuration hash covers the explicit
-fixed profile; its build fingerprint covers the analyzer, code model, compiler
-and allowlisted library contents. A repository UUID and these components form a
-deterministic proof snapshot UUID. Snapshot-local file/entity UUIDv8 values
-derive from SHA-256 descriptors and duplicate identities fail validation. This
-proof identity makes no commit/tree or published-database claim. The proposed
-`ScanJob`/`ScanInputFile` provenance is a database acquisition record; it does
-not alter the manifest fingerprint or deterministic semantic snapshot identity.
+fixed profile; its build fingerprint covers installed analyzer and code-model
+JavaScript, Zod runtime, TypeScript compiler and standard libraries, and the
+Node version. It fingerprints specified files on disk, not already-loaded memory
+or the Git acquisition and session orchestration scripts. A repository UUID and
+these components form a deterministic proof snapshot UUID. Snapshot-local
+file/entity UUIDv8 values derive from SHA-256 descriptors and duplicate
+identities fail validation. This proof identity makes no commit/tree or
+published-database claim. The proposed `ScanJob`/`ScanInputFile` provenance is a
+database acquisition record; it does not alter the manifest fingerprint or
+deterministic semantic snapshot identity.
 
 Snapshot-local canonical keys use a versioned kind plus SHA-256 of an anchor
 descriptor. Symbols anchor to supported canonical declarations; test keys
@@ -645,6 +648,21 @@ content. Failure/error codes and attempt history are operational data; they must
 not mutate an immutable payload. Fencing and publication guards are DB-04
 acceptance scenarios, not implemented concurrency guarantees in Foundation.
 
+In the local PostgreSQL candidate, a dedicated single-connection worker client
+holds the session advisory lock and performs every worker SQL statement on that
+same session. Loss of that session stops the worker and closes the backend;
+worker work cannot silently continue on a replacement pool connection. Graceful
+shutdown stops intake, cancels an in-flight statement on the lock-holding
+backend, closes the worker session and bounds HTTP and process cleanup. Recovery
+requeues interrupted pinned work and marks pre-pin work `REVISION_NOT_PINNED`.
+An explicit cancellation remains distinct from shutdown and analysis failure.
+The worker checks its accepted analyzer version and build after claiming and
+again inside publication, including each snapshot's identity and its source
+paths, hashes and lengths against the admitted Git manifest. Readiness reflects
+bounded polling/claim failures and a blocked claim; pinned database errors retry
+up to five attempts, while failed settlement stops the worker after five tries.
+The local backend guide describes recovery and fingerprint limitations.
+
 ### Retention and recovery
 
 Default retention is manual, with no automatic deletion. Snapshot readers hold a
@@ -783,9 +801,16 @@ not persisted semantic evidence.
 
 The DB-01 statement-count budgets remain targets for future persisted test
 queries. The current backend uses PostgreSQL statement, lock and
-idle-transaction timeouts. The symbol page uses a small fixed set of statements;
+idle-transaction timeouts. A non-empty symbol search scans at most 20,000
+bounded names and paths using the result contract's case-matching rules;
 graph/evidence currently pay for full verified hydration. Query bounds are
 safety limits, not measured performance SLAs.
+
+For the local API, symbol, graph, path and evidence requests share a
+four-request admission limit per API instance. Excess work is rejected with HTTP
+429 `QUERY_CAPACITY_EXCEEDED`; the limit does not apply to the health route. The
+900-file synthetic benchmark has its own explicit local latency and memory
+budget; it does not establish a bound for arbitrary snapshots.
 
 Query errors are INVALID_REQUEST, INVALID_CURSOR, SNAPSHOT_NOT_FOUND,
 SNAPSHOT_NOT_PUBLISHED, ENTITY_NOT_FOUND, SOURCE_UNAVAILABLE, HASH_MISMATCH,
@@ -818,11 +843,12 @@ symbol-page and graph-query samples, reports medians, and verifies the old and
 new symbol pages match. It includes before/after
 `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for facts/source hydration and direct
 symbol search. Actual HTTP symbol, neighbor, path and evidence routes report
-response bytes and P50/P95/P99 at concurrency 1/2/4. Cold means the first
+response bytes and P50/P95/P99 at concurrency 1/4/8/16/32. Cold means the first
 request on a new API server and database client pool; it does not flush
 PostgreSQL shared buffers or the OS page cache. Warm requests follow one
-excluded endpoint warm-up. Database time sums tagged SQL client round-trip
-latencies, including pool wait. Defaults are 10 cold samples and 20 warm
+excluded endpoint warm-up. PostgreSQL driver diagnostics separately report pool
+lease wait, queued-to-sent time and sent-to-completion client round trips; they
+do not isolate server execution. Defaults are 10 cold samples and 20 warm
 iterations per concurrency. No new index was introduced for this optimization.
 The local workload measurements are separate from `pnpm eval:external`
 correctness evidence and human-study results.

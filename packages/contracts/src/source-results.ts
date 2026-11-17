@@ -70,7 +70,8 @@ export function parseListSymbolsResult(
   snapshot(request.snapshotId, response.meta);
   applied(response.meta, 'pageSize', request.limit, response.items.length);
   ensure(
-    response.total >= end &&
+    (response.total >= end ||
+      (response.items.length === 0 && request.offset >= response.total)) &&
       response.nextOffset === (hasMore ? end : null) &&
       response.meta.truncated === hasMore &&
       response.meta.truncationReasons.join(',') ===

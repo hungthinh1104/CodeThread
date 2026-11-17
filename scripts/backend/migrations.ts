@@ -19,7 +19,7 @@ const LEGACY_TABLES = [
 
 async function adoptLegacySchema(db: Database, firstChecksum: string) {
   const tables = await db`
-    SELECT count(*)::integer AS count FROM unnest(${db.array([...LEGACY_TABLES])}::text[]) AS name
+    SELECT count(*)::integer AS count FROM unnest(${[...LEGACY_TABLES]}::text[]) AS name
     WHERE to_regclass('codethread.' || name) IS NOT NULL`;
   const count = Number(tables[0]?.count ?? 0);
   if (count === 0) return false;

@@ -5,6 +5,8 @@ import type {
   VerifiedSourceReader,
 } from '@codethread/code-model';
 
+export const ANALYZER_VERSION = 'ct-index-001b/0.1.0;typescript/6.0.3';
+
 export const COMPILER_PROFILE = Object.freeze({
   profile: 'ct-index-001a-esm-v1',
   target: 'ES2023',
@@ -70,6 +72,7 @@ export type AnalysisErrorCode =
   | 'ANALYSIS_FAILED'
   | 'MALFORMED_SOURCE'
   | 'COMPILER_INTEGRITY'
+  | 'ANALYZER_BUILD_MISMATCH'
   | 'CANCELLED';
 export class AnalysisError extends Error {
   constructor(

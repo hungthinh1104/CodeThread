@@ -1,13 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { COMPILER_PROFILE } from '@codethread/symbol-indexer';
+import {
+  ANALYZER_VERSION,
+  analyzerBuildHash,
+  COMPILER_PROFILE,
+} from '@codethread/symbol-indexer';
+import { PostgresError } from 'postgres';
 import { acquireGitRepository } from '../git-source/repository-intake.ts';
 import { analyzeGitRepository } from '../investigation/repository-session.ts';
 import { allowedRepository, digest } from './config.ts';
 import { requestHash } from './database.ts';
 import type { Database } from './database.ts';
+import type { WorkerLease } from './worker-lease.ts';
 import { persistScan } from './scan-persistence.ts';
 import { persistScanInputs, persistScanPin } from './scan-provenance.ts';
+import { probeWorkerWrites } from './worker-readiness-probe.ts';
 
 export class ServiceError extends Error {
   readonly status: number;
@@ -30,8 +37,15 @@ export type BackendConfig = {
     phase: 'source_acquisition' | 'analysis' | 'persistence',
   ) => void;
 };
-const analyzerVersion = 'ct-index-001b/typescript-6.0.3';
+const analyzerVersion = ANALYZER_VERSION;
 const MAX_OUTSTANDING_SCANS = 32;
+const MAX_WORKER_FAILURES = 3;
+const MAX_SETTLEMENT_ATTEMPTS = 5;
+const MAX_SCAN_ATTEMPTS = 5;
+const CLAIM_DEADLINE_MS = 7_000;
+const DATABASE_WORK_DEADLINE_MS = 15_000;
+const RECOVERY_PROBE_INTERVAL_MS = 5_000;
+const PERIODIC_PROBE_INTERVAL_MS = 30_000;
 const configurationHash = digest(
   JSON.stringify({
     compiler: COMPILER_PROFILE,
@@ -43,18 +57,102 @@ const configurationHash = digest(
 export class ScanService {
   private stopped = false;
   private workerRunning = false;
+  private workerPolled = false;
+  private workerProbed = false;
+  private workerFailures = 0;
+  private processingFailure = false;
+  private installationInvalid = false;
+  private claimStartedAt: number | null = null;
+  private databaseDeadline: number | null = null;
+  private nextRecoveryProbe = 0;
+  private nextBuildCheck = 0;
+  private nextPeriodicProbe = 0;
+  private pendingFailure: {
+    id: string;
+    generation: string;
+    attempt: number;
+    code: string;
+    message: string;
+    retry: boolean;
+    attempts: number;
+  } | null = null;
   private currentController: AbortController | null = null;
   private currentJobId: string | null = null;
   private readonly db: Database;
   private readonly config: BackendConfig;
+  private readonly worker: WorkerLease | undefined;
 
-  constructor(db: Database, config: BackendConfig) {
+  constructor(db: Database, config: BackendConfig, worker?: WorkerLease) {
+    if (config.analyzerBuildHash !== analyzerBuildHash())
+      throw new Error(
+        'Analyzer build identity does not match installed analyzer',
+      );
     this.db = db;
     this.config = config;
+    this.worker = worker;
+    worker?.signal.addEventListener('abort', () => this.stop(), { once: true });
   }
 
   get workerReady(): boolean {
-    return this.workerRunning && !this.stopped;
+    return (
+      this.workerRunning &&
+      this.workerPolled &&
+      this.workerProbed &&
+      !this.stopped &&
+      !!this.worker?.active &&
+      this.workerFailures < MAX_WORKER_FAILURES &&
+      !this.installationInvalid &&
+      (this.databaseDeadline === null ||
+        performance.now() < this.databaseDeadline) &&
+      (this.claimStartedAt === null ||
+        performance.now() - this.claimStartedAt < CLAIM_DEADLINE_MS)
+    );
+  }
+
+  private workerDatabase(): Database {
+    if (!this.worker?.active)
+      throw new Error('Active worker lease is required');
+    return this.worker.db;
+  }
+
+  private verifyCurrentBuild(): boolean {
+    try {
+      this.installationInvalid =
+        analyzerBuildHash() !== this.config.analyzerBuildHash;
+    } catch {
+      this.installationInvalid = true;
+    }
+    return !this.installationInvalid;
+  }
+
+  private async databaseWork<T>(
+    work: () => Promise<T>,
+    timeout = DATABASE_WORK_DEADLINE_MS,
+  ): Promise<T> {
+    this.databaseDeadline = performance.now() + timeout;
+    try {
+      return await work();
+    } finally {
+      this.databaseDeadline = null;
+    }
+  }
+
+  private async checkWorkerWrites(): Promise<void> {
+    try {
+      await this.databaseWork(
+        () =>
+          probeWorkerWrites(
+            this.workerDatabase(),
+            this.config.analyzerBuildHash,
+          ),
+        CLAIM_DEADLINE_MS,
+      );
+      this.workerProbed = true;
+      this.nextPeriodicProbe = performance.now() + PERIODIC_PROBE_INTERVAL_MS;
+    } catch (error) {
+      this.workerProbed = false;
+      throw error;
+    }
   }
 
   private async measure<T>(
@@ -123,11 +221,19 @@ export class ScanService {
       if (!repo)
         throw new ServiceError(404, 'NOT_FOUND', 'Repository not found');
       const existing = (
-        await db`SELECT id,request_hash,state FROM codethread.scan_job
+        await db`SELECT id,request_hash,state,analyzer_version,analyzer_build_hash FROM codethread.scan_job
         WHERE repository_id=${id} AND idempotency_key=${idempotencyKey}`
       )[0];
       if (existing) {
-        if (existing.request_hash !== reqHash)
+        const originalBuildRequestHash = requestHash({
+          repositoryId: id,
+          revision,
+          configurationHash,
+          analyzerVersion: existing.analyzer_version,
+          analyzerBuildHash: existing.analyzer_build_hash,
+          scope: 'repository',
+        });
+        if (existing.request_hash !== originalBuildRequestHash)
           throw new ServiceError(
             409,
             'IDEMPOTENCY_CONFLICT',
@@ -140,6 +246,12 @@ export class ScanService {
           reused: true,
         };
       }
+      if (!this.verifyCurrentBuild())
+        throw new ServiceError(
+          503,
+          'ANALYZER_BUILD_MISMATCH',
+          'Installed analyzer build is unavailable',
+        );
       // Admission is global, so serialize submissions from different repositories.
       await db`SELECT pg_advisory_xact_lock(1919606128, 1)`;
       const outstanding = Number(
@@ -234,42 +346,85 @@ export class ScanService {
     return { id, state: 'cancelled' };
   }
   async recover() {
-    await this.db`UPDATE codethread.scan_job SET
-      state=CASE WHEN git_commit_oid IS NULL THEN 'failed' ELSE 'queued' END,
-      error_code=CASE WHEN git_commit_oid IS NULL THEN 'REVISION_NOT_PINNED' ELSE NULL END,
+    const db = this.workerDatabase();
+    await db`UPDATE codethread.scan_job SET state='failed',
+      error_code='RETRY_LIMIT_EXCEEDED',
+      error_message='Pinned scan exhausted its retry limit.',updated_at=now()
+      WHERE state='queued' AND attempt >= ${MAX_SCAN_ATTEMPTS}`;
+    await db`UPDATE codethread.scan_job SET
+      state=CASE WHEN git_commit_oid IS NULL OR attempt >= ${MAX_SCAN_ATTEMPTS} THEN 'failed' ELSE 'queued' END,
+      error_code=CASE WHEN git_commit_oid IS NULL THEN 'REVISION_NOT_PINNED'
+        WHEN attempt >= ${MAX_SCAN_ATTEMPTS} THEN 'RETRY_LIMIT_EXCEEDED' ELSE NULL END,
       error_message=CASE WHEN git_commit_oid IS NULL
-        THEN 'Worker stopped before the revision was pinned; submit a new scan.' ELSE NULL END,
+        THEN 'Worker stopped before the revision was pinned; submit a new scan.'
+        WHEN attempt >= ${MAX_SCAN_ATTEMPTS} THEN 'Pinned scan exhausted its retry limit.' ELSE NULL END,
       updated_at=now()
       WHERE state='running'`;
   }
-  private async processOne(): Promise<boolean> {
-    const job = await this.db.begin(async (tx) => {
-      const db = tx as unknown as Database;
-      const row = (
-        await db`SELECT j.id,j.repository_id,j.generation,j.revision_selector,
-        j.attempt,j.git_object_format,j.git_commit_oid,j.git_tree_oid,
+  private async settleFailure(): Promise<void> {
+    const failure = this.pendingFailure;
+    if (!failure) return;
+    failure.attempts++;
+    await this.databaseWork(
+      () => this.workerDatabase()`UPDATE codethread.scan_job SET
+      state=CASE WHEN ${failure.retry} AND git_commit_oid IS NOT NULL
+        AND attempt < ${MAX_SCAN_ATTEMPTS} THEN 'queued' ELSE 'failed' END,
+      error_code=${failure.code},error_message=${failure.message},updated_at=now()
+      WHERE id=${failure.id} AND generation=${failure.generation}::bigint
+        AND attempt=${failure.attempt} AND state='running'`,
+      CLAIM_DEADLINE_MS,
+    );
+    this.pendingFailure = null;
+  }
+
+  private async processOne(): Promise<'idle' | 'completed' | 'failed'> {
+    const workerDb = this.workerDatabase();
+    if (this.pendingFailure) {
+      await this.settleFailure();
+      return 'failed';
+    }
+    this.claimStartedAt = performance.now();
+    const job = await workerDb
+      .begin(async (tx) => {
+        const db = tx as unknown as Database;
+        const row = (
+          await db`SELECT j.id,j.repository_id,j.generation,j.revision_selector,
+        j.attempt,j.git_object_format,j.git_commit_oid,j.git_tree_oid,j.analyzer_build_hash,j.analyzer_version,
         r.local_locator FROM codethread.scan_job j JOIN codethread.repository r
           ON r.id=j.repository_id
         WHERE j.state='queued' ORDER BY j.created_at,j.id
         LIMIT 1 FOR UPDATE OF j SKIP LOCKED`
-      )[0];
-      if (!row) return null;
-      const claimed = await db`UPDATE codethread.scan_job SET state='running',
-        attempt=attempt+1,updated_at=now() WHERE id=${row.id}
+        )[0];
+        if (!row) return null;
+        if (Number(row.attempt) >= MAX_SCAN_ATTEMPTS) {
+          await db`UPDATE codethread.scan_job SET state='failed',
+            error_code='RETRY_LIMIT_EXCEEDED',error_message='Scan exhausted its retry limit.',
+            updated_at=now() WHERE id=${row.id} AND state='queued'`;
+          return { exhausted: true as const };
+        }
+        const claimed = await db`UPDATE codethread.scan_job SET state='running',
+        attempt=attempt+1,error_code=NULL,error_message=NULL,updated_at=now() WHERE id=${row.id}
         RETURNING attempt`;
-      return {
-        id: row.id as string,
-        repository_id: row.repository_id as string,
-        generation: String(row.generation),
-        revision_selector: row.revision_selector as string,
-        attempt: Number(claimed[0]!.attempt),
-        git_object_format: row.git_object_format as 'sha1' | 'sha256' | null,
-        git_commit_oid: row.git_commit_oid as string | null,
-        git_tree_oid: row.git_tree_oid as string | null,
-        local_locator: row.local_locator as string,
-      };
-    });
-    if (!job) return false;
+        return {
+          id: row.id as string,
+          repository_id: row.repository_id as string,
+          generation: String(row.generation),
+          revision_selector: row.revision_selector as string,
+          attempt: Number(claimed[0]!.attempt),
+          git_object_format: row.git_object_format as 'sha1' | 'sha256' | null,
+          git_commit_oid: row.git_commit_oid as string | null,
+          git_tree_oid: row.git_tree_oid as string | null,
+          local_locator: row.local_locator as string,
+          analyzer_build_hash: row.analyzer_build_hash as string,
+          analyzer_version: row.analyzer_version as string,
+        };
+      })
+      .finally(() => {
+        this.claimStartedAt = null;
+      });
+    this.workerPolled = true;
+    if (!job) return 'idle';
+    if ('exhausted' in job) return 'failed';
     const controller = new AbortController();
     this.currentController = controller;
     this.currentJobId = job.id as string;
@@ -284,6 +439,17 @@ export class ScanService {
           }
         : null;
     try {
+      if (
+        job.analyzer_build_hash !== this.config.analyzerBuildHash ||
+        job.analyzer_version !== analyzerVersion ||
+        !this.verifyCurrentBuild()
+      )
+        throw Object.assign(
+          new Error('Accepted analyzer build is unavailable'),
+          {
+            code: 'ANALYZER_BUILD_MISMATCH',
+          },
+        );
       const locator = await allowedRepository(
         job.local_locator as string,
         this.config.root,
@@ -302,13 +468,15 @@ export class ScanService {
       const acquired = await this.measure('source_acquisition', () =>
         acquireGitRepository(request, () => {}, {
           onPinned: async (resolved) => {
-            await persistScanPin(
-              this.db,
-              job.id as string,
-              job.repository_id as string,
-              generation,
-              attempt,
-              resolved,
+            await this.databaseWork(() =>
+              persistScanPin(
+                workerDb,
+                job.id as string,
+                job.repository_id as string,
+                generation,
+                attempt,
+                resolved,
+              ),
             );
             resolvedPin = resolved;
           },
@@ -317,15 +485,18 @@ export class ScanService {
               throw new Error(
                 'Git source inventory completed before revision pinning',
               );
-            await persistScanInputs(
-              this.db,
-              job.id as string,
-              job.repository_id as string,
-              generation,
-              attempt,
-              resolvedPin,
-              files,
-              new Set(sourcePaths),
+            const inputPin = resolvedPin;
+            await this.databaseWork(() =>
+              persistScanInputs(
+                workerDb,
+                job.id as string,
+                job.repository_id as string,
+                generation,
+                attempt,
+                inputPin,
+                files,
+                new Set(sourcePaths),
+              ),
             );
           },
         }),
@@ -340,41 +511,99 @@ export class ScanService {
         ),
       );
       await this.measure('persistence', () =>
-        persistScan(
-          this.db,
-          job.id as string,
-          job.repository_id as string,
-          acquired,
-          session,
-          generation,
-          attempt,
+        this.databaseWork(() =>
+          persistScan(
+            workerDb,
+            job.id as string,
+            job.repository_id as string,
+            acquired,
+            session,
+            generation,
+            attempt,
+          ),
         ),
       );
+      return 'completed';
     } catch (e) {
+      this.verifyCurrentBuild();
+      if (e instanceof PostgresError) this.processingFailure = true;
       const code =
         e instanceof Error && 'code' in e && typeof e.code === 'string'
           ? e.code
           : 'ANALYSIS_FAILED';
       const message =
         e instanceof Error ? e.message.slice(0, 256) : 'Scan failed';
-      await this.db`UPDATE codethread.scan_job SET state='failed',
-        error_code=${code},error_message=${message},updated_at=now()
-        WHERE id=${job.id} AND generation=${generation}::bigint
-          AND attempt=${attempt} AND state='running'`;
+      if (!this.stopped && this.worker?.active) {
+        this.pendingFailure = {
+          id: job.id,
+          generation,
+          attempt,
+          code,
+          message,
+          retry: e instanceof PostgresError,
+          attempts: 0,
+        };
+        await this.settleFailure();
+      }
+      if (e instanceof PostgresError) {
+        throw e;
+      }
+      return 'failed';
     } finally {
       this.currentController = null;
       this.currentJobId = null;
     }
-    return true;
   }
   async run(): Promise<void> {
+    this.workerDatabase();
+    if (this.workerRunning) throw new Error('Scan worker is already running');
     this.workerRunning = true;
     try {
       while (!this.stopped) {
         try {
-          if (await this.processOne()) continue;
+          if (!this.workerProbed) {
+            if (performance.now() < this.nextRecoveryProbe) {
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              continue;
+            }
+            this.nextRecoveryProbe =
+              performance.now() + RECOVERY_PROBE_INTERVAL_MS;
+            await this.checkWorkerWrites();
+          }
+          const result = await this.processOne();
+          if (result === 'completed') {
+            this.workerFailures = 0;
+            this.processingFailure = false;
+          } else if (result === 'idle' && !this.processingFailure) {
+            this.workerFailures = 0;
+            if (performance.now() >= this.nextBuildCheck) {
+              this.nextBuildCheck =
+                performance.now() + RECOVERY_PROBE_INTERVAL_MS;
+              this.verifyCurrentBuild();
+            }
+            if (performance.now() >= this.nextPeriodicProbe)
+              await this.checkWorkerWrites();
+          } else if (
+            result === 'idle' &&
+            performance.now() >= this.nextRecoveryProbe
+          ) {
+            this.nextRecoveryProbe =
+              performance.now() + RECOVERY_PROBE_INTERVAL_MS;
+            await this.checkWorkerWrites();
+            this.processingFailure = false;
+            this.workerFailures = 0;
+          }
+          if (result !== 'idle') continue;
         } catch (e) {
+          this.workerFailures = Math.min(
+            MAX_WORKER_FAILURES,
+            this.workerFailures + 1,
+          );
           console.error('Scan worker error', e);
+          if ((this.pendingFailure?.attempts ?? 0) >= MAX_SETTLEMENT_ATTEMPTS) {
+            this.stop();
+            break;
+          }
         }
         await new Promise((resolve) => setTimeout(resolve, 500));
       }

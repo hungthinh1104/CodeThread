@@ -19,16 +19,30 @@ import { ServiceError } from './service.ts';
 import type { ScanService } from './service.ts';
 
 type ProjectQuery = 'neighbors' | 'paths' | 'evidence';
+const MAX_HEAVY_QUERIES = 4;
 const symbolSearchParameters = z.strictObject({
   query: z.string().max(256).default(''),
   offset: z.number().int().min(0).max(20000).default(0),
   limit: z.number().int().min(1).max(50).default(50),
 });
 
+function validateServerResult<T>(read: () => T): T {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof z.ZodError)
+      throw new Error('Stored query result failed validation', {
+        cause: error,
+      });
+    throw error;
+  }
+}
+
 /** Application boundary for snapshot-scoped API reads. */
 export class BackendQueryService {
   private readonly db: Database;
   private readonly scans: Pick<ScanService, 'publishedSnapshot'>;
+  private activeHeavyQueries = 0;
 
   constructor(db: Database, scans: Pick<ScanService, 'publishedSnapshot'>) {
     this.db = db;
@@ -36,6 +50,25 @@ export class BackendQueryService {
   }
 
   async symbols(jobId: string, projectId: string, input: unknown) {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      return await this.executeSymbols(jobId, projectId, input);
+    } finally {
+      this.activeHeavyQueries--;
+    }
+  }
+
+  private async executeSymbols(
+    jobId: string,
+    projectId: string,
+    input: unknown,
+  ) {
     const snapshotId = await this.scans.publishedSnapshot(jobId, projectId);
     const request = listSymbolsRequestSchema.parse({
       ...symbolSearchParameters.parse(input),
@@ -77,24 +110,46 @@ export class BackendQueryService {
       const { total, items } = page;
       const end = request.offset + items.length,
         hasMore = total > end;
-      return parseListSymbolsResult(request, {
-        meta: {
-          snapshotId,
-          evidenceBasis: 'static',
-          coverage,
-          coverageByCapability,
-          truncated: hasMore,
-          truncationReasons: hasMore ? ['result_limit'] : [],
-          appliedLimits: { pageSize: request.limit },
-        },
-        items,
-        total,
-        nextOffset: hasMore ? end : null,
-      });
+      return validateServerResult(() =>
+        parseListSymbolsResult(request, {
+          meta: {
+            snapshotId,
+            evidenceBasis: 'static',
+            coverage,
+            coverageByCapability,
+            truncated: hasMore,
+            truncationReasons: hasMore ? ['result_limit'] : [],
+            appliedLimits: { pageSize: request.limit },
+          },
+          items,
+          total,
+          nextOffset: hasMore ? end : null,
+        }),
+      );
     });
   }
 
   async project(
+    jobId: string,
+    projectId: string,
+    kind: ProjectQuery,
+    input: unknown,
+  ) {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      return await this.executeProject(jobId, projectId, kind, input);
+    } finally {
+      this.activeHeavyQueries--;
+    }
+  }
+
+  private async executeProject(
     jobId: string,
     projectId: string,
     kind: ProjectQuery,
@@ -122,19 +177,25 @@ export class BackendQueryService {
     });
     if (kind === 'neighbors') {
       const neighbors = graphNeighborsRequestSchema.parse(input);
-      return parseGraphNeighborsResult(
-        neighbors,
-        investigation.neighbors(neighbors),
+      return validateServerResult(() =>
+        parseGraphNeighborsResult(
+          neighbors,
+          investigation.neighbors(neighbors),
+        ),
       );
     }
     if (kind === 'paths') {
       const paths = findSymbolPathsRequestSchema.parse(input);
-      return parseFindSymbolPathsResult(paths, investigation.paths(paths));
+      return validateServerResult(() =>
+        parseFindSymbolPathsResult(paths, investigation.paths(paths)),
+      );
     }
     const evidence = getSourceEvidenceRequestSchema.parse(input);
-    return parseGetSourceEvidenceResult(
-      evidence,
-      investigation.sourceEvidence(evidence),
+    return validateServerResult(() =>
+      parseGetSourceEvidenceResult(
+        evidence,
+        investigation.sourceEvidence(evidence),
+      ),
     );
   }
 }
