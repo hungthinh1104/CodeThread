@@ -1,7 +1,7 @@
 /* CodeThread Technical Editorial / Warm Graphite. Tokens are visual, never semantic truth. */
 :root {
   color-scheme: light;
-  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
   line-height: 1.5;
   font-synthesis: none;
   --ct-canvas: #f4f3ef;
@@ -15,7 +15,7 @@
   --ct-calls: #356b8b;
   --ct-references: #915d43;
   --ct-error: #a52a23;
-  --ct-code-font: "IBM Plex Mono", ui-monospace, monospace;
+  --ct-code-font: 'IBM Plex Mono', ui-monospace, monospace;
   --ct-radius-sm: 4px;
   --ct-radius-md: 8px;
   --ct-space-1: 4px;

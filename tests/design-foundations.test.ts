@@ -39,17 +39,13 @@ function colorTokens(block: string): Map<string, string> {
 function luminosity(hex: string): number {
   const parts = [1, 3, 5].map((index) => {
     const value = Number.parseInt(hex.slice(index, index + 2), 16) / 255;
-    return value <= 0.04045
-      ? value / 12.92
-      : ((value + 0.055) / 1.055) ** 2.4;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   });
   return parts[0]! * 0.2126 + parts[1]! * 0.7152 + parts[2]! * 0.0722;
 }
 
 function contrast(first: string, second: string): number {
-  const values = [luminosity(first), luminosity(second)].sort(
-    (a, b) => a - b,
-  );
+  const values = [luminosity(first), luminosity(second)].sort((a, b) => a - b);
   return (values[1]! + 0.05) / (values[0]! + 0.05);
 }
 

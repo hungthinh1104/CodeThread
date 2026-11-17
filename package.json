@@ -10,7 +10,7 @@
   },
   "scripts": {
     "format": "prettier --write .",
-    "format:check": "node scripts/design-format-report.ts && prettier --check .",
+    "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
     "build": "tsc -b",
