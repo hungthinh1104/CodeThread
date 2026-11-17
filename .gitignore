@@ -6,6 +6,7 @@ dist/
 .pnpm-store/
 .vitest/
 coverage/
+packages/investigation-workspace/next-env.d.ts
 artifacts/
 /local-study-data/
 *.tsbuildinfo
