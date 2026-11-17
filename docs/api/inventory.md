@@ -138,6 +138,8 @@ or `Origin` header. These routes do not read or publish analysis data.
 | `GET /viewer-client/projection.js` | Serves the semantic projection module as `text/javascript`. | `tests/viewer-browser.ts`                         |
 | `GET /viewer-client/history.js`    | Serves browser history handling as `text/javascript`.       | `tests/viewer-browser.ts`                         |
 | `GET /viewer-client/repository.js` | Serves repository navigation as `text/javascript`.          | `tests/viewer-browser.ts`                         |
+| `GET /viewer-client/evidence.js`   | Serves verified evidence rendering as `text/javascript`.    | `tests/viewer-browser.ts`                         |
+| `GET /viewer-client/workspace.js`  | Serves workspace control bindings as `text/javascript`.     | `tests/viewer-browser.ts`                         |
 
 `tests/viewer-api-contract.test.ts` also fetches every static asset without API
 credentials, compares exact bytes and content type with the bundled file, and

@@ -38,8 +38,11 @@ trace-engine consumes facts, not framework AST internals. Database modules own
 persistence adapters, not semantic rules. `scripts/git-source/` owns Git object
 acquisition; `scripts/investigate.ts` owns CLI arguments, source selection
 display and in-memory session orchestration. The API validates contracts rather
-than exposing database rows. UI uses contracts/API rather than the database;
-there is no second web-framework backend.
+than exposing database rows. UI uses contracts/API rather than the database. The
+scoped CT-WORKSPACE-001B Investigation Workspace adds one local Next.js package
+with a thin same-origin BFF for session and transport security only; it has no
+database, acquisition, scan, graph, or evidence semantics. This does not open
+the general frontend or scan-management product gates.
 
 `arch:check` checks source imports/re-exports, literal dynamic imports,
 import-type references, declared dependencies, package cycles and public-root

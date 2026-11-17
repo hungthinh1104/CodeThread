@@ -4,158 +4,263 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>CodeThread local investigation</title>
+    <title>CodeThread investigation workspace</title>
     <link rel="stylesheet" href="/viewer.css" />
     <script src="/viewer.js" type="module"></script>
   </head>
   <body>
     <header class="page-header">
-      <div>
+      <div class="brand-block">
         <p class="eyebrow">Static source facts · no execution observed</p>
-        <h1>CodeThread investigation</h1>
+        <h1>CodeThread Workspace</h1>
+        <p id="snapshot-summary" role="status">
+          Connecting to the local analysis...
+        </p>
       </div>
-      <nav aria-label="Investigation history" class="pager">
-        <button id="back" type="button" disabled>Back</button>
-        <button id="forward" type="button" disabled>Forward</button>
-      </nav>
+      <div class="header-actions">
+        <button
+          id="inspector-toggle"
+          type="button"
+          aria-controls="evidence-inspector"
+          aria-expanded="false"
+          hidden
+        >
+          Evidence
+        </button>
+        <nav aria-label="Investigation history" class="pager">
+          <button id="back" type="button" disabled>Back</button>
+          <button id="forward" type="button" disabled>Forward</button>
+        </nav>
+      </div>
     </header>
     <main>
-      <section class="overview" aria-labelledby="snapshot-heading">
-        <h2 id="snapshot-heading">Analysis snapshot</h2>
-        <p id="snapshot-summary" role="status">
-          Connecting to the local analysis…
-        </p>
-        <ul
-          id="coverage"
-          class="coverage-list"
-          aria-label="Capability coverage"
-        ></ul>
-        <div id="repository-controls" hidden>
-          <p id="repository-summary" role="status"></p>
-          <label for="project-select">Project context</label>
-          <select id="project-select"></select>
-          <p id="project-status" class="muted"></p>
-          <button id="retry-project" type="button" hidden>Retry project</button>
-          <details>
-            <summary>Source inventory and project diagnostics</summary>
-            <ul id="project-diagnostics"></ul>
-            <ul id="source-files"></ul>
-            <div class="pager">
-              <button id="previous-files" type="button" disabled>
-                Previous files
-              </button>
-              <button id="next-files" type="button" disabled>Next files</button>
-            </div>
-          </details>
-        </div>
-      </section>
       <div class="workspace">
-        <aside aria-labelledby="symbols-heading">
-          <h2 id="symbols-heading">1. Select a source symbol</h2>
-          <form id="symbol-search">
-            <label id="catalog-label" hidden
-              ><input id="global-symbols" type="checkbox" checked /> Search all
-              project contexts</label
-            >
-            <label for="symbol-query">Name or source path</label>
-            <div class="search-row">
-              <input
-                id="symbol-query"
-                name="query"
-                maxlength="256"
-                autocomplete="off"
-              />
-              <button type="submit">Search</button>
-            </div>
-          </form>
-          <p id="symbol-count" class="muted"></p>
+        <aside class="explorer" aria-labelledby="explorer-heading">
+          <div class="region-heading">
+            <p class="step-label">01 / Explorer</p>
+            <h2 id="explorer-heading">Explorer</h2>
+          </div>
           <ul
-            id="symbol-results"
-            class="symbol-list"
-            aria-label="Matching symbols"
+            id="coverage"
+            class="coverage-list"
+            aria-label="Capability coverage"
           ></ul>
-          <div class="pager">
-            <button id="previous-symbols" type="button" disabled>
-              Previous
+          <div id="repository-controls" hidden>
+            <p id="repository-summary" role="status"></p>
+            <label for="project-select">Project context</label>
+            <select id="project-select"></select>
+            <p id="project-status" class="muted"></p>
+            <button id="retry-project" type="button" hidden>
+              Retry project
             </button>
-            <button id="next-symbols" type="button" disabled>Next</button>
+            <details>
+              <summary>Source inventory and project diagnostics</summary>
+              <ul id="project-diagnostics"></ul>
+              <ul id="source-files"></ul>
+              <div class="pager">
+                <button id="previous-files" type="button" disabled>
+                  Previous files
+                </button>
+                <button id="next-files" type="button" disabled>
+                  Next files
+                </button>
+              </div>
+            </details>
           </div>
-        </aside>
-        <section class="investigation" aria-labelledby="investigation-heading">
-          <h2 id="investigation-heading">2. Investigate relationships</h2>
-          <div class="filters">
-            <fieldset>
-              <legend>Relationship kinds</legend>
-              <label
-                ><input type="checkbox" name="kind" value="calls" checked />
-                CALLS</label
+          <section aria-labelledby="symbols-heading" class="symbol-explorer">
+            <h2 id="symbols-heading">Symbols</h2>
+            <form id="symbol-search">
+              <label id="catalog-label" hidden
+                ><input id="global-symbols" type="checkbox" checked /> Search
+                all project contexts</label
               >
-              <label
-                ><input type="checkbox" name="kind" value="references" />
-                REFERENCES</label
-              >
-            </fieldset>
-            <label for="direction">Direction</label>
-            <select id="direction">
-              <option value="both">Incoming and outgoing</option>
-              <option value="outgoing">Outgoing</option>
-              <option value="incoming">Incoming</option>
-            </select>
-          </div>
-          <p id="investigation-status" role="status" class="muted">
-            Select a symbol to begin.
-          </p>
-          <section
-            id="root-symbol"
-            class="root-symbol"
-            aria-live="polite"
-          ></section>
-          <section
-            id="context-choices"
-            aria-label="Choose declaration context"
-            hidden
-          ></section>
-          <section
-            id="graph-symbol-selection"
-            class="root-symbol"
-            aria-live="polite"
-            hidden
-          ></section>
-          <p class="graph-legend">
-            Solid arrow: CALLS · dashed arrow: REFERENCES. Focus an SVG node or
-            edge and press Enter or Space, or use the accessible relationship
-            list below.
-          </p>
-          <svg
-            id="graph"
-            class="graph"
-            role="group"
-            aria-label="Bounded static source relationship graph"
-          ></svg>
-          <section aria-labelledby="relationships-heading">
-            <h3 id="relationships-heading">
-              Returned relationship occurrences
-            </h3>
-            <p class="semantic-note">
-              CALLS describes a static call site. REFERENCES describes a
-              source-level reference. Neither establishes runtime execution or
-              dispatch.
-            </p>
-            <ol id="relationships" class="relationship-list"></ol>
-          </section>
-          <section aria-labelledby="unknowns-heading">
-            <h3 id="unknowns-heading">
-              Unsupported or unresolved observations
-            </h3>
-            <ol id="unknowns" class="relationship-list"></ol>
-          </section>
-          <section aria-labelledby="evidence-heading">
-            <h3 id="evidence-heading">Verified source evidence</h3>
-            <div id="evidence" class="evidence-panel" aria-live="polite">
-              Choose an evidence control to inspect retained source.
+              <label for="symbol-query">Name or source path</label>
+              <div class="search-row">
+                <input
+                  id="symbol-query"
+                  name="query"
+                  maxlength="256"
+                  autocomplete="off"
+                />
+                <button type="submit">Search</button>
+              </div>
+            </form>
+            <p id="symbol-count" class="muted"></p>
+            <ul
+              id="symbol-results"
+              class="symbol-list"
+              aria-label="Matching symbols"
+            ></ul>
+            <div class="pager">
+              <button id="previous-symbols" type="button" disabled>
+                Previous
+              </button>
+              <button id="next-symbols" type="button" disabled>Next</button>
             </div>
+          </section>
+        </aside>
+
+        <section class="main-workspace" aria-labelledby="workspace-heading">
+          <div class="workspace-toolbar">
+            <div>
+              <p class="step-label">02 / Main workspace</p>
+              <h2 id="workspace-heading">Investigation</h2>
+              <div id="selected-symbol-header" aria-live="polite"></div>
+            </div>
+            <div class="workspace-actions">
+              <div class="view-tabs" role="tablist" aria-label="Workspace view">
+                <button
+                  id="source-tab"
+                  type="button"
+                  role="tab"
+                  aria-controls="source-panel"
+                  aria-selected="true"
+                  tabindex="0"
+                >
+                  Source
+                </button>
+                <button
+                  id="trace-tab"
+                  type="button"
+                  role="tab"
+                  aria-controls="trace-panel"
+                  aria-selected="false"
+                  tabindex="-1"
+                >
+                  Trace
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <section
+            id="source-panel"
+            class="source-panel"
+            role="tabpanel"
+            aria-labelledby="source-tab"
+            tabindex="0"
+          >
+            <div class="panel-heading">
+              <div>
+                <h3>Verified source excerpt</h3>
+                <p class="muted">
+                  Exact pinned evidence span. This is not a full source file.
+                </p>
+              </div>
+            </div>
+            <div
+              id="source-evidence"
+              class="source-evidence"
+              aria-live="polite"
+            >
+              Select a symbol to load its verified declaration evidence.
+            </div>
+          </section>
+
+          <section
+            id="trace-panel"
+            class="trace-panel"
+            role="tabpanel"
+            aria-labelledby="trace-tab"
+            tabindex="0"
+            hidden
+          >
+            <h2 id="investigation-heading">Relationships</h2>
+            <div class="filters">
+              <fieldset>
+                <legend>Relationship kinds</legend>
+                <label
+                  ><input type="checkbox" name="kind" value="calls" checked />
+                  CALLS</label
+                >
+                <label
+                  ><input type="checkbox" name="kind" value="references" />
+                  REFERENCES</label
+                >
+              </fieldset>
+              <label for="direction">Direction</label>
+              <select id="direction">
+                <option value="both">Incoming and outgoing</option>
+                <option value="outgoing">Outgoing</option>
+                <option value="incoming">Incoming</option>
+              </select>
+            </div>
+            <p id="investigation-status" role="status" class="muted">
+              Select a symbol to begin.
+            </p>
+            <section
+              id="root-symbol"
+              class="root-symbol"
+              aria-live="polite"
+            ></section>
+            <section
+              id="context-choices"
+              aria-label="Choose declaration context"
+              hidden
+            ></section>
+            <section
+              id="graph-symbol-selection"
+              class="root-symbol"
+              aria-live="polite"
+              hidden
+            ></section>
+            <p class="graph-legend">
+              Solid arrow: CALLS · dashed arrow: REFERENCES. Focus an SVG node
+              or edge and press Enter or Space, or use the accessible
+              relationship list below.
+            </p>
+            <svg
+              id="graph"
+              class="graph"
+              role="group"
+              aria-label="Bounded static source relationship graph"
+            ></svg>
+            <section aria-labelledby="relationships-heading">
+              <h3 id="relationships-heading">
+                Returned relationship occurrences
+              </h3>
+              <p class="semantic-note">
+                CALLS describes a static call site. REFERENCES describes a
+                source-level reference. Neither establishes runtime execution or
+                dispatch.
+              </p>
+              <ol id="relationships" class="relationship-list"></ol>
+            </section>
+            <section aria-labelledby="unknowns-heading">
+              <h3 id="unknowns-heading">
+                Unsupported or unresolved observations
+              </h3>
+              <ol id="unknowns" class="relationship-list"></ol>
+            </section>
           </section>
         </section>
+
+        <div
+          id="inspector-backdrop"
+          class="inspector-backdrop"
+          aria-hidden="true"
+          hidden
+        ></div>
+        <aside
+          id="evidence-inspector"
+          class="evidence-inspector"
+          tabindex="-1"
+          aria-labelledby="evidence-heading"
+        >
+          <div class="inspector-heading">
+            <div>
+              <p class="step-label">03 / Evidence</p>
+              <h2 id="evidence-heading">Evidence inspector</h2>
+            </div>
+            <button id="close-inspector" type="button" hidden>Close</button>
+          </div>
+          <p id="evidence-description" class="semantic-note">
+            Source text and provenance are verified against this snapshot.
+          </p>
+          <div id="evidence" class="evidence-panel" aria-live="polite">
+            Choose an evidence control to inspect retained source.
+          </div>
+        </aside>
       </div>
       <p id="error" class="error" role="alert" hidden></p>
     </main>
