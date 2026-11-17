@@ -36,17 +36,17 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-  --ct-canvas: #151a1a;
-  --ct-surface: #202625;
-  --ct-raised: #2b3431;
-  --ct-ink: #e7ece9;
-  --ct-muted: #a7b4ae;
-  --ct-border: #35413d;
-  --ct-accent: #86c5ae;
-  --ct-focus: #90afff;
-  --ct-calls: #91bfe0;
-  --ct-references: #e1af90;
-  --ct-error: #ff9b92;
+    --ct-canvas: #151a1a;
+    --ct-surface: #202625;
+    --ct-raised: #2b3431;
+    --ct-ink: #e7ece9;
+    --ct-muted: #a7b4ae;
+    --ct-border: #35413d;
+    --ct-accent: #86c5ae;
+    --ct-focus: #90afff;
+    --ct-calls: #91bfe0;
+    --ct-references: #e1af90;
+    --ct-error: #ff9b92;
   }
 }
 
