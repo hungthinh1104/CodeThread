@@ -1,21 +1,52 @@
+/* CodeThread Technical Editorial / Warm Graphite. Tokens are visual, never semantic truth. */
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
+  color-scheme: light;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
   line-height: 1.5;
   font-synthesis: none;
-  --surface: Canvas;
-  --surface-raised: color-mix(in srgb, Canvas 92%, CanvasText 8%);
-  --border: color-mix(in srgb, CanvasText 28%, transparent);
-  --muted: color-mix(in srgb, CanvasText 72%, transparent);
-  --focus: #4aa3ff;
-  --calls: #16754a;
-  --references: #6b4db4;
+  --ct-canvas: #f4f3ef;
+  --ct-surface: #fffefa;
+  --ct-raised: #eceee9;
+  --ct-ink: #1f2726;
+  --ct-muted: #5e6966;
+  --ct-border: #d9ddd7;
+  --ct-accent: #21685d;
+  --ct-focus: #315cc6;
+  --ct-calls: #356b8b;
+  --ct-references: #915d43;
+  --ct-error: #a52a23;
+  --ct-code-font: "IBM Plex Mono", ui-monospace, monospace;
+  --ct-radius-sm: 4px;
+  --ct-radius-md: 8px;
+  --ct-space-1: 4px;
+  --ct-space-2: 8px;
+  --ct-space-3: 12px;
+  --ct-space-4: 16px;
+  --ct-space-6: 24px;
+  /* Compatibility aliases for the current bounded viewer. */
+  --surface: var(--ct-surface);
+  --surface-raised: var(--ct-raised);
+  --border: var(--ct-border);
+  --muted: var(--ct-muted);
+  --focus: var(--ct-focus);
+  --calls: var(--ct-calls);
+  --references: var(--ct-references);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --calls: #7dd3a7;
-    --references: #c4abff;
+    color-scheme: dark;
+  --ct-canvas: #151a1a;
+  --ct-surface: #202625;
+  --ct-raised: #2b3431;
+  --ct-ink: #e7ece9;
+  --ct-muted: #a7b4ae;
+  --ct-border: #35413d;
+  --ct-accent: #86c5ae;
+  --ct-focus: #90afff;
+  --ct-calls: #91bfe0;
+  --ct-references: #e1af90;
+  --ct-error: #ff9b92;
   }
 }
 
@@ -27,8 +58,8 @@ body {
   margin: 0 auto;
   max-width: 1440px;
   padding: 1rem clamp(0.75rem, 2vw, 2rem) 2rem;
-  color: CanvasText;
-  background: var(--surface);
+  color: var(--ct-ink);
+  background: var(--ct-canvas);
 }
 
 button,
@@ -47,7 +78,7 @@ input {
   border: 1px solid var(--border);
   border-radius: 0.4rem;
   padding: 0.45rem 0.7rem;
-  color: CanvasText;
+  color: var(--ct-ink);
   background: var(--surface);
 }
 
@@ -309,8 +340,8 @@ legend {
 
 .graph-node-text,
 .graph-edge-label {
-  fill: CanvasText;
-  font-family: system-ui, sans-serif;
+  fill: var(--ct-ink);
+  font-family: var(--ct-code-font);
   font-size: 12px;
 }
 
@@ -362,15 +393,15 @@ legend {
   background: var(--surface-raised);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-family: ui-monospace, monospace;
+  font-family: var(--ct-code-font);
 }
 
 .error {
   margin-top: 1rem;
   padding: 0.8rem;
-  border: 1px solid #b42318;
+  border: 1px solid var(--ct-error);
   border-radius: 0.5rem;
-  color: #b42318;
+  color: var(--ct-error);
 }
 
 footer {
