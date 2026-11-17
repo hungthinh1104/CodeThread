@@ -226,7 +226,9 @@ export function scoped<T extends z.ZodType>(
       const items = value['items'];
       bound(
         items.length,
-        'nextCursor' in value ? limits['pageSize'] : limits['evidence'],
+        'nextCursor' in value || 'nextOffset' in value
+          ? limits['pageSize']
+          : limits['evidence'],
         'items',
       );
       const links = items.flatMap((item: unknown) =>

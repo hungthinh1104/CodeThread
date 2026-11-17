@@ -9,6 +9,7 @@ export type { LinkValidationContext } from './test-results.js';
 export {
   parseGetSourceEvidenceResult,
   parseGetDiagnosticsResult,
+  parseListSymbolsResult,
 } from './source-results.js';
 export {
   parseGraphNeighborsResult,

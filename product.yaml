@@ -37,8 +37,9 @@ v0:
       complete pinned inventory; no inferred dependency closure.
     worktree: Dirty working-tree contents are ignored.
   presentation: >-
-    A bounded textual CLI plus an opt-in ephemeral loopback browser proof for
-    the current semantic snapshot. A persistent product frontend remains gated.
+    A bounded textual CLI and an opt-in loopback browser proof. The existing
+    viewer can be reopened from a persisted local snapshot through the backend
+    adapter; a general persistent product frontend remains gated.
 research:
   title_role:
     The official thesis title is academic metadata, not a mandatory product
@@ -65,8 +66,12 @@ non_goals:
     infrastructure.
 first_batch:
   deliverables: [Foundation, DB-01]
-  stop_before: DB-02
-  approval: Explicit user approval is required before DB-02.
+  db02_authorization: >-
+    The user explicitly authorized a local persistent backend candidate on
+    2026-11-13. This authorization covers implementation, testing and PR review.
+  deployment_gate: >-
+    Production credentials, production deployment and automated merge require
+    separate approval; this candidate is not production approved.
 semantic_proof:
   input:
     Caller-supplied immutable UTF-8 manifests or pinned repository source with
@@ -81,5 +86,7 @@ semantic_proof:
     JavaScript, .tsx and external implementations remain unresolved or
     unsupported as appropriate.
   persistence:
-    Repository and project sessions are in memory only. PostgreSQL and durable
-    source/provenance storage remain behind DB-02 and later approval gates.
+    The semantic proof remains framework-independent and in memory. An optional
+    local backend persists pinned Git provenance, source bytes and validated
+    project snapshots in PostgreSQL; hosted source ingestion and production
+    persistence are not authorized.
