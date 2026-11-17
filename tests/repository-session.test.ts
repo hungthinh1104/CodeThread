@@ -184,6 +184,164 @@ describe('repository project execution', () => {
     expect(session.contextComplete).toBe(false);
   }, 30000);
 
+  it('records a deadline at the next project budget boundary after retaining completed contexts', async () => {
+    const repository = await createGitRepository(
+      [
+        { path: 'package.json', source: '{"workspaces":["packages/*"]}' },
+        {
+          path: 'tsconfig.json',
+          source:
+            '{"files":[],"references":[{"path":"packages/a-fast"},{"path":"packages/b-later"}]}',
+        },
+        ...['a-fast', 'b-later'].flatMap((name) => [
+          {
+            path: `packages/${name}/package.json`,
+            source: JSON.stringify({ name: `@fixture/${name}` }),
+          },
+          {
+            path: `packages/${name}/tsconfig.json`,
+            source:
+              '{"compilerOptions":{"types":[],"target":"ES2023"},"files":["index.ts"]}',
+          },
+          {
+            path: `packages/${name}/index.ts`,
+            source: `export function ${name.replace('-', '')}() {}`,
+          },
+        ]),
+      ],
+      temporaryDirectories,
+    );
+    const originalNow = performance.now.bind(performance);
+    const deadlineMs =
+      codeModel.analysisResourceLimits('repository').maxDeadlineMs;
+    let remainingBudgetCalculations = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      const stack = new Error().stack ?? '';
+      if (stack.includes('remainingMs') && !stack.includes('throwIfStopped')) {
+        remainingBudgetCalculations++;
+        if (remainingBudgetCalculations === 2)
+          return originalNow() + deadlineMs + 10_000;
+      }
+      return originalNow();
+    });
+
+    const session = await analyzeGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+
+    expect(remainingBudgetCalculations).toBe(2);
+    expect(session.projects).toContainEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          configPath: 'packages/a-fast/tsconfig.json',
+        }),
+        status: 'ready',
+        snapshot: expect.any(Object),
+      }),
+    );
+    expect(session.projects).toContainEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          configPath: 'packages/b-later/tsconfig.json',
+        }),
+        status: 'not_analyzed',
+        error: expect.objectContaining({ code: 'ANALYSIS_TIMEOUT' }),
+      }),
+    );
+    expect(session.files.map((file) => [file.path, file.status])).toEqual([
+      ['packages/a-fast/index.ts', 'analyzed'],
+      ['packages/b-later/index.ts', 'not_analyzed'],
+    ]);
+    expect(session.sourceCoverageComplete).toBe(false);
+    expect(session.analysisComplete).toBe(false);
+    expect(session.contextComplete).toBe(false);
+  }, 30000);
+
+  it('returns partial results when a worker reports cancellation after the session deadline', async () => {
+    const repository = await createGitRepository(
+      [
+        { path: 'package.json', source: '{"workspaces":["packages/*"]}' },
+        {
+          path: 'tsconfig.json',
+          source:
+            '{"files":[],"references":[{"path":"packages/a-fast"},{"path":"packages/b-cancelled"}]}',
+        },
+        ...['a-fast', 'b-cancelled'].flatMap((name) => [
+          {
+            path: `packages/${name}/package.json`,
+            source: JSON.stringify({ name: `@fixture/${name}` }),
+          },
+          {
+            path: `packages/${name}/tsconfig.json`,
+            source:
+              '{"compilerOptions":{"types":[],"target":"ES2023"},"files":["index.ts"]}',
+          },
+          {
+            path: `packages/${name}/index.ts`,
+            source: `export function ${name.replace('-', '')}() {}`,
+          },
+        ]),
+      ],
+      temporaryDirectories,
+    );
+    const originalLimits = codeModel.analysisResourceLimits;
+    const originalAnalyzeProject = symbolIndexer.analyzeProject;
+    const originalNow = performance.now.bind(performance);
+    const deadlineMs = 60_000;
+    const startedAt = originalNow();
+    let currentTime = startedAt;
+    vi.spyOn(codeModel, 'analysisResourceLimits').mockImplementation(
+      (profile = 'selected') =>
+        profile === 'repository'
+          ? { ...originalLimits(profile), maxDeadlineMs: deadlineMs }
+          : originalLimits(profile),
+    );
+    vi.spyOn(performance, 'now').mockImplementation(() => currentTime);
+    vi.spyOn(symbolIndexer, 'analyzeProject').mockImplementation(
+      async (input) => {
+        if (input.configPath === 'packages/b-cancelled/tsconfig.json') {
+          currentTime = startedAt + deadlineMs + 1;
+          throw new AnalysisError('CANCELLED', 'Analysis cancelled.');
+        }
+        return originalAnalyzeProject(input);
+      },
+    );
+
+    const session = await analyzeGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+
+    expect(session.projects).toContainEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          configPath: 'packages/a-fast/tsconfig.json',
+        }),
+        status: 'ready',
+        snapshot: expect.any(Object),
+      }),
+    );
+    expect(session.projects).toContainEqual(
+      expect.objectContaining({
+        project: expect.objectContaining({
+          configPath: 'packages/b-cancelled/tsconfig.json',
+        }),
+        status: 'not_analyzed',
+        error: expect.objectContaining({ code: 'ANALYSIS_TIMEOUT' }),
+      }),
+    );
+    expect(session.files.map((file) => [file.path, file.status])).toEqual([
+      ['packages/a-fast/index.ts', 'analyzed'],
+      ['packages/b-cancelled/index.ts', 'not_analyzed'],
+    ]);
+    expect(session.sourceCoverageComplete).toBe(false);
+    expect(session.analysisComplete).toBe(false);
+    expect(session.contextComplete).toBe(false);
+  }, 30000);
+
   it('retains a usable project when another project contains malformed source', async () => {
     const repository = await createGitRepository(
       [
