@@ -20,6 +20,91 @@ const snapshot = await analyzeManifest({
 });
 
 describe('Investigation Workspace asynchronous context guards', () => {
+  it('keeps Back within the retained navigation history after many selections', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    try {
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      await page.getByLabel('Name or source path').fill('root');
+      const rootResult = page.getByRole('button', { name: /root.*function/ });
+      await rootResult.click();
+      await page.locator('.source-excerpt').waitFor();
+
+      const history = page.getByRole('navigation', {
+        name: 'Investigation history',
+      });
+      const startVersion = Number(
+        await history.getAttribute('data-history-version'),
+      );
+      for (let selection = 1; selection <= 40; selection++) {
+        const previousVersion = Number(
+          await history.getAttribute('data-history-version'),
+        );
+        await rootResult.click();
+        await page.waitForFunction((version) => {
+          const current = document.querySelector<HTMLElement>(
+            'nav[aria-label="Investigation history"]',
+          );
+          return Number(current?.dataset.historyVersion) > version;
+        }, previousVersion);
+      }
+      assert.equal(
+        Number(await history.getAttribute('data-history-version')) -
+          startVersion,
+        40,
+        'each repeated selection must append a browser history entry',
+      );
+      assert.equal(
+        await history.count(),
+        1,
+        `history controls must remain present after repeated selection: ${await page.locator('body').innerText()}`,
+      );
+      const historyButtons = await history.locator('button').allTextContents();
+      assert.equal(
+        historyButtons.length,
+        2,
+        `history controls must expose Back and Forward: ${JSON.stringify(historyButtons)}; body=${await page.locator('body').innerText()}`,
+      );
+      const back = history.getByRole('button', { name: 'Back', exact: true });
+      let backSteps = 0;
+      while (!(await back.isDisabled()) && backSteps < 50) {
+        const historyVersion = Number(
+          await history.getAttribute('data-history-version'),
+        );
+        await back.click();
+        await page.waitForFunction(
+          (previousVersion) => {
+            const current = document.querySelector<HTMLElement>(
+              'nav[aria-label="Investigation history"]',
+            );
+            return Number(current?.dataset.historyVersion) > previousVersion;
+          },
+          historyVersion,
+          { timeout: 5_000 },
+        );
+        backSteps++;
+      }
+      assert.equal(
+        backSteps,
+        39,
+        'Back must stop at the oldest of the 40 retained workspace states',
+      );
+      assert.equal(await back.isDisabled(), true);
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 120_000);
+
   it('clears the selected source and evidence when repository selection is cleared', async () => {
     const app = await startWorkspaceApp(snapshot);
     const browser = await chromium.launch({ headless: true });
@@ -65,6 +150,188 @@ describe('Investigation Workspace asynchronous context guards', () => {
       await app.close();
     }
   }, 90_000);
+
+  it('clears invalidated loading state and resets project pagination on context switch', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    const secondProjectId = 'workspace-test-project-2';
+    let sessionProjection: Record<string, unknown> | null = null;
+    let rootSearchProjection: Record<string, unknown> | null = null;
+    let secondProjectOffset: number | null = null;
+    let resolveSecondProjectSearch = () => {};
+    const secondProjectSearch = new Promise<void>((resolveSearch) => {
+      resolveSecondProjectSearch = resolveSearch;
+    });
+    let markGraphStarted = () => {};
+    let releaseGraph = () => {};
+    let markGraphFinished = () => {};
+    const graphStarted = new Promise<void>((resolveStarted) => {
+      markGraphStarted = resolveStarted;
+    });
+    const graphFinished = new Promise<void>((resolveFinished) => {
+      markGraphFinished = resolveFinished;
+    });
+    const graphGate = new Promise<void>((resolveGate) => {
+      releaseGraph = resolveGate;
+    });
+    let markEvidenceStarted = () => {};
+    let releaseEvidence = () => {};
+    let markEvidenceFinished = () => {};
+    const evidenceStarted = new Promise<void>((resolveStarted) => {
+      markEvidenceStarted = resolveStarted;
+    });
+    const evidenceFinished = new Promise<void>((resolveFinished) => {
+      markEvidenceFinished = resolveFinished;
+    });
+    const evidenceGate = new Promise<void>((resolveGate) => {
+      releaseEvidence = resolveGate;
+    });
+    const gateResolved: string[] = [];
+    try {
+      await page.route('**/api/workspace/projects', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as {
+          items: Array<Record<string, unknown>>;
+        };
+        const first = body.items[0];
+        assert.ok(first);
+        body.items.push({
+          ...first,
+          id: secondProjectId,
+          label: 'Second test context',
+        });
+        await route.fulfill({ response, body: JSON.stringify(body) });
+      });
+      await page.route('**/api/workspace/session', async (route) => {
+        const request = route.request().postDataJSON() as {
+          projectId: string;
+        };
+        if (request.projectId === secondProjectId) {
+          assert.ok(sessionProjection);
+          const response = structuredClone(sessionProjection);
+          response.projectId = secondProjectId;
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(response),
+          });
+          return;
+        }
+        const upstream = await route.fetch();
+        sessionProjection = (await upstream.json()) as Record<string, unknown>;
+        await route.fulfill({
+          response: upstream,
+          body: JSON.stringify(sessionProjection),
+        });
+      });
+      await page.route('**/api/workspace/symbols', async (route) => {
+        const request = route.request().postDataJSON() as {
+          projectId: string;
+          request: { offset: number; query: string };
+        };
+        if (request.projectId === secondProjectId) {
+          secondProjectOffset = request.request.offset;
+          resolveSecondProjectSearch();
+          assert.ok(rootSearchProjection);
+          const response = structuredClone(rootSearchProjection);
+          response.projectId = secondProjectId;
+          const result = response.result as Record<string, unknown>;
+          result.offset = request.request.offset;
+          result.nextOffset = null;
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(response),
+          });
+          return;
+        }
+        const upstream = await route.fetch();
+        const body = (await upstream.json()) as Record<string, unknown>;
+        if (request.request.query === 'root') {
+          rootSearchProjection = structuredClone(body);
+          const result = body.result as Record<string, unknown>;
+          result.total = 51;
+          result.nextOffset = request.request.offset === 0 ? 50 : null;
+          await route.fulfill({
+            response: upstream,
+            body: JSON.stringify(body),
+          });
+          return;
+        }
+        await route.fulfill({ response: upstream });
+      });
+      await page.route('**/api/workspace/neighbors', async (route) => {
+        const response = await route.fetch();
+        markGraphStarted();
+        await graphGate;
+        gateResolved.push('graph');
+        await route.fulfill({ response });
+        markGraphFinished();
+      });
+      await page.route('**/api/workspace/evidence', async (route) => {
+        const response = await route.fetch();
+        markEvidenceStarted();
+        await evidenceGate;
+        gateResolved.push('evidence');
+        await route.fulfill({ response });
+        markEvidenceFinished();
+      });
+
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      await page.getByLabel('Name or source path').fill('root');
+      const firstPageNext = page
+        .locator('.explorer-section .pager')
+        .first()
+        .getByRole('button', { name: 'Next' });
+      await firstPageNext.click();
+      await page.getByRole('button', { name: /root.*function/ }).waitFor();
+      await page.getByRole('button', { name: /root.*function/ }).click();
+      await Promise.all([graphStarted, evidenceStarted]);
+
+      await page.getByLabel('Project context').selectOption(secondProjectId);
+      await secondProjectSearch;
+      await page.getByText('Choose a source-backed symbol to begin.').waitFor();
+      releaseGraph();
+      releaseEvidence();
+      await Promise.all([graphFinished, evidenceFinished]);
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolveFrame) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => resolveFrame()),
+            ),
+          ),
+      );
+
+      const loadingState = await page
+        .locator('#evidence-inspector')
+        .getByText(/Loading verified evidence/)
+        .count();
+      assert.deepEqual(
+        {
+          projectOffset: secondProjectOffset,
+          loadingState,
+          released: gateResolved.sort(),
+        },
+        { projectOffset: 0, loadingState: 0, released: ['evidence', 'graph'] },
+        'changing projects must reset project-local paging and finish obsolete loading indicators',
+      );
+    } finally {
+      releaseGraph();
+      releaseEvidence();
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 120_000);
 
   it('ignores a delayed scan open after selecting a repository with no active scan', async () => {
     const app = await startWorkspaceApp(snapshot, { holdScanRead: true });

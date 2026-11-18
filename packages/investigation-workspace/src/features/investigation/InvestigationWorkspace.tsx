@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from 'react';
 import {
   ApiFailure,
   openScan,
@@ -37,6 +43,7 @@ type NavigationEntry = {
   selectedEvidenceId: string | null;
   view: 'source' | 'trace';
 };
+const MAX_NAVIGATION_HISTORY_ENTRIES = 40;
 type SearchState = {
   items: SearchItem[];
   offset: number;
@@ -244,12 +251,17 @@ export function InvestigationWorkspace() {
   function pushNavigation(entry: NavigationEntry) {
     ++navigationRestoreGeneration.current;
     const key = crypto.randomUUID();
-    navigationKeys.current = navigationKeys.current.slice(
-      0,
-      navigationIndex.current + 1,
-    );
-    navigationKeys.current.push(key);
-    navigationIndex.current = navigationKeys.current.length - 1;
+    const currentKeys = navigationKeys.current;
+    const nextKeys = currentKeys.slice(0, navigationIndex.current + 1);
+    for (const discardedKey of currentKeys.slice(navigationIndex.current + 1))
+      navigationRecords.current.delete(discardedKey);
+    nextKeys.push(key);
+    while (nextKeys.length > MAX_NAVIGATION_HISTORY_ENTRIES) {
+      const evictedKey = nextKeys.shift();
+      if (evictedKey) navigationRecords.current.delete(evictedKey);
+    }
+    navigationKeys.current = nextKeys;
+    navigationIndex.current = nextKeys.length - 1;
     navigationRecords.current.set(key, entry);
     window.history.pushState({ ctWorkspaceKey: key }, '', window.location.href);
     setHistoryVersion((version) => version + 1);
@@ -332,8 +344,10 @@ export function InvestigationWorkspace() {
     }
     const generation = ++contextGeneration.current;
     if (historyMode !== 'none') ++navigationRestoreGeneration.current;
+    ++searchGeneration.current;
     ++graphGeneration.current;
     ++evidenceGeneration.current;
+    ++contextSearchGeneration.current;
     const scope = {
       scanId: metadata.scanId,
       projectId,
@@ -345,12 +359,16 @@ export function InvestigationWorkspace() {
     setSession(null);
     setSelected(null);
     setSearch(emptySearchState());
+    if (searchMode === 'project') setSearchOffset(0);
     setSearchError(null);
     setSearchLoading(false);
     setGraph(null);
+    setGraphLoading(false);
     setEvidence(null);
+    setEvidenceLoading(false);
     setSelectedRelationId(null);
     setContextCandidates([]);
+    setContextSearchLoading(false);
     setContextSearchMessage(null);
     setGraphError(null);
     setEvidenceError(null);
@@ -844,20 +862,21 @@ export function InvestigationWorkspace() {
     }
   }
 
+  const onPopState = useEffectEvent((event: PopStateEvent) => {
+    const key = (event.state as { ctWorkspaceKey?: string } | null)
+      ?.ctWorkspaceKey;
+    const index = key ? navigationKeys.current.indexOf(key) : -1;
+    const entry = key ? navigationRecords.current.get(key) : undefined;
+    if (index < 0 || !entry) return;
+    navigationIndex.current = index;
+    setHistoryVersion((version) => version + 1);
+    void restoreNavigation(entry);
+  });
+
   useEffect(() => {
-    const onPopState = (event: PopStateEvent) => {
-      const key = (event.state as { ctWorkspaceKey?: string } | null)
-        ?.ctWorkspaceKey;
-      const index = key ? navigationKeys.current.indexOf(key) : -1;
-      const entry = key ? navigationRecords.current.get(key) : undefined;
-      if (index < 0 || !entry) return;
-      navigationIndex.current = index;
-      setHistoryVersion((version) => version + 1);
-      void restoreNavigation(entry);
-    };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  });
+  }, []);
 
   useEffect(() => {
     let mounted = true;
