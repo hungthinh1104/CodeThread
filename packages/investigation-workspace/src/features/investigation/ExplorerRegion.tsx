@@ -14,6 +14,7 @@ export type SearchItem = {
 };
 
 type Props = {
+  inert: boolean;
   repositories: RepositoryItem[];
   selectedRepositoryId: string;
   onRepositoryChange: (id: string) => void;
@@ -55,7 +56,11 @@ export function ExplorerRegion(props: Props) {
       (item) => item.status !== 'ready' || item.snapshotId === null,
     ) ?? [];
   return (
-    <aside className="region explorer" aria-labelledby="explorer-heading">
+    <aside
+      className="region explorer"
+      aria-labelledby="explorer-heading"
+      inert={props.inert}
+    >
       <div className="region-title">
         <p className="step-label">01 / Explorer</p>
         <h2 id="explorer-heading">Pinned context</h2>

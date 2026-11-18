@@ -302,6 +302,7 @@ pre {
 
 .main-region {
   background: var(--ct-surface);
+  scroll-margin-block-start: var(--ct-space-3);
 }
 .main-heading {
   align-items: flex-start;
@@ -411,6 +412,15 @@ pre {
   border-left: 3px solid var(--ct-accent);
   background: var(--ct-raised);
   font-size: 0.78rem;
+}
+.trace-graph-disclosure {
+  margin-block: var(--ct-space-3);
+}
+.trace-graph-disclosure > summary {
+  padding-block: var(--ct-space-2);
+  color: var(--ct-accent);
+  cursor: pointer;
+  font-weight: 650;
 }
 .trace-graph-section {
   margin: 14px 0;

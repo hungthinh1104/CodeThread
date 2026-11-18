@@ -59,6 +59,55 @@ jobs:
         run: pnpm --silent eval:external
       - name: Dependency security audit (requires advisory service)
         run: pnpm security:check
+      - name: Check out the Workspace design baseline
+        if: >-
+          runner.os == 'Linux' && github.event_name == 'pull_request' &&
+          github.event.pull_request.number == 40 && github.base_ref ==
+          'feat/ct-workspace-design-001a'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 426baf0cc609eee88f80e6264a1a4f954504394f
+          path: .tooling/workspace-design-baseline
+          persist-credentials: false
+      - name: Capture Workspace fixture evidence
+        if: >-
+          runner.os == 'Linux' && github.event_name == 'pull_request' &&
+          github.event.pull_request.number == 40 && github.base_ref ==
+          'feat/ct-workspace-design-001a'
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          VISUAL_OUTPUT: ${{ runner.temp }}/ct-workspace-design-008
+          NEXT_TELEMETRY_DISABLED: 1
+        run: |
+          git fetch --no-tags --depth=1 origin "$CANDIDATE_SHA"
+          baseline='.tooling/workspace-design-baseline'
+          cp tests/browser/workspace-design-evidence.ts tests/browser/workspace-presentation.ts tests/browser/workspace-zoom.ts "$baseline/tests/browser/"
+          (
+            cd "$baseline"
+            pnpm install --frozen-lockfile
+            pnpm build
+            node tests/browser/workspace-design-evidence.ts before "$VISUAL_OUTPUT/before" 426baf0cc609eee88f80e6264a1a4f954504394f
+            node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/before" before
+          )
+          node tests/browser/workspace-design-evidence.ts after "$VISUAL_OUTPUT/after" "$CANDIDATE_SHA"
+          node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/after"
+          node tests/browser/workspace-design-evidence.ts compare "$VISUAL_OUTPUT"
+      - name: Upload Workspace fixture evidence
+        if: >-
+          runner.os == 'Linux' && github.event_name == 'pull_request' &&
+          github.event.pull_request.number == 40 && github.base_ref ==
+          'feat/ct-workspace-design-001a'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ct-workspace-design-008
+          path: |
+            ${{ runner.temp }}/ct-workspace-design-008/before/*.png
+            ${{ runner.temp }}/ct-workspace-design-008/before/*.json
+            ${{ runner.temp }}/ct-workspace-design-008/after/*.png
+            ${{ runner.temp }}/ct-workspace-design-008/after/*.json
+            ${{ runner.temp }}/ct-workspace-design-008/comparison.json
+          if-no-files-found: error
+          retention-days: 30
 
   backend-postgres:
     runs-on: ubuntu-latest

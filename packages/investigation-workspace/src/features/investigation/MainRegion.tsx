@@ -6,8 +6,11 @@ import type {
   SessionProjection,
 } from './types.ts';
 import { TraceGraph } from './TraceGraph.tsx';
+import type { RefObject } from 'react';
 
 type Props = {
+  inert: boolean;
+  headingRef: RefObject<HTMLHeadingElement | null>;
   selected: CodeSymbol | null;
   evidence: EvidenceProjection['items'][number] | null;
   evidenceLoading: boolean;
@@ -25,7 +28,11 @@ type Props = {
   direction: 'outgoing' | 'incoming' | 'both';
   onDirectionChange: (value: 'outgoing' | 'incoming' | 'both') => void;
   selectedRelationId: string | null;
-  onSelectEvidence: (id: string, relationId?: string) => void;
+  onSelectEvidence: (
+    id: string,
+    trigger: HTMLButtonElement,
+    relationId?: string,
+  ) => void;
   onFollowSymbol: (symbol: CodeSymbol) => void;
   contextCandidates: FollowContextProjection['candidates'];
   contextSearchLoading: boolean;
@@ -43,18 +50,34 @@ function unwrapEvidence(
 }
 
 export function MainRegion(props: Props) {
-  const evidenceText = unwrapEvidence(props.evidence);
   const root = props.selected;
+  const item = props.evidence;
+  const declaration =
+    root &&
+    item &&
+    (item.status === 'available'
+      ? item.evidence.id === root.declarationEvidenceId &&
+        item.evidence.snapshotId === root.snapshotId
+      : item.evidenceId === root.declarationEvidenceId)
+      ? item
+      : null;
+  const evidenceText = unwrapEvidence(declaration);
   const graph = props.graph?.graph;
   const symbolById = new Map(
     (graph?.symbols ?? []).map((symbol) => [symbol.id, symbol]),
   );
   return (
-    <main className="region main-region" aria-labelledby="workspace-heading">
+    <main
+      className="region main-region"
+      aria-labelledby="workspace-heading"
+      inert={props.inert}
+    >
       <div className="main-heading">
         <div>
           <p className="step-label">02 / Investigation</p>
-          <h2 id="workspace-heading">Source and trace</h2>
+          <h2 id="workspace-heading" ref={props.headingRef} tabIndex={-1}>
+            Source and trace
+          </h2>
           {root ? (
             <p className="selected-symbol">
               <strong>
@@ -129,23 +152,27 @@ export function MainRegion(props: Props) {
             </button>
           </p>
         ) : null}
-        {root && props.evidence?.status === 'available' ? (
+        {root && declaration?.status === 'available' ? (
           <div className="source-excerpt">
             <div className="section-heading-row">
               <h3>Verified declaration excerpt</h3>
               <button
+                id="inspect-declaration-evidence"
                 type="button"
-                onClick={() =>
-                  props.onSelectEvidence(root.declarationEvidenceId)
+                onClick={(event) =>
+                  props.onSelectEvidence(
+                    root.declarationEvidenceId,
+                    event.currentTarget,
+                  )
                 }
               >
                 Inspect evidence
               </button>
             </div>
             <p className="muted small">
-              {props.evidence.filePath} · line{' '}
-              {props.evidence.evidence.range.start.line} · SHA-256{' '}
-              {props.evidence.evidence.contentHash}
+              {declaration.filePath} · line{' '}
+              {declaration.evidence.range.start.line} · SHA-256{' '}
+              {declaration.evidence.contentHash}
             </p>
             <pre className="evidence-text">{evidenceText}</pre>
             <p className="caption">
@@ -154,9 +181,9 @@ export function MainRegion(props: Props) {
             </p>
           </div>
         ) : null}
-        {root && props.evidence?.status === 'unavailable' ? (
+        {root && declaration?.status === 'unavailable' ? (
           <p className="notice warning" role="status">
-            Declaration evidence unavailable: {props.evidence.code}. Mutable
+            Declaration evidence unavailable: {declaration.code}. Mutable
             worktree source was not used.
           </p>
         ) : null}
@@ -277,7 +304,9 @@ export function MainRegion(props: Props) {
             </details>
           </div>
         ) : null}
-        {graph?.relations.length ? <TraceGraph graph={graph} /> : null}
+        {props.activeView === 'trace' && graph?.relations.length ? (
+          <TraceGraph graph={graph} />
+        ) : null}
         {graph?.relations.length ? (
           <ol className="relationship-list">
             {graph.relations.map((relation) => {
@@ -316,9 +345,10 @@ export function MainRegion(props: Props) {
                   <div className="row-actions">
                     <button
                       type="button"
-                      onClick={() =>
+                      onClick={(event) =>
                         props.onSelectEvidence(
                           relation.siteEvidenceId,
+                          event.currentTarget,
                           relation.id,
                         )
                       }
@@ -362,7 +392,12 @@ export function MainRegion(props: Props) {
                   </div>
                   <button
                     type="button"
-                    onClick={() => props.onSelectEvidence(item.evidenceId)}
+                    onClick={(event) =>
+                      props.onSelectEvidence(
+                        item.evidenceId,
+                        event.currentTarget,
+                      )
+                    }
                   >
                     Inspect source evidence
                   </button>

@@ -19,12 +19,14 @@ type ChromeZoomApi = {
 };
 
 async function main(): Promise<void> {
+  const baseline = process.argv[3] === 'before';
   const temporaryDirectory = await mkdtemp(
     join(tmpdir(), 'ct-workspace-zoom-'),
   );
   const extensionDirectory = join(temporaryDirectory, 'extension');
   const artifactPath = resolve(
-    'artifacts/ct-workspace-001b/next-app/1440-actual-200-percent-light-selected-evidence.png',
+    process.argv[2] ?? 'artifacts/ct-workspace-001b/next-app',
+    '1440-actual-200-percent-light-selected-evidence.png',
   );
   await mkdir(extensionDirectory);
   await mkdir(dirname(artifactPath), { recursive: true });
@@ -60,7 +62,8 @@ async function main(): Promise<void> {
     context = await chromium.launchPersistentContext(
       join(temporaryDirectory, 'profile'),
       {
-        headless: false,
+        channel: 'chromium',
+        headless: true,
         viewport: { width: 1440, height: 900 },
         args: [
           `--disable-extensions-except=${extensionDirectory}`,
@@ -68,6 +71,16 @@ async function main(): Promise<void> {
         ],
       },
     );
+    const outside: string[] = [];
+    await context.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin !== app.origin) {
+        outside.push(url.origin);
+        await route.abort('blockedbyclient');
+        return;
+      }
+      await route.continue();
+    });
     const serviceWorkerEvent = context
       .waitForEvent('serviceworker', { timeout: 10_000 })
       .catch(() => undefined);
@@ -108,9 +121,24 @@ async function main(): Promise<void> {
     });
     assert.equal(zoom, 2, 'Chromium tab zoom must be exactly 200%.');
     await page.waitForFunction(() => window.innerWidth <= 760);
-    await page.getByRole('button', { name: 'Evidence', exact: true }).click();
     const inspector = page.locator('#evidence-inspector');
+    await page
+      .getByRole('button', { name: 'Inspect evidence', exact: true })
+      .press('Enter');
+    await page.evaluate(
+      () => new Promise<void>((ready) => requestAnimationFrame(() => ready())),
+    );
+    const openedFromAction = await inspector.isVisible();
+    if (baseline && !openedFromAction)
+      await page.getByRole('button', { name: 'Evidence', exact: true }).click();
+    else
+      assert.equal(
+        openedFromAction,
+        true,
+        'the evidence action opens the drawer at actual 200% browser zoom',
+      );
     await inspector.waitFor({ state: 'visible' });
+    await inspector.locator('.evidence-card').waitFor();
 
     const layout = await page.evaluate(() => {
       const panel = document.getElementById('evidence-inspector');
@@ -118,12 +146,15 @@ async function main(): Promise<void> {
       const bounds = panel.getBoundingClientRect();
       return {
         innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
         documentWidth: document.documentElement.scrollWidth,
         clientWidth: document.documentElement.clientWidth,
         visualViewportScale: window.visualViewport?.scale,
         panel: {
           left: bounds.left,
           right: bounds.right,
+          top: bounds.top,
+          bottom: bounds.bottom,
           width: bounds.width,
         },
       };
@@ -143,14 +174,27 @@ async function main(): Promise<void> {
     );
     assert.ok(layout.panel.left >= 0, JSON.stringify(layout));
     assert.ok(layout.panel.right <= layout.clientWidth, JSON.stringify(layout));
+    assert.ok(
+      layout.panel.top >= 0 && layout.panel.bottom <= layout.innerHeight,
+      JSON.stringify(layout),
+    );
+    assert.deepEqual(outside, [], 'zoom uses the fixture origin only');
     await page.screenshot({
       path: artifactPath,
-      fullPage: true,
       animations: 'disabled',
+      style: 'nextjs-portal { visibility: hidden !important; }',
     });
-    process.stdout.write(
-      `${JSON.stringify({ zoom, initialWidth, ...layout, artifactPath })}\n`,
+    const metrics = JSON.stringify({
+      zoom,
+      initialWidth,
+      openedFromAction,
+      ...layout,
+    });
+    await writeFile(
+      join(dirname(artifactPath), 'workspace-zoom.json'),
+      `${metrics}\n`,
     );
+    process.stdout.write(`${metrics}\n`);
   } finally {
     await context?.close();
     await app.close();

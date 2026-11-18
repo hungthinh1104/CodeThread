@@ -46,11 +46,14 @@ InvestigationScreen
 ```
 
 The explorer and inspector use explicit region slots. Source is the initial main
-view; Trace is a tab over the same selected projection. The graph is optional
-because the keyboard-accessible relationship list carries the same identities
-and evidence. At constrained widths the inspector becomes a keyboard-operated
-drawer. Color never carries relation kind, resolution, coverage, or failure by
-itself.
+view. When the workspace uses one column, selecting a symbol focuses the source
+heading and brings the region into view. Trace uses the same selected
+projection. Its keyboard-accessible relationship list keeps the identities and
+evidence available while the diagram opens on demand. Returning to Source after
+inspecting an occurrence requests the selected declaration's evidence. At
+constrained widths an evidence action opens a modal drawer and focus returns to
+the action on close. Color never carries relation kind, resolution, coverage, or
+failure by itself.
 
 ## State ownership and async identity
 
@@ -119,16 +122,21 @@ those schemas.
 
 ## Verification viewport and interactions
 
-Exercise 1440, 1280, and 768 CSS pixel widths, keyboard-only use, light/dark
-themes, long Unicode paths, narrow inspector drawer behavior, and
-empty/loading/partial/error/selected-evidence states. The browser suite's 720
-CSS pixel viewport remains a reflow approximation; Playwright viewport sizing
-does not change browser zoom. For actual 200% zoom, run
-`pnpm workspace:zoom:verify`: headed Chromium sets the tab zoom to 2, checks a
-1440 to 720 CSS pixel viewport change, verifies the evidence drawer stays inside
-the viewport, and captures
-`artifacts/ct-workspace-001b/next-app/1440-actual-200-percent-light-selected-evidence.png`.
-This headed-browser check is local evidence and is not part of hosted CI.
+Exercise 1440, 1280, 768, and 390 CSS pixel widths, keyboard-only use, light and
+dark themes, long Unicode paths, narrow inspector drawer behavior, and empty,
+loading, partial, error, and selected-evidence states. The browser suite's 720
+CSS pixel viewport checks reflow. For actual 200% tab zoom, run
+`pnpm workspace:zoom:verify`. The bundled Chromium extension sets the tab zoom
+to 2, checks a 1440 to 720 CSS pixel viewport change, and exercises the drawer
+from the evidence action. The default output is
+`artifacts/ct-workspace-001b/next-app/`.
+
+The Ubuntu PR #40 workflow publishes `ct-workspace-design-008` with fixture-only
+before and after PNGs, tab zoom measurements, and a comparison of geometry,
+request counts, and interaction timings from the same runner. The baseline uses
+`426baf0cc609eee88f80e6264a1a4f954504394f`. The candidate report checks the
+checkout tree against the PR head. These timings describe the fixture run.
+
 Browser regressions cover repository and context switching, catalog/file
 pagination, symbol search, trace filters/direction, exact target following,
 Back/Forward, session reload, stale success and error responses,

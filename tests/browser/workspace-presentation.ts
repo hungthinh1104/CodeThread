@@ -7,7 +7,7 @@ import { startWorkspaceApp } from './workspace-app.ts';
 
 type OpenPage = { context: BrowserContext; page: Page; outside: string[] };
 
-async function openWorkspacePage(
+export async function openWorkspacePage(
   browser: Browser,
   origin: string,
 ): Promise<OpenPage> {
@@ -41,7 +41,7 @@ async function openWorkspacePage(
   return { context, page, outside };
 }
 
-async function chooseRepository(
+export async function chooseRepository(
   page: Page,
   repositoryId: string,
 ): Promise<void> {
@@ -55,7 +55,7 @@ async function chooseRepository(
   );
 }
 
-async function chooseTodoRouter(page: Page): Promise<void> {
+export async function chooseTodoRouter(page: Page): Promise<void> {
   await page.getByLabel('Name or source path').fill('todoRouter');
   try {
     await page.getByRole('button', { name: /todoRouter.*function/ }).click();
@@ -253,12 +253,12 @@ async function captureStates(
               );
             }
             if (width <= 900 && state === 'selected-evidence') {
-              await page
-                .getByRole('button', { name: 'Evidence', exact: true })
-                .click();
-              await page
-                .locator('#evidence-inspector')
-                .waitFor({ state: 'visible' });
+              const inspector = page.locator('#evidence-inspector');
+              if (await inspector.isHidden())
+                await page
+                  .getByRole('button', { name: 'Evidence', exact: true })
+                  .click();
+              await inspector.waitFor({ state: 'visible' });
             }
             await assertNoHorizontalOverflow(page, width);
             await page.screenshot({
@@ -273,15 +273,8 @@ async function captureStates(
             if (state === 'loading')
               await page.unroute('**/api/workspace/symbols');
             if (state !== 'empty') {
-              const toggle = page.getByRole('button', {
-                name: 'Evidence',
-                exact: true,
-              });
-              if (
-                (await toggle.isVisible()) &&
-                (await toggle.getAttribute('aria-expanded')) === 'true'
-              )
-                await page.locator('#close-inspector').click();
+              const close = page.locator('#close-inspector');
+              if (await close.isVisible()) await close.click();
               await page.getByLabel('Repository and scan').selectOption('');
               await page.waitForFunction(
                 () =>
@@ -398,10 +391,7 @@ export async function verifyWorkspacePresentation(
       assert.equal(tablet.columns.trim().split(/\s+/).length, 2);
       assert.equal(tablet.hasHorizontalOverflow, false);
       await waitForCompactInspector(page, true);
-      const toggle = page.getByRole('button', {
-        name: 'Evidence',
-        exact: true,
-      });
+      const toggle = page.locator('#inspector-toggle');
       await toggle.click();
       assert.equal(await toggle.getAttribute('aria-expanded'), 'true');
       assert.equal(

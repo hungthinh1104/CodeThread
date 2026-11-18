@@ -205,13 +205,30 @@ export function InvestigationWorkspace() {
   const navigationRestoreGeneration = useRef(0);
   const selectionGeneration = useRef(0);
   const requestedEvidenceId = useRef<string | null>(null);
+  const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
+  const inspectorOpenerRef = useRef<HTMLButtonElement>(null);
   const inspectorCloseRef = useRef<HTMLButtonElement>(null);
   const history = useWorkspaceHistory(restoreNavigation);
 
+  function openInspector(trigger: HTMLButtonElement) {
+    inspectorOpenerRef.current = trigger;
+    setInspectorOpen(true);
+  }
+
   const closeInspector = useCallback(() => {
     setInspectorOpen(false);
-    window.requestAnimationFrame(() => inspectorTriggerRef.current?.focus());
+    window.requestAnimationFrame(() => {
+      const opener = inspectorOpenerRef.current;
+      const target =
+        opener && !opener.isConnected && opener.id
+          ? document.getElementById(opener.id)
+          : opener;
+      if (target?.isConnected && !target.closest('[hidden]')) target.focus();
+      else if (opener?.id === 'inspect-declaration-evidence')
+        workspaceHeadingRef.current?.focus();
+      else inspectorTriggerRef.current?.focus();
+    });
   }, []);
 
   function reportWorkspaceError(message: string | null, retryable = false) {
@@ -518,6 +535,14 @@ export function InvestigationWorkspace() {
     pushNavigation(entry);
     void loadGraph(item.symbol, scope, relationKinds, direction);
     void loadEvidence(item.symbol.declarationEvidenceId, scope);
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      window.requestAnimationFrame(() => {
+        if (generation !== selectionGeneration.current) return;
+        const heading = workspaceHeadingRef.current;
+        heading?.focus({ preventScroll: true });
+        heading?.closest('main')?.scrollIntoView({ block: 'start' });
+      });
+    }
   }
 
   async function chooseFile(file: FilePage['items'][number]) {
@@ -588,7 +613,11 @@ export function InvestigationWorkspace() {
     void loadEvidence(symbol.declarationEvidenceId, scope);
   }
 
-  async function chooseEvidence(id: string, relationId: string | null = null) {
+  async function chooseEvidence(
+    id: string,
+    trigger: HTMLButtonElement,
+    relationId: string | null = null,
+  ) {
     const scope = scopeRef.current;
     if (
       !scope ||
@@ -601,6 +630,7 @@ export function InvestigationWorkspace() {
       return;
     }
     ++selectionGeneration.current;
+    if (compactViewport) openInspector(trigger);
     const entry = currentNavigationEntry();
     if (entry) {
       pushNavigation({
@@ -1119,9 +1149,25 @@ export function InvestigationWorkspace() {
     if (scope && id) void loadEvidence(id, scope, selectedRelationId);
   }
 
+  function readDeclarationEvidence() {
+    const scope = scopeRef.current;
+    if (scope && selected?.snapshotId === scope.snapshotId)
+      void loadEvidence(selected.declarationEvidenceId, scope);
+  }
+
+  function chooseView(view: NavigationEntry['view']) {
+    setActiveView(view);
+    if (
+      view === 'source' &&
+      requestedEvidenceId.current !== selected?.declarationEvidenceId
+    )
+      readDeclarationEvidence();
+  }
+
+  const inspectorModal = compactViewport && inspectorOpen;
   return (
     <div className="page-shell">
-      <header className="page-header">
+      <header className="page-header" inert={inspectorModal}>
         <div>
           <p className="eyebrow">CODETHREAD / LOCAL ANALYSIS</p>
           <h1>Investigation Workspace</h1>
@@ -1148,19 +1194,21 @@ export function InvestigationWorkspace() {
           ref={inspectorTriggerRef}
           type="button"
           hidden={!compactViewport}
-          aria-expanded={compactViewport && inspectorOpen}
+          aria-expanded={inspectorModal}
           aria-controls="evidence-inspector"
-          onClick={() => setInspectorOpen(true)}
+          aria-haspopup="dialog"
+          onClick={(event) => openInspector(event.currentTarget)}
         >
           Evidence
         </button>
       </header>
-      <p className="scope-note">
+      <p className="scope-note" inert={inspectorModal}>
         Local snapshot only · no source execution · unsupported relationships
         and incomplete coverage stay visible.
       </p>
       <div className="workspace-grid">
         <ExplorerRegion
+          inert={inspectorModal}
           repositories={repositories}
           selectedRepositoryId={selectedRepositoryId}
           onRepositoryChange={(id) => void chooseRepository(id)}
@@ -1206,6 +1254,8 @@ export function InvestigationWorkspace() {
           onRetryWorkspace={() => void retryWorkspace()}
         />
         <MainRegion
+          inert={inspectorModal}
+          headingRef={workspaceHeadingRef}
           selected={selected}
           evidence={evidence}
           evidenceLoading={evidenceLoading}
@@ -1214,10 +1264,10 @@ export function InvestigationWorkspace() {
           graphError={graphError}
           evidenceError={evidenceError}
           onRetryGraph={retryGraph}
-          onRetryEvidence={retryEvidence}
+          onRetryEvidence={readDeclarationEvidence}
           session={session}
           activeView={activeView}
-          onViewChange={setActiveView}
+          onViewChange={chooseView}
           relationKinds={relationKinds}
           onRelationKindsChange={(value) => void changeFilters(value)}
           direction={direction}
@@ -1225,8 +1275,8 @@ export function InvestigationWorkspace() {
             void changeFilters(relationKinds, value)
           }
           selectedRelationId={selectedRelationId}
-          onSelectEvidence={(id, relationId) =>
-            void chooseEvidence(id, relationId ?? null)
+          onSelectEvidence={(id, trigger, relationId) =>
+            void chooseEvidence(id, trigger, relationId ?? null)
           }
           onFollowSymbol={(symbol) => void followSymbol(symbol)}
           contextCandidates={contextCandidates}
@@ -1248,7 +1298,7 @@ export function InvestigationWorkspace() {
           closeButtonRef={inspectorCloseRef}
         />
       </div>
-      <footer className="page-footer">
+      <footer className="page-footer" inert={inspectorModal}>
         <span>Static source evidence · validated API projections</span>
         {workspace ? (
           <span>

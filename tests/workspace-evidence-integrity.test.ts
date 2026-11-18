@@ -136,6 +136,10 @@ describe('Investigation Workspace evidence integrity', () => {
         'an ambiguous reference must not expose a follow action',
       );
 
+      await page
+        .getByText('Show exact relationship diagram', { exact: true })
+        .click();
+      await page.locator('#trace-panel .trace-graph').waitFor();
       const graphRelationIds = await page
         .locator('#trace-panel .trace-edge')
         .evaluateAll((edges) =>

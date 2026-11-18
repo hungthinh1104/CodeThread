@@ -50,7 +50,8 @@ export function EvidenceInspector(props: Props) {
         <button
           className="inspector-backdrop"
           type="button"
-          aria-label="Close evidence inspector"
+          aria-hidden="true"
+          tabIndex={-1}
           onClick={props.onClose}
         />
       ) : null}

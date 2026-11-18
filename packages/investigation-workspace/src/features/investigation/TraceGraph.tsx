@@ -1,10 +1,48 @@
+import { useState } from 'react';
 import type { GraphProjection } from './types.ts';
 
 type Props = { graph: GraphProjection['graph'] };
 
 type Point = { x: number; y: number };
 
+const nodeWidth = 150;
+const nodeHeight = 58;
+
+function edgePath(source: Point, target: Point): string {
+  if (source.x === target.x && source.y === target.y) {
+    const right = source.x + nodeWidth;
+    return `M ${right} ${source.y + 14} C ${right + 42} ${source.y - 4}, ${right + 42} ${source.y + 62}, ${right} ${source.y + 44}`;
+  }
+  if (source.x === target.x) {
+    const below = target.y > source.y;
+    const x = source.x + nodeWidth / 2;
+    const startY = source.y + (below ? nodeHeight : 0);
+    const endY = target.y + (below ? 0 : nodeHeight);
+    return `M ${x} ${startY} L ${x} ${endY}`;
+  }
+  const toRight = source.x < target.x;
+  const startX = source.x + (toRight ? nodeWidth : 0);
+  const endX = target.x + (toRight ? 0 : nodeWidth);
+  const startY = source.y + nodeHeight / 2;
+  const endY = target.y + nodeHeight / 2;
+  const middleX = (startX + endX) / 2;
+  return `M ${startX} ${startY} C ${middleX} ${startY}, ${middleX} ${endY}, ${endX} ${endY}`;
+}
+
 export function TraceGraph({ graph }: Props) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="trace-graph-disclosure"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary>Show exact relationship diagram</summary>
+      {open ? <TraceDiagram graph={graph} /> : null}
+    </details>
+  );
+}
+
+function TraceDiagram({ graph }: Props) {
   const symbols = graph.symbols;
   if (!symbols.length) return null;
   const positions = new Map<string, Point>();
@@ -50,7 +88,7 @@ export function TraceGraph({ graph }: Props) {
               id="trace-arrow"
               markerWidth="8"
               markerHeight="8"
-              refX="7"
+              refX="8"
               refY="4"
               orient="auto"
             >
@@ -63,9 +101,6 @@ export function TraceGraph({ graph }: Props) {
             if (targetId === null) return null;
             const target = positions.get(targetId);
             if (!source || !target) return null;
-            const startX = source.x + 150;
-            const endX = target.x;
-            const middleX = (startX + endX) / 2;
             return (
               <g
                 key={relation.id}
@@ -73,7 +108,7 @@ export function TraceGraph({ graph }: Props) {
                 data-relation-id={relation.id}
               >
                 <path
-                  d={`M ${startX} ${source.y + 28} C ${middleX} ${source.y + 28}, ${middleX} ${target.y + 28}, ${endX} ${target.y + 28}`}
+                  d={edgePath(source, target)}
                   markerEnd="url(#trace-arrow)"
                 >
                   <title>
@@ -91,7 +126,13 @@ export function TraceGraph({ graph }: Props) {
             if (!point) return null;
             return (
               <g key={symbol.id} className="trace-node">
-                <rect x={point.x} y={point.y} width="150" height="58" rx="6" />
+                <rect
+                  x={point.x}
+                  y={point.y}
+                  width={nodeWidth}
+                  height={nodeHeight}
+                  rx="6"
+                />
                 <text
                   x={point.x + 9}
                   y={point.y + 22}
