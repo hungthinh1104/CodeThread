@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzerBuildHash } from '@codethread/symbol-indexer';
+import { PostgresError } from 'postgres';
 import { describe, expect, it, vi } from 'vitest';
 import { connect } from '../scripts/backend/database.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
@@ -40,26 +41,31 @@ async function port() {
   return address.port;
 }
 
+async function fixtureRepository(root: string) {
+  const folder = join(root, 'repo');
+  await mkdir(folder);
+  await writeFile(join(folder, 'index.ts'), 'export const value = 1;\n');
+  const git = (...args: string[]) =>
+    execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8' });
+  git('init', '-q');
+  git('add', 'index.ts');
+  git(
+    '-c',
+    'user.name=CodeThread Test',
+    '-c',
+    'user.email=test@example.invalid',
+    'commit',
+    '-qm',
+    'fixture',
+  );
+  return folder;
+}
+
 describe.skipIf(!url)('worker readiness boundaries', () => {
   for (const scenario of ['blocked-input', 'lost-lease'] as const) {
     it(`returns HTTP 503 for ${scenario} while the control database remains available`, async () => {
       const root = await mkdtemp(join(tmpdir(), 'ct-readiness-'));
-      const folder = join(root, 'repo');
-      await mkdir(folder);
-      await writeFile(join(folder, 'index.ts'), 'export const value = 1;\n');
-      const git = (...args: string[]) =>
-        execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8' });
-      git('init', '-q');
-      git('add', 'index.ts');
-      git(
-        '-c',
-        'user.name=CodeThread Test',
-        '-c',
-        'user.email=test@example.invalid',
-        'commit',
-        '-qm',
-        'fixture',
-      );
+      const folder = await fixtureRepository(root);
       const db = connect(url!);
       let runtime: BackendRuntime | undefined;
       try {
@@ -143,16 +149,32 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
     }, 90_000);
   }
 
-  it('backs off after repeated claim failures and recovers when PostgreSQL access returns', async () => {
+  it('backs off after a rejected claim and checks the failed write on a synthetic job', async () => {
     const root = await mkdtemp(join(tmpdir(), 'ct-claim-readiness-'));
-    const folder = join(root, 'repo');
-    await mkdir(folder);
     const admin = connect(url!);
     const role = 'ct_claim_' + randomUUID().replaceAll('-', '');
     let roleCreated = false;
+    let claimPermissionRevoked = false;
     let runtime: BackendRuntime | undefined;
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failures: { at: number; target: unknown }[] = [];
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation((label, error) => {
+        if (
+          label === 'Scan worker error' &&
+          error instanceof PostgresError &&
+          error.code === '42501' &&
+          Array.isArray(error.parameters)
+        ) {
+          failures.push({ at: performance.now(), target: error.parameters[0] });
+        }
+      });
+    const restoreClaimPermission = () =>
+      admin.unsafe(
+        'GRANT UPDATE (error_message) ON codethread.scan_job TO codethread_runtime',
+      );
     try {
+      const folder = await fixtureRepository(root);
       await applyMigrations(admin);
       await admin.unsafe(
         await readFile(new URL('../db/roles.sql', import.meta.url), 'utf8'),
@@ -178,14 +200,13 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
           headers: { Authorization: `Bearer ${token}` },
         });
       await waitFor(health, (response) => response.status === 200);
-      await runtime.service.register(folder);
+      const repo = await runtime.service.register(folder);
 
       await admin.unsafe(
-        'REVOKE SELECT ON TABLE codethread.scan_job FROM codethread_runtime',
+        'REVOKE UPDATE (error_message) ON codethread.scan_job FROM codethread_runtime',
       );
-      await admin.unsafe(
-        'GRANT SELECT (id,state,attempt) ON TABLE codethread.scan_job TO codethread_runtime',
-      );
+      claimPermissionRevoked = true;
+      const job = await runtime.service.accept(repo.id, 'HEAD', randomUUID());
       const unavailable = await waitFor(
         health,
         (response) => response.status === 503,
@@ -195,21 +216,32 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
         worker: 'unavailable',
         ready: false,
       });
-      const errorsAtUnavailable = errors.mock.calls.length;
-      await new Promise((resolve) => setTimeout(resolve, 1_300));
-      expect(errors.mock.calls.length - errorsAtUnavailable).toBe(0);
-
-      await admin.unsafe(
-        'GRANT SELECT ON TABLE codethread.scan_job TO codethread_runtime',
+      await waitFor(
+        () => Promise.resolve(failures.length),
+        (count) => count >= 2,
       );
+      const [initial, recovery] = failures;
+      expect(initial!.target).toBe(job.id);
+      expect(recovery!.at - initial!.at).toBeGreaterThanOrEqual(4_900);
+      expect(recovery!.target).toEqual(expect.any(String));
+      expect(recovery!.target).not.toBe(job.id);
+      expect((await health()).status).toBe(503);
+      expect(await runtime.service.job(job.id)).toMatchObject({
+        state: 'queued',
+        attempt: 0,
+      });
+
+      await restoreClaimPermission();
+      claimPermissionRevoked = false;
+      const completed = await waitFor(
+        () => runtime!.service.job(job.id),
+        (row) => ['succeeded', 'failed'].includes(row.state),
+      );
+      expect(completed).toMatchObject({ state: 'succeeded', attempt: 1 });
       await waitFor(health, (response) => response.status === 200);
     } finally {
       errors.mockRestore();
-      await admin
-        .unsafe(
-          'GRANT SELECT ON TABLE codethread.scan_job TO codethread_runtime',
-        )
-        .catch(() => {});
+      if (claimPermissionRevoked) await restoreClaimPermission();
       await runtime?.shutdown();
       if (roleCreated) await admin.unsafe(`DROP ROLE "${role}"`);
       await admin.end({ timeout: 5 });

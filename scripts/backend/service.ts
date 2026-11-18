@@ -14,6 +14,7 @@ import type { Database } from './database.ts';
 import type { WorkerLease } from './worker-lease.ts';
 import { persistScan } from './scan-persistence.ts';
 import { persistScanInputs, persistScanPin } from './scan-provenance.ts';
+import { markScanRunning, readQueuedScanForClaim } from './worker-claim.ts';
 import { probeWorkerWrites } from './worker-readiness-probe.ts';
 
 export class ServiceError extends Error {
@@ -388,14 +389,7 @@ export class ScanService {
     const job = await workerDb
       .begin(async (tx) => {
         const db = tx as unknown as Database;
-        const row = (
-          await db`SELECT j.id,j.repository_id,j.generation,j.revision_selector,
-        j.attempt,j.git_object_format,j.git_commit_oid,j.git_tree_oid,j.analyzer_build_hash,j.analyzer_version,
-        r.local_locator FROM codethread.scan_job j JOIN codethread.repository r
-          ON r.id=j.repository_id
-        WHERE j.state='queued' ORDER BY j.created_at,j.id
-        LIMIT 1 FOR UPDATE OF j SKIP LOCKED`
-        )[0];
+        const row = await readQueuedScanForClaim(db);
         if (!row) return null;
         if (Number(row.attempt) >= MAX_SCAN_ATTEMPTS) {
           await db`UPDATE codethread.scan_job SET state='failed',
@@ -403,15 +397,13 @@ export class ScanService {
             updated_at=now() WHERE id=${row.id} AND state='queued'`;
           return { exhausted: true as const };
         }
-        const claimed = await db`UPDATE codethread.scan_job SET state='running',
-        attempt=attempt+1,error_code=NULL,error_message=NULL,updated_at=now() WHERE id=${row.id}
-        RETURNING attempt`;
+        const attempt = await markScanRunning(db, row.id as string);
         return {
           id: row.id as string,
           repository_id: row.repository_id as string,
           generation: String(row.generation),
           revision_selector: row.revision_selector as string,
-          attempt: Number(claimed[0]!.attempt),
+          attempt,
           git_object_format: row.git_object_format as 'sha1' | 'sha256' | null,
           git_commit_oid: row.git_commit_oid as string | null,
           git_tree_oid: row.git_tree_oid as string | null,
@@ -603,6 +595,7 @@ export class ScanService {
           if (this.claimFailed) {
             this.claimFailed = false;
             this.workerProbed = false;
+            this.workerPolled = false;
             this.nextRecoveryProbe =
               performance.now() + RECOVERY_PROBE_INTERVAL_MS;
           }

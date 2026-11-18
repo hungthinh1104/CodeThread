@@ -155,8 +155,8 @@ describe.skipIf(!databaseUrl)('backend release gate with PostgreSQL', () => {
       await installTrigger(
         f.db,
         'scan_job',
-        "NEW.state='running'",
-        "RAISE EXCEPTION 'claim unavailable'",
+        `NEW.state='running' AND NEW.repository_id='${repo.id}'`,
+        "PERFORM pg_sleep(2); RAISE EXCEPTION 'claim unavailable'",
       );
       const queued = await runtime.service.accept(
         repo.id,
@@ -164,6 +164,12 @@ describe.skipIf(!databaseUrl)('backend release gate with PostgreSQL', () => {
         randomUUID(),
       );
       await waitFor(started.health, (response) => response.status === 503);
+      await waitFor(
+        () => f.db`SELECT pid FROM pg_stat_activity
+          WHERE application_name='codethread-worker' AND wait_event='PgSleep'`,
+        (rows) => rows.length === 1,
+      );
+      expect((await started.health()).status).toBe(503);
       expect((await runtime.service.job(queued.id)).state).toBe('queued');
       await dropTrigger(f.db, 'scan_job');
       expect((await terminal(runtime.service, queued.id)).state).toBe(
