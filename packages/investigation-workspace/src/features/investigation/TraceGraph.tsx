@@ -70,6 +70,7 @@ export function TraceGraph({ graph }: Props) {
               <g
                 key={relation.id}
                 className={`trace-edge trace-${relation.kind}`}
+                data-relation-id={relation.id}
               >
                 <path
                   d={`M ${startX} ${source.y + 28} C ${middleX} ${source.y + 28}, ${middleX} ${target.y + 28}, ${endX} ${target.y + 28}`}
