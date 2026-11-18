@@ -7,6 +7,7 @@ dist/
 .vitest/
 coverage/
 packages/investigation-workspace/next-env.d.ts
+packages/investigation-workspace/tsconfig.workspace-test-*.json
 artifacts/
 /local-study-data/
 *.tsbuildinfo
