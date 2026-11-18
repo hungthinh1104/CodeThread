@@ -139,12 +139,14 @@ Expected user scan failures do not count as operational failures. A pinned job
 with a PostgreSQL error is retried at its original commit up to five attempts;
 an unpinned job fails instead of resolving a moving ref again. A failed terminal
 update is retried at most five times before the worker stops. A successful scan
-clears processing failures; idle polls clear claim failures. After processing
-failures, an idle worker can restore readiness through a rate-limited synthetic
-transaction that exercises representative claim, input, snapshot, project and
-activation writes and forces deferred constraints before it always rolls back.
-It runs before initial readiness, every 30 seconds while idle, and at most once
-every five seconds during recovery; it does not prove that every
+clears processing failures; idle polls clear claim failures. A failed queue
+claim also disables readiness and routes the worker through the rate-limited
+recovery probe, so it does not repeatedly issue the same failing claim query.
+After operational failures, an idle worker can restore readiness through a
+synthetic transaction that exercises the queue claim, input, snapshot, project
+and activation paths and forces deferred constraints before it always rolls
+back. It runs before initial readiness, every 30 seconds while idle, and at most
+once every five seconds during recovery; it does not prove that every
 repository-specific write will succeed. A changed installed analyzer also
 disables readiness until the original installed files are restored.
 

@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { analyzerBuildHash } from '@codethread/symbol-indexer';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { connect } from '../scripts/backend/database.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
 import {
@@ -142,4 +142,78 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
       }
     }, 90_000);
   }
+
+  it('backs off after repeated claim failures and recovers when PostgreSQL access returns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ct-claim-readiness-'));
+    const folder = join(root, 'repo');
+    await mkdir(folder);
+    const admin = connect(url!);
+    const role = 'ct_claim_' + randomUUID().replaceAll('-', '');
+    let roleCreated = false;
+    let runtime: BackendRuntime | undefined;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await applyMigrations(admin);
+      await admin.unsafe(
+        await readFile(new URL('../db/roles.sql', import.meta.url), 'utf8'),
+      );
+      await admin.unsafe(
+        `CREATE ROLE "${role}" LOGIN PASSWORD 'integration-only-password'`,
+      );
+      roleCreated = true;
+      await admin.unsafe(`GRANT codethread_runtime TO "${role}"`);
+      const runtimeUrl = new URL(url!);
+      runtimeUrl.username = role;
+      runtimeUrl.password = 'integration-only-password';
+      const apiPort = await port();
+      runtime = await startBackend({
+        url: runtimeUrl.toString(),
+        root,
+        port: apiPort,
+        secret: token,
+        analyzerBuildHash: analyzerBuildHash(),
+      });
+      const health = () =>
+        fetch(`http://127.0.0.1:${apiPort}/v1/health`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      await waitFor(health, (response) => response.status === 200);
+      await runtime.service.register(folder);
+
+      await admin.unsafe(
+        'REVOKE SELECT ON TABLE codethread.scan_job FROM codethread_runtime',
+      );
+      await admin.unsafe(
+        'GRANT SELECT (id,state,attempt) ON TABLE codethread.scan_job TO codethread_runtime',
+      );
+      const unavailable = await waitFor(
+        health,
+        (response) => response.status === 503,
+      );
+      expect(await unavailable.json()).toMatchObject({
+        database: 'ready',
+        worker: 'unavailable',
+        ready: false,
+      });
+      const errorsAtUnavailable = errors.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 1_300));
+      expect(errors.mock.calls.length - errorsAtUnavailable).toBe(0);
+
+      await admin.unsafe(
+        'GRANT SELECT ON TABLE codethread.scan_job TO codethread_runtime',
+      );
+      await waitFor(health, (response) => response.status === 200);
+    } finally {
+      errors.mockRestore();
+      await admin
+        .unsafe(
+          'GRANT SELECT ON TABLE codethread.scan_job TO codethread_runtime',
+        )
+        .catch(() => {});
+      await runtime?.shutdown();
+      if (roleCreated) await admin.unsafe(`DROP ROLE "${role}"`);
+      await admin.end({ timeout: 5 });
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 90_000);
 });

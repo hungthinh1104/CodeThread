@@ -60,6 +60,7 @@ export class ScanService {
   private workerPolled = false;
   private workerProbed = false;
   private workerFailures = 0;
+  private claimFailed = false;
   private processingFailure = false;
   private installationInvalid = false;
   private claimStartedAt: number | null = null;
@@ -419,6 +420,10 @@ export class ScanService {
           analyzer_version: row.analyzer_version as string,
         };
       })
+      .catch((error) => {
+        this.claimFailed = true;
+        throw error;
+      })
       .finally(() => {
         this.claimStartedAt = null;
       });
@@ -595,6 +600,12 @@ export class ScanService {
           }
           if (result !== 'idle') continue;
         } catch (e) {
+          if (this.claimFailed) {
+            this.claimFailed = false;
+            this.workerProbed = false;
+            this.nextRecoveryProbe =
+              performance.now() + RECOVERY_PROBE_INTERVAL_MS;
+          }
           this.workerFailures = Math.min(
             MAX_WORKER_FAILURES,
             this.workerFailures + 1,
