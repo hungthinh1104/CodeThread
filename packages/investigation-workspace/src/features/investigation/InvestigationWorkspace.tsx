@@ -1,12 +1,6 @@
 'use client';
 
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useRef,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ApiFailure,
   openScan,
@@ -30,20 +24,12 @@ import type {
   SymbolPage,
   WorkspaceMetadata,
 } from './types.ts';
+import {
+  useWorkspaceHistory,
+  type NavigationEntry,
+} from './useWorkspaceHistory.ts';
 
 type Scope = { scanId: string; projectId: string; snapshotId: string };
-type NavigationEntry = {
-  scanId: string;
-  projectId: string;
-  snapshotId: string;
-  root: CodeSymbol | null;
-  relationKinds: ('calls' | 'references')[];
-  direction: 'outgoing' | 'incoming' | 'both';
-  selectedRelationId: string | null;
-  selectedEvidenceId: string | null;
-  view: 'source' | 'trace';
-};
-const MAX_NAVIGATION_HISTORY_ENTRIES = 40;
 type SearchState = {
   items: SearchItem[];
   offset: number;
@@ -112,6 +98,38 @@ function unwrapScoped<T>(value: ApiResponse<T>, scope: Scope): T {
   return result;
 }
 
+async function readSession(scope: Scope): Promise<SessionProjection> {
+  return unwrapScoped(
+    await readViewer<ApiResponse<SessionProjection>>('session', {
+      projectId: scope.projectId,
+      request: {},
+    }),
+    scope,
+  );
+}
+
+async function readGraph(
+  symbolId: string,
+  scope: Scope,
+  kinds: NavigationEntry['relationKinds'],
+  direction: NavigationEntry['direction'],
+): Promise<GraphProjection> {
+  return unwrapScoped(
+    await readViewer<ApiResponse<GraphProjection>>('neighbors', {
+      projectId: scope.projectId,
+      request: {
+        snapshotId: scope.snapshotId,
+        symbolId,
+        direction,
+        relationKinds: kinds,
+        depth: 2,
+        nodeLimit: 50,
+      },
+    }),
+    scope,
+  );
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiFailure) return `${error.code}: ${error.message}`;
   return 'The local Investigation Workspace request failed.';
@@ -176,7 +194,6 @@ export function InvestigationWorkspace() {
   const [searchRetryVersion, setSearchRetryVersion] = useState(0);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
-  const [historyVersion, setHistoryVersion] = useState(0);
   const scopeRef = useRef<Scope | null>(null);
   const workspaceGeneration = useRef(0);
   const contextGeneration = useRef(0);
@@ -188,11 +205,9 @@ export function InvestigationWorkspace() {
   const navigationRestoreGeneration = useRef(0);
   const selectionGeneration = useRef(0);
   const requestedEvidenceId = useRef<string | null>(null);
-  const navigationRecords = useRef(new Map<string, NavigationEntry>());
-  const navigationKeys = useRef<string[]>([]);
-  const navigationIndex = useRef(0);
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const inspectorCloseRef = useRef<HTMLButtonElement>(null);
+  const history = useWorkspaceHistory(restoreNavigation);
 
   const closeInspector = useCallback(() => {
     setInspectorOpen(false);
@@ -233,67 +248,77 @@ export function InvestigationWorkspace() {
 
   function resetNavigation(entry: NavigationEntry | null) {
     ++navigationRestoreGeneration.current;
-    if (typeof window === 'undefined') return;
-    navigationRecords.current.clear();
-    navigationKeys.current = [];
-    navigationIndex.current = 0;
-    const key = crypto.randomUUID();
-    if (entry) navigationRecords.current.set(key, entry);
-    navigationKeys.current.push(key);
-    window.history.replaceState(
-      { ctWorkspaceKey: key },
-      '',
-      window.location.href,
-    );
-    setHistoryVersion((version) => version + 1);
+    history.reset(entry);
   }
 
   function pushNavigation(entry: NavigationEntry) {
     ++navigationRestoreGeneration.current;
-    const key = crypto.randomUUID();
-    const currentKeys = navigationKeys.current;
-    const nextKeys = currentKeys.slice(0, navigationIndex.current + 1);
-    for (const discardedKey of currentKeys.slice(navigationIndex.current + 1))
-      navigationRecords.current.delete(discardedKey);
-    nextKeys.push(key);
-    while (nextKeys.length > MAX_NAVIGATION_HISTORY_ENTRIES) {
-      const evictedKey = nextKeys.shift();
-      if (evictedKey) navigationRecords.current.delete(evictedKey);
-    }
-    navigationKeys.current = nextKeys;
-    navigationIndex.current = nextKeys.length - 1;
-    navigationRecords.current.set(key, entry);
-    window.history.pushState({ ctWorkspaceKey: key }, '', window.location.href);
-    setHistoryVersion((version) => version + 1);
+    history.push(entry);
   }
 
-  async function loadProjectContexts(metadata: WorkspaceMetadata) {
-    const generation = ++workspaceGeneration.current;
-    ++contextGeneration.current;
+  function invalidateProjectionReads() {
     ++graphGeneration.current;
     ++evidenceGeneration.current;
-    ++searchGeneration.current;
-    ++fileGeneration.current;
-    scopeRef.current = null;
-    setWorkspace(null);
-    setProjects(null);
-    setSelectedProjectId('');
-    setSession(null);
+    ++contextSearchGeneration.current;
+    setGraphLoading(false);
+    setEvidenceLoading(false);
+    setContextSearchLoading(false);
+  }
+
+  function clearSelection() {
+    invalidateProjectionReads();
+    requestedEvidenceId.current = null;
     setSelected(null);
+    setGraph(null);
+    setGraphError(null);
+    setEvidence(null);
+    setEvidenceError(null);
+    setSelectedRelationId(null);
+    setContextCandidates([]);
+    setContextSearchMessage(null);
+    setInspectorOpen(false);
+    setActiveView('source');
+  }
+
+  function clearSearchResults() {
+    ++searchGeneration.current;
     setSearch(emptySearchState());
     setSearchError(null);
     setSearchLoading(false);
-    setGraph(null);
-    setEvidence(null);
-    setContextCandidates([]);
-    setContextSearchMessage(null);
-    setFiles(null);
-    setFilesError(null);
-    requestedEvidenceId.current = null;
+  }
+
+  function resetProject(projectId: string) {
+    const generation = ++contextGeneration.current;
+    scopeRef.current = null;
+    setSelectedProjectId(projectId);
+    setSession(null);
+    clearSelection();
+    clearSearchResults();
+    if (searchMode === 'project') setSearchOffset(0);
     reportWorkspaceError(null);
-    setGraphError(null);
-    setEvidenceError(null);
+    return generation;
+  }
+
+  function resetWorkspace() {
+    const generation = ++workspaceGeneration.current;
+    ++selectionGeneration.current;
+    ++fileGeneration.current;
+    resetProject('');
+    setWorkspace(null);
+    setProjects(null);
+    setSearchQuery('');
+    setSearchOffset(0);
+    setFiles(null);
+    setFilesLoading(false);
+    setFilesError(null);
     resetNavigation(null);
+    return generation;
+  }
+
+  async function loadProjectContexts(
+    metadata: WorkspaceMetadata,
+    generation: number,
+  ) {
     try {
       const result = await readViewer<ProjectContexts>('projects', {});
       if (generation !== workspaceGeneration.current) return;
@@ -333,56 +358,26 @@ export function InvestigationWorkspace() {
     metadata = workspace,
     contexts = projects,
     historyMode: 'push' | 'replace' | 'none' = 'push',
-  ) {
-    if (!metadata || !contexts) return;
+  ): Promise<Scope | null> {
+    if (!metadata || !contexts) return null;
     const project = contexts.items.find((item) => item.id === projectId);
     if (!project || project.status !== 'ready' || !project.snapshotId) {
       reportWorkspaceError(
         'Only a ready project context with a published snapshot can be selected.',
       );
-      return;
+      return null;
     }
-    const generation = ++contextGeneration.current;
     if (historyMode !== 'none') ++navigationRestoreGeneration.current;
-    ++searchGeneration.current;
-    ++graphGeneration.current;
-    ++evidenceGeneration.current;
-    ++contextSearchGeneration.current;
+    const generation = resetProject(projectId);
     const scope = {
       scanId: metadata.scanId,
       projectId,
       snapshotId: project.snapshotId,
     };
-    scopeRef.current = scope;
-    requestedEvidenceId.current = null;
-    setSelectedProjectId(projectId);
-    setSession(null);
-    setSelected(null);
-    setSearch(emptySearchState());
-    if (searchMode === 'project') setSearchOffset(0);
-    setSearchError(null);
-    setSearchLoading(false);
-    setGraph(null);
-    setGraphLoading(false);
-    setEvidence(null);
-    setEvidenceLoading(false);
-    setSelectedRelationId(null);
-    setContextCandidates([]);
-    setContextSearchLoading(false);
-    setContextSearchMessage(null);
-    setGraphError(null);
-    setEvidenceError(null);
-    reportWorkspaceError(null);
     try {
-      const response = await readViewer<ApiResponse<SessionProjection>>(
-        'session',
-        {
-          projectId,
-          request: {},
-        },
-      );
-      if (generation !== contextGeneration.current) return;
-      const projection = unwrapScoped(response, scope);
+      const projection = await readSession(scope);
+      if (generation !== contextGeneration.current) return null;
+      scopeRef.current = scope;
       setSession(projection);
       const entry: NavigationEntry = {
         ...scope,
@@ -395,9 +390,11 @@ export function InvestigationWorkspace() {
       };
       if (historyMode === 'replace') resetNavigation(entry);
       else if (historyMode === 'push') pushNavigation(entry);
+      return scope;
     } catch (error) {
       if (generation === contextGeneration.current)
         reportWorkspaceError(errorMessage(error), true);
+      return null;
     }
   }
 
@@ -406,7 +403,6 @@ export function InvestigationWorkspace() {
     scope: Scope,
     kinds: ('calls' | 'references')[],
     requestedDirection: 'outgoing' | 'incoming' | 'both',
-    preserveRelationId: string | null = null,
   ): Promise<GraphProjection | null> {
     const generation = ++graphGeneration.current;
     const rootSymbolId = typeof root === 'string' ? root : root.id;
@@ -419,21 +415,12 @@ export function InvestigationWorkspace() {
     setEvidenceLoading(false);
     setEvidenceError(null);
     try {
-      const response = await readViewer<ApiResponse<GraphProjection>>(
-        'neighbors',
-        {
-          projectId: scope.projectId,
-          request: {
-            snapshotId: scope.snapshotId,
-            symbolId: rootSymbolId,
-            direction: requestedDirection,
-            relationKinds: kinds,
-            depth: 2,
-            nodeLimit: 50,
-          },
-        },
+      const projection = await readGraph(
+        rootSymbolId,
+        scope,
+        kinds,
+        requestedDirection,
       );
-      const projection = unwrapScoped(response, scope);
       if (
         generation !== graphGeneration.current ||
         scopeRef.current?.projectId !== scope.projectId ||
@@ -441,13 +428,6 @@ export function InvestigationWorkspace() {
       )
         return null;
       setGraph(projection);
-      if (
-        preserveRelationId &&
-        projection.graph.relations.some(
-          (item) => item.id === preserveRelationId,
-        )
-      )
-        setSelectedRelationId(preserveRelationId);
       return projection;
     } catch (error) {
       if (generation === graphGeneration.current)
@@ -506,9 +486,8 @@ export function InvestigationWorkspace() {
     const generation = ++selectionGeneration.current;
     let scope = scopeRef.current;
     if (scope?.projectId !== item.projectId) {
-      await selectProject(item.projectId, workspace, projects, 'none');
-      if (generation !== selectionGeneration.current) return;
-      scope = scopeRef.current;
+      scope = await selectProject(item.projectId, workspace, projects, 'none');
+      if (!scope || generation !== selectionGeneration.current) return;
     }
     if (
       !scope ||
@@ -563,9 +542,8 @@ export function InvestigationWorkspace() {
       return;
     }
     if (contextId !== scopeRef.current?.projectId) {
-      await selectProject(contextId);
-      if (generation !== selectionGeneration.current) return;
-      const scope = scopeRef.current;
+      const scope = await selectProject(contextId);
+      if (!scope || generation !== selectionGeneration.current) return;
       const context = projects?.items.find((item) => item.id === contextId);
       if (
         !scope ||
@@ -721,8 +699,15 @@ export function InvestigationWorkspace() {
       );
       return;
     }
-    if (candidate.projectId !== selectedProjectId)
-      await selectProject(candidate.projectId, workspace, projects, 'none');
+    if (candidate.projectId !== scopeRef.current?.projectId) {
+      const scope = await selectProject(
+        candidate.projectId,
+        workspace,
+        projects,
+        'none',
+      );
+      if (!scope) return;
+    }
     if (generation !== selectionGeneration.current) return;
     const scope = scopeRef.current;
     if (
@@ -791,109 +776,114 @@ export function InvestigationWorkspace() {
     void loadGraph(root, scope, kinds, newDirection);
   }
 
-  async function restoreNavigation(entry: NavigationEntry) {
+  async function restoreNavigation(entry: NavigationEntry, accept: () => void) {
     const selection = ++selectionGeneration.current;
     const generation = ++navigationRestoreGeneration.current;
-    const metadata = workspace;
-    if (!metadata || metadata.scanId !== entry.scanId) {
-      reportWorkspaceError(
-        'This history entry belongs to a scan that is no longer open.',
-      );
-      return;
-    }
-    if (scopeRef.current?.projectId !== entry.projectId) {
-      await selectProject(entry.projectId, metadata, projects, 'none');
-    }
+    const isCurrent = () =>
+      generation === navigationRestoreGeneration.current &&
+      selection === selectionGeneration.current;
+    const project = projects?.items.find((item) => item.id === entry.projectId);
     if (
-      generation !== navigationRestoreGeneration.current ||
-      selection !== selectionGeneration.current
-    )
-      return;
-    const currentScope = scopeRef.current;
-    if (
-      !currentScope ||
-      currentScope.projectId !== entry.projectId ||
-      currentScope.snapshotId !== entry.snapshotId
+      workspace?.scanId !== entry.scanId ||
+      project?.status !== 'ready' ||
+      project.snapshotId !== entry.snapshotId ||
+      (entry.root && entry.root.snapshotId !== entry.snapshotId)
     ) {
       reportWorkspaceError(
         'History snapshot identity no longer matches this project context.',
       );
       return;
     }
-    setRelationKinds(entry.relationKinds);
-    setDirection(entry.direction);
-    setSelected(entry.root);
-    setActiveView(entry.view);
-    setSelectedRelationId(null);
-    setGraph(null);
-    setEvidence(null);
-    if (!entry.root) return;
-    const projection = await loadGraph(
-      entry.root,
-      currentScope,
-      entry.relationKinds,
-      entry.direction,
-      entry.selectedRelationId,
-    );
-    if (
-      !projection ||
-      generation !== navigationRestoreGeneration.current ||
-      selection !== selectionGeneration.current
-    )
-      return;
-    const availableIds = new Set(
-      projection.graph.evidenceRefs.map((item) => item.id),
-    );
-    if (
-      entry.selectedEvidenceId &&
-      (availableIds.has(entry.selectedEvidenceId) ||
-        entry.root.declarationEvidenceId === entry.selectedEvidenceId)
-    ) {
-      await loadEvidence(
-        entry.selectedEvidenceId,
-        currentScope,
-        entry.selectedRelationId,
-      );
-      if (
-        generation !== navigationRestoreGeneration.current ||
-        selection !== selectionGeneration.current
-      )
+    const scope = {
+      scanId: entry.scanId,
+      projectId: entry.projectId,
+      snapshotId: entry.snapshotId,
+    };
+    const active = scopeRef.current;
+    const changesProject =
+      !active ||
+      active.scanId !== scope.scanId ||
+      active.projectId !== scope.projectId ||
+      active.snapshotId !== scope.snapshotId;
+    invalidateProjectionReads();
+    reportWorkspaceError(null);
+    try {
+      // Keep the displayed context until the destination projections are verified.
+      const destination = changesProject ? await readSession(scope) : session;
+      if (!destination || !isCurrent()) return;
+      const projection = entry.root
+        ? await readGraph(
+            entry.root.id,
+            scope,
+            entry.relationKinds,
+            entry.direction,
+          )
+        : null;
+      if (!isCurrent()) return;
+      const root =
+        projection?.graph.symbols.find(
+          (symbol) => symbol.id === entry.root?.id,
+        ) ?? null;
+      if (entry.root && !root) {
+        reportWorkspaceError(
+          'The restored snapshot did not return the saved declaration.',
+        );
         return;
+      }
+      if (changesProject) {
+        resetProject(scope.projectId);
+        scopeRef.current = scope;
+        setSession(destination);
+      } else {
+        clearSelection();
+      }
+      setRelationKinds(entry.relationKinds);
+      setDirection(entry.direction);
+      setSelected(root);
+      setActiveView(entry.view);
+      setGraph(projection);
+      accept();
+
+      const relationId =
+        projection?.graph.relations.find(
+          (relation) => relation.id === entry.selectedRelationId,
+        )?.id ?? null;
+      const id = entry.selectedEvidenceId;
+      if (
+        id &&
+        (root?.declarationEvidenceId === id ||
+          projection?.graph.evidenceRefs.some((item) => item.id === id))
+      ) {
+        void loadEvidence(id, scope, relationId);
+      } else if (id) {
+        reportWorkspaceError(
+          'The saved evidence is no longer in the restored projection.',
+        );
+      }
+    } catch (error) {
+      if (isCurrent()) reportWorkspaceError(errorMessage(error));
     }
   }
 
-  const onPopState = useEffectEvent((event: PopStateEvent) => {
-    const key = (event.state as { ctWorkspaceKey?: string } | null)
-      ?.ctWorkspaceKey;
-    const index = key ? navigationKeys.current.indexOf(key) : -1;
-    const entry = key ? navigationRecords.current.get(key) : undefined;
-    if (index < 0 || !entry) return;
-    navigationIndex.current = index;
-    setHistoryVersion((version) => version + 1);
-    void restoreNavigation(entry);
-  });
-
-  useEffect(() => {
-    window.addEventListener('popstate', onPopState);
-    return () => window.removeEventListener('popstate', onPopState);
-  }, []);
-
   useEffect(() => {
     let mounted = true;
+    const generation = workspaceGeneration.current;
+    const isCurrent = () =>
+      mounted && generation === workspaceGeneration.current;
     reportWorkspaceError(null);
     void (async () => {
       try {
         const repositoryResult = await readRepositories();
-        if (!mounted) return;
+        if (!isCurrent()) return;
         setRepositories(repositoryResult.items);
         try {
           const recovered = await readWorkspaceMetadata();
-          if (!mounted) return;
+          if (!isCurrent()) return;
           setSelectedRepositoryId(recovered.workspace.repositoryId);
-          await loadProjectContexts(recovered.workspace);
+          await loadProjectContexts(recovered.workspace, resetWorkspace());
         } catch (error) {
           if (
-            mounted &&
+            isCurrent() &&
             !(
               error instanceof ApiFailure &&
               error.code === 'WORKSPACE_SESSION_EXPIRED'
@@ -902,7 +892,7 @@ export function InvestigationWorkspace() {
             reportWorkspaceError(errorMessage(error), true);
         }
       } catch (error) {
-        if (mounted) reportWorkspaceError(errorMessage(error), true);
+        if (isCurrent()) reportWorkspaceError(errorMessage(error), true);
       }
     })();
     return () => {
@@ -949,6 +939,7 @@ export function InvestigationWorkspace() {
     const generation = ++searchGeneration.current;
     const contextGenerationAtStart = contextGeneration.current;
     const timer = setTimeout(() => {
+      if (generation !== searchGeneration.current) return;
       setSearchLoading(true);
       setSearchError(null);
       const read =
@@ -1045,45 +1036,8 @@ export function InvestigationWorkspace() {
   ]);
 
   async function chooseRepository(id: string) {
-    ++navigationRestoreGeneration.current;
-    ++selectionGeneration.current;
-    const generation = ++workspaceGeneration.current;
-    ++contextGeneration.current;
-    ++graphGeneration.current;
-    ++evidenceGeneration.current;
-    ++searchGeneration.current;
-    ++fileGeneration.current;
-    ++contextSearchGeneration.current;
-    scopeRef.current = null;
+    const generation = resetWorkspace();
     setSelectedRepositoryId(id);
-    reportWorkspaceError(null);
-    setWorkspace(null);
-    setProjects(null);
-    setSelectedProjectId('');
-    setFiles(null);
-    setFilesLoading(false);
-    setFilesError(null);
-    setSession(null);
-    setSelected(null);
-    setSearch(emptySearchState());
-    setSearchQuery('');
-    setSearchOffset(0);
-    setSearchError(null);
-    setSearchLoading(false);
-    setGraph(null);
-    setGraphLoading(false);
-    setGraphError(null);
-    setEvidence(null);
-    setEvidenceLoading(false);
-    setEvidenceError(null);
-    setSelectedRelationId(null);
-    setContextCandidates([]);
-    setContextSearchLoading(false);
-    setContextSearchMessage(null);
-    setInspectorOpen(false);
-    setActiveView('source');
-    requestedEvidenceId.current = null;
-    resetNavigation(null);
     const repository = repositories.find((item) => item.id === id);
     if (!repository) return;
     if (!repository.activeScanId) {
@@ -1103,7 +1057,7 @@ export function InvestigationWorkspace() {
               'The opened scan does not belong to the selected repository.',
           },
         });
-      await loadProjectContexts(opened.workspace);
+      await loadProjectContexts(opened.workspace, generation);
     } catch (error) {
       if (generation === workspaceGeneration.current)
         reportWorkspaceError(errorMessage(error), true);
@@ -1165,10 +1119,6 @@ export function InvestigationWorkspace() {
     if (scope && id) void loadEvidence(id, scope, selectedRelationId);
   }
 
-  const hasBack = navigationIndex.current > 0;
-  const hasForward =
-    navigationIndex.current < navigationKeys.current.length - 1;
-
   return (
     <div className="page-shell">
       <header className="page-header">
@@ -1177,22 +1127,18 @@ export function InvestigationWorkspace() {
           <h1>Investigation Workspace</h1>
           <p>Trace source-backed relationships in a pinned snapshot.</p>
         </div>
-        <nav
-          className="history-controls"
-          aria-label="Investigation history"
-          data-history-version={historyVersion}
-        >
+        <nav className="history-controls" aria-label="Investigation history">
           <button
             type="button"
-            onClick={() => window.history.back()}
-            disabled={!hasBack}
+            onClick={() => history.move(-1)}
+            disabled={!history.canBack}
           >
             Back
           </button>
           <button
             type="button"
-            onClick={() => window.history.forward()}
-            disabled={!hasForward}
+            onClick={() => history.move(1)}
+            disabled={!history.canForward}
           >
             Forward
           </button>
@@ -1230,9 +1176,7 @@ export function InvestigationWorkspace() {
             ++selectionGeneration.current;
             setSearchQuery(value);
             setSearchOffset(0);
-            setSearch(emptySearchState());
-            setSearchError(null);
-            setSearchLoading(false);
+            clearSearchResults();
           }}
           searchMode={searchMode}
           searchEnabled={Boolean(workspace && session)}
@@ -1240,9 +1184,7 @@ export function InvestigationWorkspace() {
             ++selectionGeneration.current;
             setSearchMode(value);
             setSearchOffset(0);
-            setSearch(emptySearchState());
-            setSearchError(null);
-            setSearchLoading(false);
+            clearSearchResults();
           }}
           searchItems={search.items}
           searchOffset={search.offset}

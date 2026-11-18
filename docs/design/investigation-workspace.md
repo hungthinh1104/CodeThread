@@ -64,19 +64,21 @@ interaction.
 Each async request captures
 `(scanId, projectId, snapshotId, generation, requestKey)`. Both success and
 error responses are discarded unless that tuple still matches current state.
-Context changes synchronously increment the generation and clear selections
-before starting new work. AbortController is a resource optimization; identity
-checks enforce correctness. Back/Forward issues the bounded query for the
-restored context and restores selections only when those IDs occur in that
-response. Project inventory repository/commit identity must match the opened
-scan before it becomes visible; catalog rows and context-follow candidates must
-match a loaded ready project and its snapshot before display.
+Repository and project changes invalidate old requests and clear their
+selections before starting new work. Project changes reset project symbol
+pagination to the first page. The repository catalog and file inventory retain
+their repository-scoped offsets. Project inventory repository/commit identity
+must match the opened scan before it becomes visible. Catalog rows and
+context-follow candidates must match a loaded ready project and its snapshot
+before display.
 
-The workspace retains at most 40 navigation entries. Creating a new branch
-discards its forward entries; adding an entry at capacity evicts the oldest
-entry and its projection record. Browser history keys that point to evicted
-entries are ignored, while the workspace Back/Forward controls stay within the
-retained window.
+Identical consecutive selections share one history entry. The workspace retains
+at most 40 entries and drops forward entries when a new selection creates a
+branch. Back and Forward validate the destination session and the bounded graph
+before replacing the displayed context. A failed restore leaves the current
+context and workspace cursor available for retry. The restored graph supplies
+valid selection IDs, and missing evidence stays explicit. Unknown or evicted
+browser entries leave the displayed context intact.
 
 | Feature             | Idle             | Loading                  | Success                             | Empty / partial                                                  | Unsupported                                          | Error / expired                            |
 | ------------------- | ---------------- | ------------------------ | ----------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------ |

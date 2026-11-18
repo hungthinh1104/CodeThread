@@ -19,92 +19,15 @@ const snapshot = await analyzeManifest({
   ],
 });
 
+function signal() {
+  let send = () => {};
+  const received = new Promise<void>((resolve) => {
+    send = resolve;
+  });
+  return { received, send };
+}
+
 describe('Investigation Workspace asynchronous context guards', () => {
-  it('keeps Back within the retained navigation history after many selections', async () => {
-    const app = await startWorkspaceApp(snapshot);
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
-    const page = await context.newPage();
-    page.setDefaultTimeout(15_000);
-    try {
-      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
-      await page.getByLabel('Repository and scan').selectOption(repositoryId);
-      await page.waitForFunction(
-        () =>
-          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
-      );
-      await page.getByLabel('Name or source path').fill('root');
-      const rootResult = page.getByRole('button', { name: /root.*function/ });
-      await rootResult.click();
-      await page.locator('.source-excerpt').waitFor();
-
-      const history = page.getByRole('navigation', {
-        name: 'Investigation history',
-      });
-      const startVersion = Number(
-        await history.getAttribute('data-history-version'),
-      );
-      for (let selection = 1; selection <= 40; selection++) {
-        const previousVersion = Number(
-          await history.getAttribute('data-history-version'),
-        );
-        await rootResult.click();
-        await page.waitForFunction((version) => {
-          const current = document.querySelector<HTMLElement>(
-            'nav[aria-label="Investigation history"]',
-          );
-          return Number(current?.dataset.historyVersion) > version;
-        }, previousVersion);
-      }
-      assert.equal(
-        Number(await history.getAttribute('data-history-version')) -
-          startVersion,
-        40,
-        'each repeated selection must append a browser history entry',
-      );
-      assert.equal(
-        await history.count(),
-        1,
-        `history controls must remain present after repeated selection: ${await page.locator('body').innerText()}`,
-      );
-      const historyButtons = await history.locator('button').allTextContents();
-      assert.equal(
-        historyButtons.length,
-        2,
-        `history controls must expose Back and Forward: ${JSON.stringify(historyButtons)}; body=${await page.locator('body').innerText()}`,
-      );
-      const back = history.getByRole('button', { name: 'Back', exact: true });
-      let backSteps = 0;
-      while (!(await back.isDisabled()) && backSteps < 50) {
-        const historyVersion = Number(
-          await history.getAttribute('data-history-version'),
-        );
-        await back.click();
-        await page.waitForFunction(
-          (previousVersion) => {
-            const current = document.querySelector<HTMLElement>(
-              'nav[aria-label="Investigation history"]',
-            );
-            return Number(current?.dataset.historyVersion) > previousVersion;
-          },
-          historyVersion,
-          { timeout: 5_000 },
-        );
-        backSteps++;
-      }
-      assert.equal(
-        backSteps,
-        39,
-        'Back must stop at the oldest of the 40 retained workspace states',
-      );
-      assert.equal(await back.isDisabled(), true);
-    } finally {
-      await context.close();
-      await browser.close();
-      await app.close();
-    }
-  }, 120_000);
-
   it('clears the selected source and evidence when repository selection is cleared', async () => {
     const app = await startWorkspaceApp(snapshot);
     const browser = await chromium.launch({ headless: true });
@@ -158,6 +81,9 @@ describe('Investigation Workspace asynchronous context guards', () => {
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     const secondProjectId = 'workspace-test-project-2';
+    const staleSessionStarted = signal();
+    const releaseStaleSession = signal();
+    let delayFirstContext = false;
     let sessionProjection: Record<string, unknown> | null = null;
     let rootSearchProjection: Record<string, unknown> | null = null;
     let secondProjectOffset: number | null = null;
@@ -217,6 +143,20 @@ describe('Investigation Workspace asynchronous context guards', () => {
             status: 200,
             contentType: 'application/json',
             body: JSON.stringify(response),
+          });
+          return;
+        }
+        if (delayFirstContext) {
+          staleSessionStarted.send();
+          await releaseStaleSession.received;
+          await route.fulfill({
+            status: 503,
+            json: {
+              error: {
+                code: 'TEST_STALE_CONTEXT',
+                message: 'Earlier context failed.',
+              },
+            },
           });
           return;
         }
@@ -324,7 +264,40 @@ describe('Investigation Workspace asynchronous context guards', () => {
         { projectOffset: 0, loadingState: 0, released: ['evidence', 'graph'] },
         'changing projects must reset project-local paging and finish obsolete loading indicators',
       );
+      assert.equal(await page.locator('.source-excerpt').count(), 0);
+      assert.equal(
+        await page.locator('#evidence-inspector .evidence-card').count(),
+        0,
+      );
+
+      // B → A stays pending while the user changes back to B.
+      const picker = page.getByLabel('Project context');
+      delayFirstContext = true;
+      await picker.selectOption('workspace-test-project');
+      await staleSessionStarted.received;
+      await picker.selectOption(secondProjectId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      const failure = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/workspace/session') &&
+          response.status() === 503,
+      );
+      releaseStaleSession.send();
+      await (await failure).finished();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      assert.equal(await picker.inputValue(), secondProjectId);
+      assert.equal(await page.getByText(/TEST_STALE_CONTEXT/).count(), 0);
+      assert.equal(secondProjectOffset, 0);
     } finally {
+      releaseStaleSession.send();
       releaseGraph();
       releaseEvidence();
       await context.close();
@@ -332,6 +305,69 @@ describe('Investigation Workspace asynchronous context guards', () => {
       await app.close();
     }
   }, 120_000);
+
+  it('discards a delayed reload session after switching to another repository', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    const metaStarted = signal();
+    const releaseMeta = signal();
+    try {
+      const repository = page.getByLabel('Repository and scan');
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      await repository.selectOption(repositoryId);
+      await page.getByLabel('Name or source path').fill('root');
+      await page.getByRole('button', { name: /root.*function/ }).click();
+      await page.locator('.source-excerpt').waitFor();
+
+      await page.route('**/api/workspace/meta', async (route) => {
+        const response = await route.fetch();
+        assert.equal(
+          response.status(),
+          200,
+          'reload must start with a valid earlier session',
+        );
+        metaStarted.send();
+        await releaseMeta.received;
+        await route.fulfill({ response });
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await metaStarted.received;
+      const inactive = '44444444-4444-4444-8444-444444444444';
+      await repository.selectOption(inactive);
+      await page.getByText(/This repository has no active scan/).waitFor();
+      const metadata = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/workspace/meta') &&
+          response.status() === 200,
+      );
+      releaseMeta.send();
+      await (await metadata).finished();
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          ),
+      );
+      assert.equal(await repository.inputValue(), inactive);
+      assert.equal(
+        await page.getByText(/This repository has no active scan/).isVisible(),
+        true,
+      );
+      assert.equal(await page.locator('.source-excerpt').count(), 0);
+      assert.equal(
+        await page.locator('#evidence-inspector .evidence-card').count(),
+        0,
+      );
+    } finally {
+      releaseMeta.send();
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
 
   it('ignores a delayed scan open after selecting a repository with no active scan', async () => {
     const app = await startWorkspaceApp(snapshot, { holdScanRead: true });
