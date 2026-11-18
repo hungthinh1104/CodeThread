@@ -20,6 +20,52 @@ const snapshot = await analyzeManifest({
 });
 
 describe('Investigation Workspace asynchronous context guards', () => {
+  it('clears the selected source and evidence when repository selection is cleared', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+    try {
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      const repository = page.getByLabel('Repository and scan');
+      await repository.selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      await page.getByLabel('Name or source path').fill('root');
+      await page.getByRole('button', { name: /root.*function/ }).click();
+      await page.locator('.source-excerpt').waitFor();
+      await page.locator('#evidence-inspector .evidence-card').waitFor();
+
+      await repository.selectOption('');
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      assert.equal(
+        await page.locator('.source-excerpt').count(),
+        0,
+        'a source from the previous repository must not remain visible',
+      );
+      assert.equal(
+        await page.locator('#evidence-inspector .evidence-card').count(),
+        0,
+        'evidence from the previous repository must not remain visible',
+      );
+      assert.equal(
+        await page.getByLabel('Name or source path').inputValue(),
+        '',
+        'the prior repository search must be cleared',
+      );
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
+
   it('ignores a delayed scan open after selecting a repository with no active scan', async () => {
     const app = await startWorkspaceApp(snapshot, { holdScanRead: true });
     const browser = await chromium.launch({ headless: true });

@@ -238,6 +238,20 @@ async function captureStates(
                   .waitFor({ state: 'attached' });
               }
             }
+            if (state === 'empty') {
+              assert.equal(
+                await page.locator('.source-excerpt').count(),
+                0,
+                'empty captures must not retain source from a prior repository',
+              );
+              assert.equal(
+                await page
+                  .locator('#evidence-inspector .evidence-card')
+                  .count(),
+                0,
+                'empty captures must not retain evidence from a prior repository',
+              );
+            }
             if (width <= 900 && state === 'selected-evidence') {
               await page
                 .getByRole('button', { name: 'Evidence', exact: true })
