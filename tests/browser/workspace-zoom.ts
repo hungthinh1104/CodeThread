@@ -179,15 +179,54 @@ async function main(): Promise<void> {
       JSON.stringify(layout),
     );
     assert.deepEqual(outside, [], 'zoom uses the fixture origin only');
-    await page.screenshot({
-      path: artifactPath,
-      animations: 'disabled',
-      style: 'nextjs-portal { visibility: hidden !important; }',
+    await page.evaluate(async () => {
+      document.querySelector('nextjs-portal')?.setAttribute('hidden', '');
+      await document.fonts.ready;
+      await new Promise<void>((resolvePaint) => {
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => resolvePaint()),
+        );
+      });
     });
+    // A viewport clip calculated in CSS pixels can target the wrong area at tab zoom.
+    const cdp = await context.newCDPSession(page);
+    const { data } = await cdp.send('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      captureBeyondViewport: false,
+    });
+    await cdp.detach();
+    const sampledColors = await page.evaluate(async (encoded) => {
+      const bytes = Uint8Array.from(atob(encoded), (character) =>
+        character.charCodeAt(0),
+      );
+      const image = await createImageBitmap(
+        new Blob([bytes], { type: 'image/png' }),
+      );
+      const canvas = new OffscreenCanvas(16, 10);
+      const draw = canvas.getContext('2d')!;
+      draw.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = draw.getImageData(0, 0, canvas.width, canvas.height).data;
+      const colors = new Set<number>();
+      for (let offset = 0; offset < pixels.length; offset += 4)
+        colors.add(
+          (pixels[offset]! << 16) |
+            (pixels[offset + 1]! << 8) |
+            pixels[offset + 2]!,
+        );
+      image.close();
+      return colors.size;
+    }, data);
+    assert.ok(
+      sampledColors >= 4,
+      'the zoom screenshot contains a painted viewport',
+    );
+    await writeFile(artifactPath, Buffer.from(data, 'base64'));
     const metrics = JSON.stringify({
       zoom,
       initialWidth,
       openedFromAction,
+      sampledColors,
       ...layout,
     });
     await writeFile(
