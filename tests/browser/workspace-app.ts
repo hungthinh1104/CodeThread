@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -259,12 +260,56 @@ export type WorkspaceFrontend = {
   close(): Promise<void>;
 };
 
+function testOutputDirectory(workspacePort: number): string {
+  return `.next/workspace-test-${workspacePort}`;
+}
+
+function testTsconfigFile(workspacePort: number): string {
+  return `tsconfig.workspace-test-${workspacePort}.json`;
+}
+
+async function prepareTestOutputDirectory(
+  workspaceDir: string,
+  workspacePort: number,
+): Promise<void> {
+  await writeFile(
+    join(workspaceDir, testTsconfigFile(workspacePort)),
+    JSON.stringify({ extends: './tsconfig.json' }),
+  );
+}
+
+async function removeTestOutputDirectory(
+  workspaceDir: string,
+  workspacePort: number,
+): Promise<void> {
+  await Promise.all([
+    rm(resolve(workspaceDir, testOutputDirectory(workspacePort)), {
+      recursive: true,
+      force: true,
+    }),
+    rm(join(workspaceDir, testTsconfigFile(workspacePort)), { force: true }),
+  ]);
+}
+
 export async function startWorkspaceFrontend(
   backendOrigin: string,
   token: string,
 ): Promise<WorkspaceFrontend> {
   const workspacePort = await reservePort();
   const origin = `http://127.0.0.1:${workspacePort}`;
+  const workspaceDir = resolve(
+    process.cwd(),
+    'packages/investigation-workspace',
+  );
+  const distDir = testOutputDirectory(workspacePort);
+  try {
+    await prepareTestOutputDirectory(workspaceDir, workspacePort);
+  } catch (error) {
+    await removeTestOutputDirectory(workspaceDir, workspacePort).catch(
+      () => {},
+    );
+    throw error;
+  }
   const nextBin = resolve(
     process.cwd(),
     'packages/investigation-workspace/node_modules/next/dist/bin/next',
@@ -280,13 +325,14 @@ export async function startWorkspaceFrontend(
       String(workspacePort),
     ],
     {
-      cwd: join(process.cwd(), 'packages/investigation-workspace'),
+      cwd: workspaceDir,
       env: {
         ...process.env,
         NODE_ENV: 'development',
         CODETHREAD_API_ORIGIN: backendOrigin,
         CODETHREAD_API_TOKEN: token,
         CODETHREAD_WORKSPACE_PORT: String(workspacePort),
+        CODETHREAD_WORKSPACE_TEST_DIST_DIR: distDir,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -317,12 +363,16 @@ export async function startWorkspaceFrontend(
     assert.equal(ready, true, `Workspace app did not start: ${output}`);
   } catch (error) {
     await stopProcess(child).catch(() => {});
+    await removeTestOutputDirectory(workspaceDir, workspacePort).catch(
+      () => {},
+    );
     throw error;
   }
   return {
     origin,
     async close() {
       await stopProcess(child);
+      await removeTestOutputDirectory(workspaceDir, workspacePort);
     },
   };
 }
@@ -340,6 +390,21 @@ export async function startWorkspaceApp(
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();
   const origin = `http://127.0.0.1:${workspacePort}`;
+  const workspaceDir = resolve(
+    process.cwd(),
+    'packages/investigation-workspace',
+  );
+  const distDir = testOutputDirectory(workspacePort);
+  try {
+    await prepareTestOutputDirectory(workspaceDir, workspacePort);
+  } catch (error) {
+    await closeServer(backend.server).catch(() => {});
+    await viewer.close();
+    await removeTestOutputDirectory(workspaceDir, workspacePort).catch(
+      () => {},
+    );
+    throw error;
+  }
   const nextBin = resolve(
     process.cwd(),
     'packages/investigation-workspace/node_modules/next/dist/bin/next',
@@ -355,13 +420,14 @@ export async function startWorkspaceApp(
       String(workspacePort),
     ],
     {
-      cwd: join(process.cwd(), 'packages/investigation-workspace'),
+      cwd: workspaceDir,
       env: {
         ...process.env,
         NODE_ENV: 'development',
         CODETHREAD_API_ORIGIN: `http://127.0.0.1:${backendPort}`,
         CODETHREAD_API_TOKEN: backendToken,
         CODETHREAD_WORKSPACE_PORT: String(workspacePort),
+        CODETHREAD_WORKSPACE_TEST_DIST_DIR: distDir,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     },
@@ -394,6 +460,9 @@ export async function startWorkspaceApp(
     await stopProcess(child).catch(() => {});
     await closeServer(backend.server).catch(() => {});
     await viewer.close();
+    await removeTestOutputDirectory(workspaceDir, workspacePort).catch(
+      () => {},
+    );
     throw error;
   }
   return {
@@ -403,8 +472,11 @@ export async function startWorkspaceApp(
     releaseScanRead: backend.gate.release,
     async close() {
       await stopProcess(child);
-      await closeServer(backend.server);
-      await viewer.close();
+      await Promise.all([
+        closeServer(backend.server),
+        viewer.close(),
+        removeTestOutputDirectory(workspaceDir, workspacePort),
+      ]);
     },
   };
 }
