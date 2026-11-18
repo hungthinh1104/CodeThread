@@ -25,12 +25,6 @@ jobs:
           version: 12.16.1
           run_install: false
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - name: Report installed analyzer build identity
-        run:
-          node --input-type=module -e "import { analyzerBuildHash } from
-          '@codethread/symbol-indexer'; console.log('analyzerBuildHash=' +
-          analyzerBuildHash())"
       - name: Configure bounded APT retries for Chromium dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -51,6 +45,12 @@ jobs:
       - name: Install Chromium for visual investigation tests (Windows)
         if: runner.os == 'Windows'
         run: pnpm exec playwright install chromium
+      - run: pnpm check
+      - name: Report installed analyzer build identity
+        run:
+          node --input-type=module -e "import { analyzerBuildHash } from
+          '@codethread/symbol-indexer'; console.log('analyzerBuildHash=' +
+          analyzerBuildHash())"
       - name: Browser-level visual investigation
         run: pnpm test:browser
       - name: Semantic fixture evaluation
