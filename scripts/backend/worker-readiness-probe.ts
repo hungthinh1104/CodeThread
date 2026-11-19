@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ANALYZER_VERSION } from '@codethread/symbol-indexer';
 import { digest } from './config.ts';
 import type { Database } from './database.ts';
+import { markScanRunning, readQueuedScanForClaim } from './worker-claim.ts';
 
 // Exercise representative worker writes inside a transaction that always rolls back.
 export async function probeWorkerWrites(
@@ -31,7 +32,11 @@ export async function probeWorkerWrites(
          configuration_hash,analyzer_version,analyzer_build_hash,state)
         VALUES(${jobId},${repositoryId},1,${jobId},${zero},'probe',${zero},
           ${ANALYZER_VERSION},${buildHash},'queued')`;
-      await db`UPDATE codethread.scan_job SET state='running',attempt=1 WHERE id=${jobId}`;
+      if (!(await readQueuedScanForClaim(db, jobId)))
+        throw new Error(
+          'Worker claim readiness probe could not read queued work',
+        );
+      await markScanRunning(db, jobId);
       await db`UPDATE codethread.scan_job SET git_object_format='sha1',git_commit_oid=${gitOid},
         git_tree_oid=${gitOid} WHERE id=${jobId}`;
       await db`INSERT INTO codethread.source_object(sha256,bytes,byte_length)
