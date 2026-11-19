@@ -540,6 +540,16 @@ const staticViewerAssetCases: readonly StaticAsset[] = [
     file: '../scripts/viewer-client/repository.js',
     mediaType: 'text/javascript',
   },
+  {
+    route: '/viewer-client/evidence.js',
+    file: '../scripts/viewer-client/evidence.js',
+    mediaType: 'text/javascript',
+  },
+  {
+    route: '/viewer-client/workspace.js',
+    file: '../scripts/viewer-client/workspace.js',
+    mediaType: 'text/javascript',
+  },
 ];
 
 async function wrongHostStatus(path: string): Promise<number> {

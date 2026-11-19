@@ -31,13 +31,14 @@ async function post(path: string, body: unknown): Promise<unknown> {
 }
 
 describe('repository viewer HTTP pagination contracts', () => {
+  // Setting up the fixture scans a pinned Git repository before serving pages.
   beforeAll(async () => {
     fixture = await repositoryViewerFixture(directories, additionalSources);
     viewer = await createRepositoryViewer(fixture.session);
-  });
+  }, 30_000);
 
   afterAll(async () => {
-    await viewer.close();
+    await viewer?.close();
     await Promise.all(
       directories.map((directory) =>
         rm(directory, { recursive: true, force: true }),

@@ -96,6 +96,9 @@ async function chooseContext(page: Page, configPath: string): Promise<void> {
 }
 
 async function chooseRoot(page: Page, owner: Anchor, configPath: string) {
+  const traceTab = page.getByRole('tab', { name: 'Trace' });
+  if ((await traceTab.getAttribute('aria-selected')) !== 'true')
+    await traceTab.click();
   const search = page.getByLabel('Name or source path', { exact: true });
   await responseAfter(page, '/api/catalog', async () => {
     await search.fill(owner.symbol);

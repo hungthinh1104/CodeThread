@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import type { Browser } from 'playwright';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
-import { openPage, assertLocalOnly, selectByName } from './helpers.ts';
+import {
+  closeEvidenceInspector,
+  openEvidenceInspector,
+  openPage,
+  assertLocalOnly,
+  selectByName,
+} from './helpers.ts';
 import { createViewer } from '../../scripts/viewer.ts';
 
 export async function verifyTodo(
@@ -50,7 +56,11 @@ export async function verifyTodo(
     const getAllRelationId = await getAllEdge.getAttribute('data-relation-id');
     assert.ok(getAllRelationId);
     await getAllEdge.click();
-    await page.getByText(/toDoCtrl\.getAll/).waitFor();
+    await openEvidenceInspector(page);
+    await page
+      .locator('#evidence')
+      .getByText(/toDoCtrl\.getAll/)
+      .waitFor();
     assert.equal(
       await page
         .locator(`#relationships li[data-relation-id="${getAllRelationId}"]`)
@@ -61,6 +71,7 @@ export async function verifyTodo(
     const referenceExcerpt = await page.locator('#evidence pre').textContent();
     assert.ok(referenceExcerpt);
     assert.match(referenceExcerpt, /toDoCtrl\.getAll/);
+    await closeEvidenceInspector(page);
     await getAllRow.getByRole('button', { name: 'Follow getAll' }).click();
     await page.getByRole('heading', { name: 'method getAll' }).waitFor();
     await page.getByRole('button', { name: 'Back' }).click();
@@ -166,6 +177,7 @@ export async function verifyLatestQueryWins(
   const viewer = await createViewer(snapshot);
   try {
     const page = await openPage(browser, viewer.origin, viewer.url);
+    await page.getByRole('tab', { name: 'Trace' }).click();
     let delayed = false;
     await page.route('**/api/neighbors', async (route) => {
       if (!delayed) {
