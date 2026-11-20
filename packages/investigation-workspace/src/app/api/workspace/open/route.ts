@@ -8,6 +8,7 @@ import {
 } from '../../../../server/http.ts';
 import {
   openWorkspace,
+  parseOpenWorkspaceScan,
   parseRequestJson,
 } from '../../../../server/workspace-bff.ts';
 
@@ -27,12 +28,13 @@ export async function POST(request: Request): Promise<Response> {
         },
         400,
       );
+    const scanId = parseOpenWorkspaceScan(await parseRequestJson(request));
     const { sessionId, metadata } = await openWorkspace(
-      await parseRequestJson(request),
-      sessionIdFromCookie(request),
+      scanId,
+      sessionIdFromCookie(request, scanId),
     );
     return jsonResponse({ workspace: metadata }, 200, {
-      'set-cookie': sessionCookie(sessionId, metadata.expiresAt),
+      'set-cookie': sessionCookie(scanId, sessionId, metadata.expiresAt),
     });
   } catch (error) {
     return errorResponse(error);

@@ -118,6 +118,25 @@ async function request<T>(
   return (await response.json()) as T;
 }
 
+async function expectPublishedScan(
+  port: number,
+  token: string,
+  scanId: string,
+  commit: string,
+) {
+  await expect
+    .poll(
+      () =>
+        request<{ state: string; git_commit_oid: string | null }>(
+          port,
+          token,
+          `/v1/scans/${scanId}`,
+        ),
+      { timeout: 45_000 },
+    )
+    .toMatchObject({ state: 'succeeded', git_commit_oid: commit });
+}
+
 async function inspectViewer(
   browser: Browser,
   url: string,
@@ -231,6 +250,7 @@ async function inspectWorkspaceFrontend(
   expectedProjectId: string,
   sourceHash: string,
   backendToken: string,
+  comparison?: { repositoryId: string; path: string },
 ) {
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
@@ -254,6 +274,12 @@ async function inspectWorkspaceFrontend(
     if (authorization) browserAuthorizationHeaders.push(authorization);
   });
   try {
+    if (comparison)
+      await page.route(
+        '**/api/workspace/files',
+        (route) => route.abort('failed'),
+        { times: 1 },
+      );
     await page.goto(origin, { waitUntil: 'domcontentloaded' });
     await page
       .getByRole('heading', { name: 'Investigation Workspace' })
@@ -319,12 +345,107 @@ async function inspectWorkspaceFrontend(
       .getByText(sourceHash)
       .waitFor();
     const traceText = await page.locator('#trace-panel').innerText();
-    expect(traceText).toMatch(/Coverage:/);
-    expect(traceText).toMatch(/Truncated:|Query not truncated/);
+    expect(traceText).toContain('Coverage: partial');
+    expect(traceText).toContain('Query not truncated');
     expect(traceText).toMatch(/unresolved|unsupported/i);
     expect(await page.locator('#evidence-inspector').innerText()).toContain(
       sourceHash,
     );
+    await page
+      .getByRole('checkbox', { name: 'REFERENCES', exact: true })
+      .check();
+    await page
+      .locator('.relationship-list li')
+      .filter({ hasText: /REFERENCES.*exact/ })
+      .first()
+      .waitFor();
+    await page.getByRole('tab', { name: 'Source' }).click();
+    await page.locator('.source-excerpt').waitFor();
+    await page.getByRole('tab', { name: 'Trace' }).click();
+    await page.getByLabel('Direction').selectOption('both');
+    await page.getByText('Evidence basis: static', { exact: true }).waitFor();
+    await page.route(
+      '**/api/workspace/evidence',
+      (route) => route.abort('failed'),
+      { times: 1 },
+    );
+    await page.getByRole('tab', { name: 'Source' }).click();
+    const retryEvidence = page
+      .locator('#source-panel')
+      .getByRole('button', { name: 'Retry evidence' });
+    await retryEvidence.waitFor();
+    expect(await page.locator('.source-excerpt').count()).toBe(0);
+    await retryEvidence.click();
+    await page.locator('.source-excerpt').getByText(sourceHash).waitFor();
+
+    await page.getByRole('tab', { name: 'Trace' }).click();
+    await call
+      .getByRole('button', { name: 'Follow target', exact: true })
+      .click();
+    const root = page.locator('.selected-symbol');
+    await root.getByText('function target', { exact: true }).waitFor();
+    await page.locator('.source-excerpt').getByText(sourceHash).waitFor();
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await root.getByText('function entry', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Forward', exact: true }).click();
+    await root.getByText('function target', { exact: true }).waitFor();
+    await page.getByRole('tab', { name: 'Trace' }).click();
+    await page.route(
+      '**/api/workspace/neighbors',
+      (route) => route.abort('failed'),
+      { times: 1 },
+    );
+    await page.getByLabel('Direction').selectOption('incoming');
+    const retryTrace = page.getByRole('button', { name: 'Retry trace' });
+    await retryTrace.waitFor();
+    expect(await page.getByText(/No returned relationships/).count()).toBe(0);
+    await retryTrace.click();
+    await page
+      .locator('.relationship-list li')
+      .filter({ hasText: /entry.*target/ })
+      .filter({ hasText: /CALLS.*exact/ })
+      .first()
+      .waitFor();
+    if (comparison) {
+      const otherTab = await context.newPage();
+      await otherTab.goto(origin, { waitUntil: 'domcontentloaded' });
+      await otherTab
+        .getByLabel('Repository and scan')
+        .selectOption(comparison.repositoryId);
+      await otherTab
+        .getByRole('region', { name: 'Source inventory' })
+        .getByText(comparison.path, { exact: true })
+        .waitFor();
+      await otherTab.getByLabel('Name or source path').fill('fanout');
+      await otherTab.getByRole('button', { name: /fanout.*function/ }).click();
+      await otherTab.getByRole('tab', { name: 'Trace' }).click();
+      await otherTab
+        .getByText('Evidence basis: static', { exact: true })
+        .waitFor();
+      expect(
+        await otherTab.locator('#trace-panel .coverage-summary').innerText(),
+      ).toContain('Truncated: result_limit');
+      const retried = page.waitForResponse((response) =>
+        response.url().endsWith('/api/workspace/files'),
+      );
+      await page.getByRole('button', { name: 'Retry file inventory' }).click();
+      const response = await retried;
+      expect(response.status()).toBe(200);
+      const inventory = await response.json();
+      expect(
+        inventory.items.map((item: { path: string }) => item.path),
+      ).toEqual(['packages/bad/index.ts', 'packages/good/index.ts']);
+      await page
+        .getByRole('region', { name: 'Source inventory' })
+        .getByText('packages/good/index.ts', { exact: true })
+        .waitFor();
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page
+        .getByRole('region', { name: 'Source inventory' })
+        .getByText('packages/good/index.ts', { exact: true })
+        .waitFor();
+      await otherTab.close();
+    }
     expect(browserAuthorizationHeaders).toEqual([]);
     expect(await page.locator('html').innerText()).not.toContain(backendToken);
     expect(outside).toEqual([]);
@@ -389,22 +510,44 @@ describe.skipIf(!databaseUrl)(
             `/v1/repositories/${repository.id}/scans`,
             { revision: 'HEAD', idempotencyKey: 'persistent-browser' },
           );
-        const deadline = Date.now() + 45_000;
-        let state = await request<{
-          state: string;
-          git_commit_oid: string | null;
-        }>(port, token, `/v1/scans/${job.id}`);
-        while (
-          !['succeeded', 'failed', 'cancelled'].includes(state.state) &&
-          Date.now() < deadline
-        ) {
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          state = await request(port, token, `/v1/scans/${job.id}`);
-        }
-        expect(state).toMatchObject({
-          state: 'succeeded',
-          git_commit_oid: fixture.revision,
-        });
+        await expectPublishedScan(port, token, job.id, fixture.revision);
+        const comparisonPath = 'second-only.ts',
+          callees = Array.from({ length: 52 }, (_, index) => `callee${index}`),
+          comparison = await createGitRepository(
+            [
+              {
+                path: comparisonPath,
+                source: [
+                  `export function fanout() { return ${callees.map((name) => `${name}()`).join(' + ')}; }`,
+                  ...callees.map(
+                    (name, index) => `function ${name}() { return ${index}; }`,
+                  ),
+                ].join('\n'),
+              },
+            ],
+            directories,
+          ),
+          comparisonRepository = await request<{ id: string }>(
+            port,
+            token,
+            '/v1/repositories',
+            { locator: comparison.directory },
+          ),
+          comparisonScan = await request<{ id: string }>(
+            port,
+            token,
+            `/v1/repositories/${comparisonRepository.id}/scans`,
+            {
+              revision: comparison.revision,
+              idempotencyKey: 'workspace-comparison',
+            },
+          );
+        await expectPublishedScan(
+          port,
+          token,
+          comparisonScan.id,
+          comparison.revision,
+        );
         const session = await loadRepositorySession(db, job.id),
           good = session.projects.find(
             (project) =>
@@ -475,6 +618,7 @@ describe.skipIf(!databaseUrl)(
           good.project.id,
           sourceHash,
           token,
+          { repositoryId: comparisonRepository.id, path: comparisonPath },
         );
         const before = await inspectViewer(
           browser,

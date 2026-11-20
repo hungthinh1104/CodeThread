@@ -9,7 +9,9 @@ import {
 import {
   forwardViewerOperation,
   parseRequestJson,
+  WorkspaceBffError,
   workspaceMetadata,
+  workspaceScanIdSchema,
 } from '../../../../server/workspace-bff.ts';
 
 export const runtime = 'nodejs';
@@ -44,14 +46,30 @@ export async function POST(
         },
         404,
       );
+    const scan = workspaceScanIdSchema.safeParse(
+      request.headers.get('x-codethread-scan-id'),
+    );
+    if (!scan.success)
+      throw new WorkspaceBffError(
+        400,
+        'INVALID_REQUEST',
+        'A valid workspace scan identity is required.',
+      );
     const payload = await parseRequestJson(request);
-    const sessionId = sessionIdFromCookie(request);
+    const sessionId = sessionIdFromCookie(request, scan.data);
     if (path[0] === 'meta') {
-      z.strictObject({}).parse(payload);
-      return jsonResponse({ workspace: await workspaceMetadata(sessionId) });
+      if (!z.strictObject({}).safeParse(payload).success)
+        throw new WorkspaceBffError(
+          400,
+          'INVALID_REQUEST',
+          'Workspace metadata requires an empty request object.',
+        );
+      return jsonResponse({
+        workspace: await workspaceMetadata(sessionId, scan.data),
+      });
     }
     return jsonResponse(
-      await forwardViewerOperation(sessionId, path[0]!, payload),
+      await forwardViewerOperation(sessionId, scan.data, path[0]!, payload),
     );
   } catch (error) {
     return errorResponse(error);

@@ -7,6 +7,7 @@ import {
   readRepositories,
   readViewer,
   readWorkspaceMetadata,
+  rememberWorkspaceScan,
 } from './api.ts';
 import { EvidenceInspector } from './EvidenceInspector.tsx';
 import { ExplorerRegion, type SearchItem } from './ExplorerRegion.tsx';
@@ -100,7 +101,7 @@ function unwrapScoped<T>(value: ApiResponse<T>, scope: Scope): T {
 
 async function readSession(scope: Scope): Promise<SessionProjection> {
   return unwrapScoped(
-    await readViewer<ApiResponse<SessionProjection>>('session', {
+    await readViewer<ApiResponse<SessionProjection>>(scope.scanId, 'session', {
       projectId: scope.projectId,
       request: {},
     }),
@@ -115,7 +116,7 @@ async function readGraph(
   direction: NavigationEntry['direction'],
 ): Promise<GraphProjection> {
   return unwrapScoped(
-    await readViewer<ApiResponse<GraphProjection>>('neighbors', {
+    await readViewer<ApiResponse<GraphProjection>>(scope.scanId, 'neighbors', {
       projectId: scope.projectId,
       request: {
         snapshotId: scope.snapshotId,
@@ -337,7 +338,11 @@ export function InvestigationWorkspace() {
     generation: number,
   ) {
     try {
-      const result = await readViewer<ProjectContexts>('projects', {});
+      const result = await readViewer<ProjectContexts>(
+        metadata.scanId,
+        'projects',
+        {},
+      );
       if (generation !== workspaceGeneration.current) return;
       if (
         result.repositoryId !== metadata.repositoryId ||
@@ -350,6 +355,7 @@ export function InvestigationWorkspace() {
               'The project contexts do not belong to the opened repository revision.',
           },
         });
+      rememberWorkspaceScan(metadata.scanId);
       setWorkspace(metadata);
       setProjects(result);
       const ready = result.items.filter(
@@ -424,6 +430,7 @@ export function InvestigationWorkspace() {
     const generation = ++graphGeneration.current;
     const rootSymbolId = typeof root === 'string' ? root : root.id;
     ++evidenceGeneration.current;
+    requestedEvidenceId.current = null;
     setGraphLoading(true);
     setGraphError(null);
     setGraph(null);
@@ -468,6 +475,7 @@ export function InvestigationWorkspace() {
     setEvidence(null);
     try {
       const response = await readViewer<ApiResponse<EvidenceProjection>>(
+        scope.scanId,
         'evidence',
         {
           projectId: scope.projectId,
@@ -653,6 +661,7 @@ export function InvestigationWorkspace() {
     setContextCandidates([]);
     try {
       const response = await readViewer<ApiResponse<FollowContextProjection>>(
+        scope.scanId,
         'follow-context',
         {
           projectId: scope.projectId,
@@ -908,7 +917,7 @@ export function InvestigationWorkspace() {
         setRepositories(repositoryResult.items);
         try {
           const recovered = await readWorkspaceMetadata();
-          if (!isCurrent()) return;
+          if (!recovered || !isCurrent()) return;
           setSelectedRepositoryId(recovered.workspace.repositoryId);
           await loadProjectContexts(recovered.workspace, resetWorkspace());
         } catch (error) {
@@ -945,7 +954,7 @@ export function InvestigationWorkspace() {
     const workspaceId = workspace.scanId;
     setFilesLoading(true);
     setFilesError(null);
-    void readViewer<FilePage>('files', { offset: 0 })
+    void readViewer<FilePage>(workspaceId, 'files', { offset: 0 })
       .then((page) => {
         if (
           generation === fileGeneration.current &&
@@ -974,11 +983,11 @@ export function InvestigationWorkspace() {
       setSearchError(null);
       const read =
         searchMode === 'repository'
-          ? readViewer<CatalogPage>('catalog', {
+          ? readViewer<CatalogPage>(workspace.scanId, 'catalog', {
               query: searchQuery,
               offset: searchOffset,
             })
-          : readViewer<ApiResponse<SymbolPage>>('symbols', {
+          : readViewer<ApiResponse<SymbolPage>>(workspace.scanId, 'symbols', {
               projectId: scope!.projectId,
               request: { query: searchQuery, offset: searchOffset },
             });
@@ -1067,6 +1076,7 @@ export function InvestigationWorkspace() {
 
   async function chooseRepository(id: string) {
     const generation = resetWorkspace();
+    rememberWorkspaceScan(null);
     setSelectedRepositoryId(id);
     const repository = repositories.find((item) => item.id === id);
     if (!repository) return;
@@ -1079,12 +1089,15 @@ export function InvestigationWorkspace() {
     try {
       const opened = await openScan(repository.activeScanId);
       if (generation !== workspaceGeneration.current) return;
-      if (opened.workspace.repositoryId !== id)
+      if (
+        opened.workspace.repositoryId !== id ||
+        opened.workspace.scanId !== repository.activeScanId
+      )
         throw new ApiFailure(502, {
           error: {
             code: 'WORKSPACE_SCAN_MISMATCH',
             message:
-              'The opened scan does not belong to the selected repository.',
+              'The opened scan does not match the selected repository and scan.',
           },
         });
       await loadProjectContexts(opened.workspace, generation);
@@ -1104,7 +1117,9 @@ export function InvestigationWorkspace() {
     setFilesLoading(true);
     setFilesError(null);
     try {
-      const page = await readViewer<FilePage>('files', { offset });
+      const page = await readViewer<FilePage>(workspace.scanId, 'files', {
+        offset,
+      });
       if (generation === fileGeneration.current) {
         setFiles(page);
         setFilesError(null);

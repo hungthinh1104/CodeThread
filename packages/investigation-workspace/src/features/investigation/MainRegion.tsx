@@ -368,7 +368,7 @@ export function MainRegion(props: Props) {
               );
             })}
           </ol>
-        ) : root && !props.graphLoading ? (
+        ) : graph && root && !props.graphLoading ? (
           <p className="empty-state">
             No returned relationships match these filters. This does not
             establish that unsupported or unanalysed relationships are absent.

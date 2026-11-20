@@ -106,19 +106,29 @@ Host and same Origin on state-changing requests.
 `CODETHREAD_API_TOKEN` is read only by server code. The BFF opens the existing
 per-scan ephemeral viewer using the backend API, validates that its returned
 address is IPv4 loopback, and keeps the viewer fragment token in process memory
-behind an unpredictable HttpOnly same-site cookie. Only fixed `/api/*`
+behind an unpredictable HttpOnly same-site cookie scoped by scan ID. Viewer
+requests carry the expected scan in `X-CodeThread-Scan-Id`. The BFF checks the
+selected cookie and its session's scan before forwarding. The tab remembers only
+the scan ID in session storage to reload its own context. Only fixed `/api/*`
 operations are forwarded to that validated port with exact Host/Origin and the
 viewer token. The browser receives neither backend token, viewer token, local
 repository locator nor viewer URL. The Next process uses a restrictive CSP,
-nonced framework scripts, no external resource origins, and no client storage.
-There is no generic proxy, direct database access, persisted source cache, or
-new semantic/query logic. Sessions are ephemeral and expire with the existing
-viewer TTL or process restart.
+nonced framework scripts and no external resource origins. There is no generic
+proxy, direct database access, persisted source cache, or new semantic/query
+logic. Sessions are ephemeral and expire with the existing viewer TTL or process
+restart.
 
 This is defense for a local single-developer candidate, not a sandbox against a
 malicious local process or administrator. Backend API and ephemeral viewer
 contracts remain authoritative; the BFF rejects responses that do not match
 those schemas.
+
+Next.js 16.4.6 vendors `picomatch` 4.0.1. The vendored code is outside the
+lockfile dependency audit and falls in the affected range of
+[GHSA-3v7f-55p6-f55p](https://github.com/advisories/GHSA-3v7f-55p6-f55p) and
+[GHSA-c2c7-rcm5-vvqj](https://github.com/advisories/GHSA-c2c7-rcm5-vvqj). The
+Workspace remains a review candidate pending a patched bundle and fresh
+verification.
 
 ## Verification viewport and interactions
 

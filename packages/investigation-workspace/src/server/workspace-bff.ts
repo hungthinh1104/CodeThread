@@ -12,8 +12,12 @@ const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5000;
 const MAX_SESSIONS = 4;
-const UUID = z.string().uuid();
-const openWorkspaceRequestSchema = z.strictObject({ scanId: UUID });
+export const workspaceScanIdSchema = z
+  .uuid()
+  .transform((id) => id.toLowerCase());
+const openWorkspaceRequestSchema = z.strictObject({
+  scanId: workspaceScanIdSchema,
+});
 const sessionIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
 type WorkspaceSession = {
@@ -338,42 +342,37 @@ function cleanupSessions(now = Date.now()): void {
     if (session.expiresAt <= now) sessions.delete(id);
 }
 
-export async function openWorkspace(
-  value: unknown,
-  existingSessionId?: string,
-): Promise<{ sessionId: string; metadata: WorkspaceMetadata }> {
-  let input: z.infer<typeof openWorkspaceRequestSchema>;
-  try {
-    input = openWorkspaceRequestSchema.parse(value);
-  } catch {
+export function parseOpenWorkspaceScan(value: unknown): string {
+  const parsed = openWorkspaceRequestSchema.safeParse(value);
+  if (!parsed.success)
     throw new WorkspaceBffError(
       400,
       'INVALID_REQUEST',
       'Choose a valid scan to open.',
     );
-  }
+  return parsed.data.scanId;
+}
+
+export async function openWorkspace(
+  scanId: string,
+  existingSessionId?: string,
+): Promise<{ sessionId: string; metadata: WorkspaceMetadata }> {
   cleanupSessions();
-  const reusableSessionId =
-    existingSessionId && sessionIdSchema.safeParse(existingSessionId).success
-      ? existingSessionId
-      : undefined;
-  let reuseSessionId: string | undefined;
-  if (reusableSessionId) {
-    const existing = sessions.get(reusableSessionId);
-    if (existing?.metadata.scanId === input.scanId) {
+  if (existingSessionId) {
+    const existing = sessions.get(existingSessionId);
+    if (existing?.metadata.scanId === scanId) {
       try {
-        await forwardViewerOperation(reusableSessionId, 'projects', {});
-        return { sessionId: reusableSessionId, metadata: existing.metadata };
+        await forwardViewerOperation(existingSessionId, scanId, 'projects', {});
+        return { sessionId: existingSessionId, metadata: existing.metadata };
       } catch (error) {
         if (
           !(error instanceof WorkspaceBffError) ||
           error.code !== 'VIEWER_UNAVAILABLE'
         )
           throw error;
+        sessions.delete(existingSessionId);
       }
     }
-    sessions.delete(reusableSessionId);
-    reuseSessionId = reusableSessionId;
   }
   if (sessions.size >= MAX_SESSIONS)
     throw new WorkspaceBffError(
@@ -383,9 +382,15 @@ export async function openWorkspace(
     );
   const scan = (await backendRequest(
     'GET /v1/scans/:id',
-    `/v1/scans/${input.scanId}`,
+    `/v1/scans/${scanId}`,
     'GET',
   )) as z.infer<(typeof backendApiResponseSchemas)['GET /v1/scans/:id']>;
+  if (scan.id !== scanId)
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned a different scan.',
+    );
   if (scan.state !== 'succeeded' || !scan.git_commit_oid)
     throw new WorkspaceBffError(
       409,
@@ -394,13 +399,13 @@ export async function openWorkspace(
     );
   const viewer = (await backendRequest(
     'POST /v1/scans/:id/viewer',
-    `/v1/scans/${input.scanId}/viewer`,
+    `/v1/scans/${scanId}/viewer`,
     'POST',
   )) as z.infer<
     (typeof backendApiResponseSchemas)['POST /v1/scans/:id/viewer']
   >;
   const address = parseViewerAddress(viewer.url, viewer.expiresAt);
-  const sessionId = reuseSessionId ?? randomBytes(32).toString('hex');
+  const sessionId = randomBytes(32).toString('hex');
   const metadata: WorkspaceMetadata = {
     repositoryId: scan.repository_id,
     scanId: scan.id,
@@ -412,29 +417,43 @@ export async function openWorkspace(
   return { sessionId, metadata };
 }
 
-export async function workspaceMetadata(sessionId: string | undefined) {
+function requireWorkspaceSession(
+  sessionId: string | undefined,
+  scanId: string,
+) {
   cleanupSessions();
-  if (!sessionId || !sessionIdSchema.safeParse(sessionId).success)
-    throw new WorkspaceBffError(
-      401,
-      'WORKSPACE_SESSION_EXPIRED',
-      'Reopen a scan to continue this investigation.',
-    );
-  const session = sessions.get(sessionId);
+  const session =
+    sessionId && sessionIdSchema.safeParse(sessionId).success
+      ? sessions.get(sessionId)
+      : undefined;
   if (!session)
     throw new WorkspaceBffError(
       401,
       'WORKSPACE_SESSION_EXPIRED',
       'Reopen a scan to continue this investigation.',
     );
+  if (session.metadata.scanId !== scanId)
+    throw new WorkspaceBffError(
+      409,
+      'WORKSPACE_SCAN_MISMATCH',
+      'The local workspace session belongs to a different scan.',
+    );
+  return session;
+}
+
+export async function workspaceMetadata(
+  sessionId: string | undefined,
+  scanId: string,
+) {
+  const session = requireWorkspaceSession(sessionId, scanId);
   try {
-    await forwardViewerOperation(sessionId, 'projects', {});
+    await forwardViewerOperation(sessionId, scanId, 'projects', {});
   } catch (error) {
     if (
       error instanceof WorkspaceBffError &&
       error.code === 'VIEWER_UNAVAILABLE'
     ) {
-      sessions.delete(sessionId);
+      if (sessionId) sessions.delete(sessionId);
       throw new WorkspaceBffError(
         401,
         'WORKSPACE_SESSION_EXPIRED',
@@ -448,20 +467,11 @@ export async function workspaceMetadata(sessionId: string | undefined) {
 
 export async function forwardViewerOperation(
   sessionId: string | undefined,
+  scanId: string,
   operation: string,
   value: unknown,
 ): Promise<unknown> {
-  cleanupSessions();
-  const session =
-    sessionId && sessionIdSchema.safeParse(sessionId).success
-      ? sessions.get(sessionId)
-      : undefined;
-  if (!session)
-    throw new WorkspaceBffError(
-      401,
-      'WORKSPACE_SESSION_EXPIRED',
-      'Reopen a scan to continue this investigation.',
-    );
+  const session = requireWorkspaceSession(sessionId, scanId);
   const pathname = `/api/${operation}`;
   const requestSchema =
     viewerApiRepositoryRequestSchemas[

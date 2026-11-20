@@ -24,22 +24,29 @@ export function trustedLocalRequest(
   return request.headers.get('sec-fetch-site') !== 'cross-site';
 }
 
-export function sessionIdFromCookie(request: Request): string | undefined {
+export function sessionIdFromCookie(
+  request: Request,
+  scanId: string,
+): string | undefined {
   const cookieHeader = request.headers.get('cookie');
   if (!cookieHeader) return undefined;
   for (const part of cookieHeader.split(';')) {
     const [name, ...valueParts] = part.trim().split('=');
-    if (name === COOKIE_NAME) return valueParts.join('=');
+    if (name === `${COOKIE_NAME}_${scanId}`) return valueParts.join('=');
   }
   return undefined;
 }
 
-export function sessionCookie(sessionId: string, expiresAt: string): string {
+export function sessionCookie(
+  scanId: string,
+  sessionId: string,
+  expiresAt: string,
+): string {
   const age = Math.max(
     0,
     Math.min(1800, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000)),
   );
-  return `${COOKIE_NAME}=${sessionId}; Path=/api/workspace; HttpOnly; SameSite=Strict; Max-Age=${age}`;
+  return `${COOKIE_NAME}_${scanId}=${sessionId}; Path=/api/workspace; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 }
 
 export function jsonResponse(

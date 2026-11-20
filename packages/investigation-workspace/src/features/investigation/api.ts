@@ -4,6 +4,8 @@ import type {
   WorkspaceMetadata,
 } from './types.ts';
 
+const scanStorageKey = 'codethread-workspace-scan';
+
 export class ApiFailure extends Error {
   readonly code: string;
   readonly status: number;
@@ -54,10 +56,12 @@ async function requestJson<T>(input: string, init: RequestInit): Promise<T> {
   return value as T;
 }
 
-function post<T>(path: string, body: unknown): Promise<T> {
+function post<T>(path: string, body: unknown, scanId?: string): Promise<T> {
+  const headers = new Headers({ 'content-type': 'application/json' });
+  if (scanId) headers.set('x-codethread-scan-id', scanId);
   return requestJson<T>(path, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
 }
@@ -75,9 +79,30 @@ export function openScan(scanId: string) {
 }
 
 export function readWorkspaceMetadata() {
-  return post<{ workspace: WorkspaceMetadata }>('/api/workspace/meta', {});
+  let scanId: string | null;
+  try {
+    scanId = sessionStorage.getItem(scanStorageKey);
+  } catch {
+    return null;
+  }
+  return scanId
+    ? post<{ workspace: WorkspaceMetadata }>('/api/workspace/meta', {}, scanId)
+    : null;
 }
 
-export function readViewer<T>(operation: string, body: unknown): Promise<T> {
-  return post<T>(`/api/workspace/${operation}`, body);
+export function rememberWorkspaceScan(scanId: string | null): void {
+  try {
+    if (scanId) sessionStorage.setItem(scanStorageKey, scanId);
+    else sessionStorage.removeItem(scanStorageKey);
+  } catch {
+    // The active workspace still works when browser storage is unavailable.
+  }
+}
+
+export function readViewer<T>(
+  scanId: string,
+  operation: string,
+  body: unknown,
+): Promise<T> {
+  return post<T>(`/api/workspace/${operation}`, body, scanId);
 }

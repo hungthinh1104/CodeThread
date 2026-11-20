@@ -93,13 +93,14 @@ describe('local Investigation Workspace BFF', () => {
 
   it('keeps both upstream credentials server-side and validates each projection', async () => {
     const { seen } = backendAndViewerFetch();
-    const opened = await openWorkspace({ scanId });
+    const opened = await openWorkspace(scanId);
     expect(JSON.stringify(opened)).not.toContain(viewerToken);
     expect(JSON.stringify(opened)).not.toContain('server-only-test-token');
     expect(opened.metadata.commitId).toBe(commitId);
 
     const result = await forwardViewerOperation(
       opened.sessionId,
+      scanId,
       'projects',
       {},
     );
@@ -120,8 +121,8 @@ describe('local Investigation Workspace BFF', () => {
 
   it('returns validated workspace metadata from the meta route', async () => {
     backendAndViewerFetch();
-    const opened = await openWorkspace({ scanId });
-    const response = await workspaceOperation(
+    const opened = await openWorkspace(scanId);
+    const metadataRequest = (body: string) =>
       new Request('http://127.0.0.1:3000/api/workspace/meta', {
         method: 'POST',
         headers: {
@@ -129,15 +130,28 @@ describe('local Investigation Workspace BFF', () => {
           origin: 'http://127.0.0.1:3000',
           'sec-fetch-site': 'same-origin',
           'content-type': 'application/json',
-          cookie: `ct_workspace_session=${opened.sessionId}`,
+          'x-codethread-scan-id': scanId,
+          cookie: `ct_workspace_session_${scanId}=${opened.sessionId}`,
         },
-        body: '{}',
-      }),
-      { params: Promise.resolve({ path: ['meta'] }) },
-    );
+        body,
+      });
+    const response = await workspaceOperation(metadataRequest('{}'), {
+      params: Promise.resolve({ path: ['meta'] }),
+    });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ workspace: opened.metadata });
+
+    const invalid = await workspaceOperation(
+      metadataRequest('{"extra":true}'),
+      {
+        params: Promise.resolve({ path: ['meta'] }),
+      },
+    );
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      error: { code: 'INVALID_REQUEST' },
+    });
   });
 
   it('rejects a viewer address outside the exact IPv4 loopback origin', async () => {
@@ -145,7 +159,7 @@ describe('local Investigation Workspace BFF', () => {
       projectsResponse(),
       `http://127.0.0.1.attacker.test:43123/#${viewerToken}`,
     );
-    await expect(openWorkspace({ scanId })).rejects.toMatchObject({
+    await expect(openWorkspace(scanId)).rejects.toMatchObject({
       code: 'VIEWER_ADDRESS_REJECTED',
     });
     expect(
@@ -184,6 +198,7 @@ describe('local Investigation Workspace BFF', () => {
     expect(trustedLocalRequest(wrongOrigin, true)).toBe(false);
     expect(
       sessionCookie(
+        scanId,
         'c'.repeat(64),
         new Date(Date.now() + 60_000).toISOString(),
       ),
@@ -194,7 +209,7 @@ describe('local Investigation Workspace BFF', () => {
     vi.stubEnv('CODETHREAD_API_ORIGIN', 'http://127.0.0.1.attacker.test:8765');
     const fetcher = vi.fn();
     vi.stubGlobal('fetch', fetcher);
-    await expect(openWorkspace({ scanId })).rejects.toMatchObject({
+    await expect(openWorkspace(scanId)).rejects.toMatchObject({
       code: 'BACKEND_NOT_CONFIGURED',
     });
     expect(fetcher).not.toHaveBeenCalled();
@@ -202,19 +217,29 @@ describe('local Investigation Workspace BFF', () => {
 
   it('rejects unknown operations and malformed inputs before forwarding', async () => {
     const { seen } = backendAndViewerFetch();
-    const opened = await openWorkspace({ scanId });
+    const opened = await openWorkspace(scanId);
     const sentBefore = seen.length;
     await expect(
-      forwardViewerOperation(opened.sessionId, 'https://example.test', {}),
+      forwardViewerOperation(
+        opened.sessionId,
+        scanId,
+        'https://example.test',
+        {},
+      ),
     ).rejects.toMatchObject({ code: 'WORKSPACE_OPERATION_NOT_FOUND' });
     await expect(
-      forwardViewerOperation(opened.sessionId, 'projects', {
+      forwardViewerOperation(opened.sessionId, scanId, 'projects', {
         unexpected: true,
       }),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
     await expect(
-      forwardViewerOperation(opened.sessionId, 'toString', {}),
+      forwardViewerOperation(opened.sessionId, scanId, 'toString', {}),
     ).rejects.toMatchObject({ code: 'WORKSPACE_OPERATION_NOT_FOUND' });
+    await expect(
+      forwardViewerOperation(opened.sessionId, repositoryId, 'files', {
+        offset: 0,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'WORKSPACE_SCAN_MISMATCH' });
     expect(seen).toHaveLength(sentBefore);
   });
 
@@ -223,9 +248,9 @@ describe('local Investigation Workspace BFF', () => {
       ...projectsResponse(),
       extra: true,
     });
-    const opened = await openWorkspace({ scanId });
+    const opened = await openWorkspace(scanId);
     await expect(
-      forwardViewerOperation(opened.sessionId, 'projects', {}),
+      forwardViewerOperation(opened.sessionId, scanId, 'projects', {}),
     ).rejects.toMatchObject({ code: 'UPSTREAM_CONTRACT_MISMATCH' });
 
     const oversizedBody = JSON.stringify({
@@ -243,7 +268,7 @@ describe('local Investigation Workspace BFF', () => {
       return json({ error: { code: 'NOT_FOUND', message: 'Not found.' } }, 404);
     });
     await expect(
-      forwardViewerOperation(opened.sessionId, 'projects', {}),
+      forwardViewerOperation(opened.sessionId, scanId, 'projects', {}),
     ).rejects.toMatchObject({ code: 'UPSTREAM_RESPONSE_TOO_LARGE' });
   });
 
