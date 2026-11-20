@@ -2,15 +2,20 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import type { AnalysisFacts, CodeRelation } from '@codethread/code-model';
+import { createSourcePositionIndex } from '@codethread/code-model';
+import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import {
   parseGraphNeighborsResult,
   graphNeighborsRequestSchema,
+  getSourceEvidenceRequestSchema,
+  parseGetSourceEvidenceResult,
 } from '@codethread/contracts';
 import {
   evaluatePinnedRepository,
   evaluateRepositorySession,
 } from '../scripts/eval-repository.ts';
 import {
+  inspectClosedGoldOwner,
   symbolMatchesGold,
   validateClosedGoldOwner,
   validateRepositoryGoldLabel,
@@ -267,6 +272,88 @@ describe('whole-repository source-pinned acceptance', () => {
     ).toThrow(/exceeded the direct-scope budget/);
   });
 
+  it('rejects a valid-shaped exact edge emitted only by the kind-specific projection', () => {
+    const { ground, snapshot, owner, relation } = ufoSubject();
+    const label = ground.gold.labels.find(
+      (entry) => entry.repository === 'ufo' && entry.expression === 'parseURL',
+    )!;
+    const healthy = repositoryGoldContext(snapshot);
+    const exact = relation.resolution;
+    assert(exact.status === 'exact');
+    const extra: CodeRelation = {
+      ...relation,
+      id: '80fa9ee6-d6c5-4f05-a223-79bcf217a175',
+      key: 'review-mutation-projection-only',
+      siteEvidenceId: owner.declarationEvidenceId,
+      resolution: {
+        ...exact,
+        evidenceIds: exact.evidenceIds.filter(
+          (id) => id !== relation.siteEvidenceId,
+        ),
+      },
+    };
+    const candidate = {
+      ...healthy,
+      queries: {
+        ...healthy.queries,
+        neighbors(input: unknown) {
+          const request = graphNeighborsRequestSchema.parse(input);
+          const graph = healthy.queries.neighbors(request);
+          if (
+            request.symbolId !== owner.id ||
+            request.direction !== 'outgoing' ||
+            request.relationKinds.length !== 1 ||
+            request.relationKinds[0] !== 'calls'
+          )
+            return graph;
+          return parseGraphNeighborsResult(request, {
+            ...graph,
+            relations: [...graph.relations, extra],
+          });
+        },
+      },
+    };
+    expect(() =>
+      validateRepositoryGoldLabel(candidate, label, ground.corpus),
+    ).toThrow(/emitted an EXACT edge absent from snapshot facts/);
+  });
+
+  it('rejects a verified-text response with substituted extractor provenance', () => {
+    const { ground, snapshot } = ufoSubject();
+    const label = ground.gold.labels.find(
+      (entry) => entry.repository === 'ufo' && entry.expression === 'parseURL',
+    )!;
+    const healthy = repositoryGoldContext(snapshot);
+    const candidate = {
+      ...healthy,
+      queries: {
+        ...healthy.queries,
+        sourceEvidence(input: unknown) {
+          const request = getSourceEvidenceRequestSchema.parse(input);
+          const result = healthy.queries.sourceEvidence(request);
+          const items = result.items.map((item) =>
+            item.status === 'available'
+              ? {
+                  ...item,
+                  evidence: {
+                    ...item.evidence,
+                    extractor: {
+                      ...item.evidence.extractor,
+                      version: 'mutated-provenance',
+                    },
+                  },
+                }
+              : item,
+          );
+          return parseGetSourceEvidenceResult(request, { ...result, items });
+        },
+      },
+    };
+    expect(() =>
+      validateRepositoryGoldLabel(candidate, label, ground.corpus),
+    ).toThrow(/differs from the original source/);
+  });
+
   it('rejects a fabricated complete source selection and missing-context status', () => {
     const result = evaluated.get('sourcemaps')!;
     const missing = {
@@ -350,6 +437,16 @@ describe('whole-repository source-pinned acceptance', () => {
     modified.freeze.scopes[0]!.occurrences++;
     expect(() => verifyReviewManifest(modified)).toThrow(
       /Frozen review input changed/,
+    );
+    const narrowed = structuredClone(result.review);
+    narrowed.freeze.scopes = narrowed.freeze.scopes.filter(
+      (scope) => scope.id !== 'ufo-url-append',
+    );
+    narrowed.frozenInputSha256 = createHash('sha256')
+      .update(JSON.stringify(narrowed.freeze))
+      .digest('hex');
+    expect(() => verifyReviewManifest(narrowed)).toThrow(
+      /does not name the pinned input freeze/,
     );
     expect(() =>
       evaluateRepositorySession(
@@ -532,7 +629,7 @@ describe('whole-repository source-pinned acceptance', () => {
       end: { offset: source.length, line: 6, column: 2 },
     };
     expect(
-      inventoryGoldOwner(fixture, owner).map(({ kind, site }) => [
+      inventoryGoldOwner(fixture, owner).sites.map(({ kind, site }) => [
         kind,
         pinnedSourceExcerpt(fixture, site),
       ]),
@@ -547,6 +644,121 @@ describe('whole-repository source-pinned acceptance', () => {
 });
 
 describe('closed owner false-exact regression controls', () => {
+  it('finds a shifted source span attributed to the wrong enclosing function', async () => {
+    const closedDeclaration = 'function closed() { return destination(); }';
+    const destination = 'function destination() { return 2; }';
+    const source = [
+      'class Box { read() { return 1; } }',
+      destination,
+      'export function outer() {',
+      '  ' + closedDeclaration,
+      '  return closed();',
+      '}',
+    ].join('\n');
+    const path = 'lexical-closure.ts';
+    const bytes = Buffer.from(source);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const snapshot = await analyzeManifest({
+      repositoryId: '10000000-0000-4000-8000-000000000013',
+      compilerOptions: COMPILER_PROFILE,
+      files: [{ path, bytes, sha256 }],
+    });
+    const positions = createSourcePositionIndex(source);
+    const anchor = (excerpt: string) => {
+      const start = source.indexOf(excerpt);
+      assert(start >= 0);
+      return {
+        file: path,
+        sourceSha256: sha256,
+        start: positions.positionAt(start),
+        end: positions.positionAt(start + excerpt.length),
+      };
+    };
+    const owner = anchor(closedDeclaration);
+    const site = anchor('destination();');
+    site.end = positions.positionAt(site.end.offset - 1);
+    const expected = {
+      owner,
+      site,
+      target: anchor(destination),
+      status: 'exact' as const,
+    };
+    const corpus = {
+      ...evaluated.get('ufo')!.corpus,
+      files: [
+        {
+          path,
+          sha256,
+          bytes,
+          byteLength: bytes.length,
+          blobId: '',
+          mode: '100644' as const,
+        },
+      ],
+    };
+    const outer = snapshot.facts.symbols.find(
+      (symbol) => symbol.name === 'outer',
+    )!;
+    const target = snapshot.facts.symbols.find(
+      (symbol) => symbol.name === 'read',
+    )!;
+    const real = snapshot.facts.evidenceRefs.find((item) =>
+      equalGoldRange(item.range, site),
+    )!;
+    assert(outer && target && real);
+    const shifted = {
+      ...real,
+      id: 'd098e7aa-4c73-4bbd-9df8-fec0c84284a6',
+      range: {
+        start: positions.positionAt(real.range.start.offset + 1),
+        end: real.range.end,
+      },
+    };
+    const extra: CodeRelation = {
+      snapshotId: snapshot.facts.snapshotId,
+      id: '734c8858-c147-4fdb-8aec-ec3802c4c481',
+      key: 'shifted-reference-control',
+      siteEvidenceId: shifted.id,
+      sourceSymbolId: outer.id,
+      kind: 'references',
+      resolution: {
+        status: 'exact',
+        targetId: target.id,
+        evidenceIds: [
+          shifted.id,
+          outer.declarationEvidenceId,
+          target.declarationEvidenceId,
+        ],
+      },
+    };
+    const context = repositoryGoldContext({
+      ...snapshot,
+      facts: {
+        ...snapshot.facts,
+        evidenceRefs: [...snapshot.facts.evidenceRefs, shifted],
+        relations: [...snapshot.facts.relations, extra],
+      },
+    });
+    expect(
+      context.queries.neighbors({
+        snapshotId: snapshot.facts.snapshotId,
+        symbolId: outer.id,
+        relationKinds: ['references'],
+        depth: 1,
+        direction: 'outgoing',
+        nodeLimit: 20,
+      }).relations,
+    ).toContainEqual(extra);
+    expect(
+      inspectClosedGoldOwner(
+        context,
+        owner,
+        [expected],
+        inventoryGoldOwner(corpus, owner),
+      ).unexpected,
+    ).toEqual([extra]);
+  });
+
   const mutations: [string, (subject: MutationSubject) => void][] = [
     [
       'wrong_target',

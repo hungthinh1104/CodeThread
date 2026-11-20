@@ -54,9 +54,15 @@ export function pinnedSourceExcerpt(
   );
 }
 
-export type OwnerOccurrence = {
+type OwnerOccurrence = {
   site: RepositoryGoldAnchor;
   kind: CodeRelation['kind'];
+};
+type SourceInterval = { start: number; end: number };
+export type GoldOwnerInventory = {
+  sites: OwnerOccurrence[];
+  body: SourceInterval;
+  nestedOwners: SourceInterval[];
 };
 
 function pinnedDeclaration(
@@ -103,7 +109,7 @@ export function verifyGoldDeclarationAnchor(
 export function inventoryGoldOwner(
   corpus: RepositoryCorpus,
   owner: RepositoryGoldAnchor,
-): OwnerOccurrence[] {
+): GoldOwnerInventory {
   const { syntax, body } = pinnedDeclaration(corpus, owner);
 
   function position(offset: number) {
@@ -112,6 +118,7 @@ export function inventoryGoldOwner(
   }
 
   const sites: OwnerOccurrence[] = [];
+  const nestedOwners: SourceInterval[] = [];
   function record(node: ts.Node, kind: OwnerOccurrence['kind']) {
     sites.push({
       kind,
@@ -124,7 +131,10 @@ export function inventoryGoldOwner(
     });
   }
   function visit(node: ts.Node): void {
-    if (ts.isFunctionLike(node)) return;
+    if (ts.isFunctionLike(node)) {
+      nestedOwners.push({ start: node.getStart(syntax), end: node.end });
+      return;
+    }
     if (ts.isCallExpression(node)) {
       record(node, 'calls');
       for (const argument of node.arguments)
@@ -138,9 +148,13 @@ export function inventoryGoldOwner(
     ts.forEachChild(node, visit);
   }
   visit(body);
-  return sites.sort(
-    (left, right) =>
-      left.site.start.offset - right.site.start.offset ||
-      left.site.end.offset - right.site.end.offset,
-  );
+  return {
+    sites: sites.sort(
+      (left, right) =>
+        left.site.start.offset - right.site.start.offset ||
+        left.site.end.offset - right.site.end.offset,
+    ),
+    body: { start: body.getStart(syntax), end: body.end },
+    nestedOwners,
+  };
 }

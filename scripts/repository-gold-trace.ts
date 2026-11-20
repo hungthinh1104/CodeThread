@@ -1,4 +1,8 @@
-import type { CodeRelation, CodeSymbol } from '@codethread/code-model';
+import type {
+  CodeRelation,
+  CodeSymbol,
+  SourceEvidence,
+} from '@codethread/code-model';
 import type { GraphNeighborsResponse } from '@codethread/contracts';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
 import { createInvestigation } from '@codethread/trace-engine';
@@ -42,6 +46,7 @@ export function repositoryGoldContext(snapshot: AnalysisSnapshot) {
     },
     evidence,
     files,
+    relations: new Map(snapshot.facts.relations.map((item) => [item.id, item])),
     occurrenceKey(evidenceId: string) {
       const site = evidence.get(evidenceId);
       const file = site && files.get(site.fileId);
@@ -72,11 +77,11 @@ export function matchesEvidence(
 }
 
 export class TraceGoldIssue extends Error {
-  constructor(
-    readonly code: GoldIssue['code'],
-    message: string,
-  ) {
+  readonly code: GoldIssue['code'];
+
+  constructor(code: GoldIssue['code'], message: string) {
     super(message);
+    this.code = code;
   }
 }
 function requireTrace(
@@ -102,6 +107,7 @@ export function checkProjection(
   graph: GraphNeighborsResponse,
   relation: CodeRelation,
   root: CodeSymbol,
+  direction: 'outgoing' | 'incoming',
 ) {
   requireTrace(
     directScopeAvailable(graph.meta),
@@ -119,6 +125,33 @@ export function checkProjection(
     'Gold trace projection is rooted at the wrong endpoint',
   );
   checkProjectedClaim(context, graph, relation);
+  checkProjectedExacts(context, graph, (observed) =>
+    direction === 'outgoing'
+      ? observed.sourceSymbolId === root.id
+      : observed.resolution.targetId === root.id,
+  );
+}
+
+function checkProjectedExacts(
+  context: RepositoryGoldContext,
+  graph: Pick<GraphNeighborsResponse, 'relations' | 'evidenceRefs' | 'symbols'>,
+  inScope: (relation: CodeRelation) => boolean,
+) {
+  for (const observed of graph.relations) {
+    if (observed.resolution.status !== 'exact') continue;
+    const original = context.relations.get(observed.id);
+    requireTrace(
+      original,
+      'unexpected_exact',
+      'Trace projection emitted an EXACT edge absent from snapshot facts',
+    );
+    requireTrace(
+      inScope(observed),
+      'wrong_direction',
+      'Trace projection emitted an EXACT edge outside the requested direction',
+    );
+    checkProjectedClaim(context, graph, original);
+  }
 }
 
 function checkProjectedClaim(
@@ -187,19 +220,27 @@ function checkProjectedClaim(
     const expected = context.evidence.get(id);
     const observed = graph.evidenceRefs.find((entry) => entry.id === id);
     requireTrace(
-      expected &&
-        observed &&
-        expected.fileId === observed.fileId &&
-        expected.contentHash === observed.contentHash &&
-        expected.snapshotId === observed.snapshotId &&
-        expected.kind === observed.kind &&
-        expected.extractor.name === observed.extractor.name &&
-        expected.extractor.version === observed.extractor.version &&
-        equalGoldRange(expected.range, observed.range),
+      expected && observed && sameEvidence(expected, observed),
       'evidence_mismatch',
       'Gold projected evidence changed the original anchor',
     );
   }
+}
+
+function sameEvidence(
+  expected: SourceEvidence,
+  observed: SourceEvidence,
+): boolean {
+  return (
+    expected.id === observed.id &&
+    expected.fileId === observed.fileId &&
+    expected.contentHash === observed.contentHash &&
+    expected.snapshotId === observed.snapshotId &&
+    expected.kind === observed.kind &&
+    expected.extractor.name === observed.extractor.name &&
+    expected.extractor.version === observed.extractor.version &&
+    equalGoldRange(expected.range, observed.range)
+  );
 }
 
 export function checkTrace(
@@ -225,6 +266,7 @@ export function checkTrace(
     }),
     relation,
     owner,
+    'outgoing',
   );
   if (target) {
     checkProjection(
@@ -236,6 +278,7 @@ export function checkTrace(
       }),
       relation,
       target,
+      'incoming',
     );
     // A same-root path query returns the trivial path. The neighbors prove the self-edge.
     if (owner.id !== target.id) {
@@ -270,6 +313,13 @@ export function checkTrace(
         'Gold direct path is absent or reversed',
       );
       checkProjectedClaim(context, paths, relation);
+      checkProjectedExacts(
+        context,
+        paths,
+        (observed) =>
+          observed.sourceSymbolId === owner.id &&
+          observed.resolution.targetId === target.id,
+      );
     }
   }
   for (const id of relation.resolution.evidenceIds) {
@@ -298,14 +348,7 @@ export function checkTrace(
     requireTrace(
       item?.status === 'available' &&
         item.filePath === file.path &&
-        item.evidence.id === id &&
-        matchesEvidence(context, id, {
-          file: item.filePath,
-          sourceSha256: item.evidence.contentHash,
-          ...item.evidence.range,
-        }) &&
-        item.evidence.fileId === file.id &&
-        item.evidence.snapshotId === snapshotId &&
+        sameEvidence(evidence, item.evidence) &&
         item.text === text,
       'evidence_mismatch',
       'Gold evidence is unavailable or differs from the original source',

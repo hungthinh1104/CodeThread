@@ -181,8 +181,8 @@ export function auditScope(
   try {
     // Historical closures specified every call. A human closure also covers access and constructor candidates.
     const inventory = completeReview
-      ? scope.inventory
-      : scope.inventory.filter(({ kind }) => kind === 'calls');
+      ? scope.inventory.sites
+      : scope.inventory.sites.filter(({ kind }) => kind === 'calls');
     const keys = (entries: readonly { site: RepositoryGoldAnchor }[]) =>
       entries.map(({ site }) => goldSiteKey(site.file, site)).sort();
     assert.deepEqual(
@@ -192,12 +192,13 @@ export function auditScope(
     );
     const project = context(scope.configPath);
     const labels = cases.map(({ label }) => label);
-    const { unexpected } = inspectClosedGoldOwner(
+    const inspection = inspectClosedGoldOwner(
       project,
       scope.owner,
       labels,
       scope.inventory,
     );
+    const { unexpected } = inspection;
     for (const relation of unexpected) {
       unexpectedIds.push(JSON.stringify([scope.configPath, relation.id]));
       failures.push({
@@ -212,7 +213,13 @@ export function auditScope(
       });
     }
     if (!unexpected.length)
-      validateClosedGoldOwner(project, scope.owner, labels, scope.inventory);
+      validateClosedGoldOwner(
+        project,
+        scope.owner,
+        labels,
+        scope.inventory,
+        inspection,
+      );
   } catch (error) {
     failures.push({
       configPath: scope.configPath,

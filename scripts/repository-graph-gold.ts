@@ -7,7 +7,7 @@ import type {
   RepositoryGoldLabel,
 } from './repository-gold.ts';
 import { equalGoldRange, goldSiteKey } from './repository-gold-source.ts';
-import type { OwnerOccurrence } from './repository-gold-source.ts';
+import type { GoldOwnerInventory } from './repository-gold-source.ts';
 import {
   checkProjection,
   checkTrace,
@@ -223,21 +223,28 @@ export function inspectClosedGoldOwner(
   context: RepositoryGoldContext,
   owner: RepositoryGoldAnchor,
   labels: readonly GoldExpectation[],
-  inventory: readonly OwnerOccurrence[],
+  inventory: GoldOwnerInventory,
 ) {
   const symbol = anchoredSymbol(context, owner);
   assert(symbol, 'Closed gold owner is missing or ambiguous');
-  const knownSites = new Set(
-    inventory.map(({ site }) => goldSiteKey(site.file, site)),
-  );
-  const exacts = context.snapshot.facts.relations.filter((relation) => {
-    const key = context.occurrenceKey(relation.siteEvidenceId);
+  function startsInOwner(relation: CodeRelation): boolean {
+    const site = context.evidence.get(relation.siteEvidenceId);
+    if (!site || context.files.get(site.fileId)?.path !== owner.file)
+      return false;
+    const offset = site.range.start.offset;
     return (
-      relation.resolution.status === 'exact' &&
-      (relation.sourceSymbolId === symbol.id ||
-        (key !== undefined && knownSites.has(key)))
+      offset >= inventory.body.start &&
+      offset < inventory.body.end &&
+      !inventory.nestedOwners.some(
+        (nested) => offset >= nested.start && offset < nested.end,
+      )
     );
-  });
+  }
+  const exacts = context.snapshot.facts.relations.filter(
+    (relation) =>
+      relation.resolution.status === 'exact' &&
+      (relation.sourceSymbolId === symbol.id || startsInOwner(relation)),
+  );
   const expected = new Set(
     labels
       .filter((label) => label.status === 'exact')
@@ -257,31 +264,28 @@ export function inspectClosedGoldOwner(
         ]),
       ),
   );
-  return { exacts, unexpected };
+  return { symbol, unexpected };
 }
 
 export function validateClosedGoldOwner(
   context: RepositoryGoldContext,
   owner: RepositoryGoldAnchor,
   labels: readonly GoldExpectation[],
-  inventory: readonly OwnerOccurrence[],
+  inventory: GoldOwnerInventory,
+  inspection?: ReturnType<typeof inspectClosedGoldOwner>,
 ): void {
   const closingLabels = labels.filter(
     (item) =>
       item.owner.file === owner.file && equalGoldRange(item.owner, owner),
   );
-  const { unexpected } = inspectClosedGoldOwner(
-    context,
-    owner,
-    closingLabels,
-    inventory,
-  );
+  const { unexpected, symbol } =
+    inspection ??
+    inspectClosedGoldOwner(context, owner, closingLabels, inventory);
   assert.equal(
     unexpected.length,
     0,
     'Closed gold owner has missing or fabricated graph occurrences',
   );
-  const symbol = anchoredSymbol(context, owner)!;
   const graph = context.queries.neighbors({
     snapshotId: context.snapshot.facts.snapshotId,
     symbolId: symbol.id,
@@ -309,16 +313,15 @@ export function validateClosedGoldOwner(
       item.sourceSymbolId === symbol.id && item.resolution.status === 'exact',
   );
   const projectedExact = graph.relations.filter(
-    (item) =>
-      item.sourceSymbolId === symbol.id && item.resolution.status === 'exact',
+    (item) => item.resolution.status === 'exact',
   );
   assert.deepEqual(
     projectedExact.map(({ id }) => id).sort(),
     rawExact.map(({ id }) => id).sort(),
     'Closed gold owner has missing or fabricated graph occurrences',
   );
-  for (const relation of rawExact)
-    checkProjection(context, graph, relation, symbol);
+  if (rawExact[0])
+    checkProjection(context, graph, rawExact[0], symbol, 'outgoing');
   const expectedCalls = closingLabels
     .filter(
       (label) =>

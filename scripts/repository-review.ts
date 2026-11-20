@@ -23,8 +23,11 @@ import {
   pinnedSourceExcerpt,
   verifyGoldDeclarationAnchor,
 } from './repository-gold-source.ts';
+import type { GoldOwnerInventory } from './repository-gold-source.ts';
 
 const repository = z.enum(['ufo', 'sourcemaps']);
+const frozenReviewInputSha256 =
+  'ee9aa1c3e0d7aee70301119d8eb53c3ac470a7a5b74cdbfe3bd62cf67a0de526';
 const revision = z.string().regex(/^[a-f0-9]{40}$/);
 const location = { repository, configPath: snapshotPathSchema };
 const scopeId = z.string().regex(/^[a-z0-9-]{1,80}$/);
@@ -116,6 +119,11 @@ function assertUnique(keys: readonly string[], message: string): void {
 export function verifyReviewManifest(input: unknown): RepositoryReview {
   const manifest = reviewSchema.parse(input);
   const { freeze, frozenInputSha256, records } = manifest;
+  assert.equal(
+    frozenInputSha256,
+    frozenReviewInputSha256,
+    'Review ledger does not name the pinned input freeze',
+  );
   assert.equal(
     jsonHash(freeze),
     frozenInputSha256,
@@ -234,19 +242,19 @@ export function verifyRepositoryReview(
       );
       const inventory = inventoryGoldOwner(corpus, scope.owner);
       assert.equal(
-        inventory.length,
+        inventory.sites.length,
         scope.occurrences,
         'Frozen occurrence denominator changed',
       );
       assert.equal(
-        jsonHash(inventory),
+        jsonHash(inventory.sites),
         scope.inventorySha256,
         'Frozen occurrence anchors changed',
       );
       const record = review.records.find((item) => item.scopeId === scope.id);
       const accepted = record?.disposition === 'accepted' ? record : undefined;
       if (accepted)
-        verifyAcceptedAnswers(accepted, scope, inventory, corpus, gold);
+        verifyAcceptedAnswers(accepted, scope, inventory.sites, corpus, gold);
       return { ...scope, inventory, record, accepted };
     });
   return { review, scopes, gold };
@@ -255,7 +263,7 @@ export function verifyRepositoryReview(
 function verifyAcceptedAnswers(
   record: ScopedReviewRecord,
   scope: z.infer<typeof scopeSchema>,
-  inventory: ReturnType<typeof inventoryGoldOwner>,
+  inventory: GoldOwnerInventory['sites'],
   corpus: RepositoryCorpus,
   gold: RepositoryGold,
 ): void {
