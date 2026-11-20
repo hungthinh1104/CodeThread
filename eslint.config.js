@@ -6,6 +6,7 @@ export default [
     ignores: [
       '**/dist/**',
       '**/node_modules/**',
+      '**/.next/**',
       '.tooling/**',
       'artifacts/**',
       'fixtures/external/**/closure/**',

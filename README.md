@@ -15,9 +15,10 @@ passing tests.
 The repository supplies Foundation validation/tooling, the DB-01 logical design,
 a bounded in-memory TypeScript semantic proof, pinned Git adapters for selected
 files and whole-repository `.ts` scope, independent project-context analysis,
-and an opt-in local PostgreSQL backend candidate with a persisted viewer
-adapter. A general persistent frontend and Gemini integration remain gated. See
-`product.yaml` and `docs/architecture.md` for scope, ownership and gates.
+and an opt-in local PostgreSQL backend candidate with a persisted viewer adapter
+and the bounded Investigation Workspace. A general persistent frontend and
+Gemini integration remain gated. See `product.yaml` and `docs/architecture.md`
+for scope, ownership and gates.
 
 ## PostgreSQL backend candidate (DB-02)
 
@@ -28,6 +29,18 @@ analysis and exact source evidence.
 
 See [backend setup, API and verification boundaries](docs/backend.md). Use a
 disposable PostgreSQL database and never commit credentials.
+
+## Investigation Workspace
+
+Start the local backend with the setup above and complete a scan of a pinned
+local TypeScript revision. In a second terminal, set `CODETHREAD_API_TOKEN` to
+the same token used by the backend and run `pnpm workspace:dev`. Open
+`http://127.0.0.1:3000/` and select the repository's active scan. The Workspace
+uses the backend on IPv4 loopback port 8765 by default.
+
+The Workspace shows project-scoped static relationships, scan coverage and
+verified source excerpts. See its
+[scope and dependency risk](docs/design/investigation-workspace.md).
 
 ## Developer setup
 
@@ -41,6 +54,7 @@ With the pinned tools on PATH:
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm check
 ```
 
@@ -49,6 +63,7 @@ On Windows x64 without Node or pnpm, use the optional portable bootstrap:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 install --frozen-lockfile
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 exec playwright install chromium
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pnpm.ps1 check
 ```
 
@@ -60,10 +75,11 @@ usual tool manager. For example, after installing Node 24.22.2,
 `npm install --global pnpm@12.16.1` installs the pinned package manager.
 
 `pnpm check` runs formatting, lint, requirement validation, package boundaries,
-build, typecheck and focused tests. Individual commands are `format:check`,
-`lint`, `req:validate`, `arch:check`, `build`, `typecheck` and `test`. Run
-`pnpm build` before standalone tests: tests import the packages' public compiled
-entry points. Use `pnpm format` when intentionally formatting changes.
+build, typecheck, Next.js Workspace typecheck and build, and focused tests.
+Individual commands include `format:check`, `lint`, `req:validate`,
+`arch:check`, `build`, `typecheck` and `test`. Run `pnpm build` before
+standalone tests: tests import the packages' public compiled entry points. Use
+`pnpm format` when intentionally formatting changes.
 
 The opt-in browser proof uses test-only Playwright. For a local browser test,
 install Chromium with `pnpm exec playwright install chromium`, then run

@@ -46,6 +46,8 @@ task status; GitHub Issues/Projects own execution tracking.
   Record significant decisions in `docs/decisions/`; do not add duplicate status
   reports. Never copy BA_Helper workflows or modify BA_Helper as part of this
   repo.
+- Use [codethread-ui-taste](.agents/skills/codethread-ui-taste/SKILL.md) for
+  viewer and Investigation Workspace UI changes and visual review.
 - Add focused regressions for meaningful invariants. Run `pnpm check`, inspect
   actual results, and report unresolved evidence separately from passing checks.
 - Distinguish local checks, hosted CI, PostgreSQL integration, semantic ground

@@ -13,6 +13,13 @@ const components = readFileSync(
   new URL('../docs/design/components.md', import.meta.url),
   'utf8',
 );
+const workspaceCss = readFileSync(
+  new URL(
+    '../packages/investigation-workspace/src/app/globals.css',
+    import.meta.url,
+  ),
+  'utf8',
+);
 const required = [
   'canvas',
   'surface',
@@ -90,6 +97,27 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
     expect(css).toContain('font-family: var(--ct-code-font)');
     expect(css).not.toMatch(/@import\s|url\(['"]?https?:/i);
     expect(design).toContain('not an approved general product UI');
+  });
+
+  it('uses the PR #38 canonical colors in the Investigation Workspace', () => {
+    const workspaceDarkStart = workspaceCss.indexOf(
+      '@media (prefers-color-scheme: dark)',
+    );
+    const workspaceCssBody = workspaceCss.indexOf('\n* {', workspaceDarkStart);
+    const workspaceLight = colorTokens(
+      workspaceCss.slice(0, workspaceDarkStart),
+    );
+    const workspaceDark = new Map([
+      ...workspaceLight,
+      ...colorTokens(workspaceCss.slice(workspaceDarkStart, workspaceCssBody)),
+    ]);
+
+    for (const [name, canonical, workspace] of [
+      ['light', light, workspaceLight],
+      ['dark', dark, workspaceDark],
+    ] as const)
+      for (const key of required)
+        expect(workspace.get(key), `${name}:${key}`).toBe(canonical.get(key));
   });
 
   it('keeps component layers, semantic statuses and stale-response rules separate', () => {

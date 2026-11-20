@@ -8,6 +8,7 @@ import { verifyGitSourceDiscovery } from './browser/source-discovery.ts';
 import { verifyRepositoryNavigation } from './browser/repository-navigation.ts';
 import { verifyFilePaginationOrdering } from './browser/file-pagination-order.ts';
 import { verifyRepositoryCliBrowser } from './browser/repository-corpus.ts';
+import { verifyWorkspacePresentation } from './browser/workspace-presentation.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -125,7 +126,10 @@ async function verifyDirectCalls(
     await exactCall
       .getByRole('button', { name: 'View occurrence evidence' })
       .click();
-    await page.getByText(/getPathFromEnv\(envWithDefault\)/).waitFor();
+    await page
+      .locator('#evidence')
+      .getByText(/getPathFromEnv\(envWithDefault\)/)
+      .waitFor();
     const callExcerpt = await page.locator('#evidence pre').textContent();
     assert.ok(callExcerpt);
     assert.match(callExcerpt, /getPathFromEnv\(envWithDefault\)/);
@@ -426,7 +430,11 @@ async function verifyInteractiveGraphOccurrences(
       /function target/,
     );
     assert.equal(await targetNode.getAttribute('aria-pressed'), 'true');
-    await page.getByRole('button', { name: 'Follow symbol target' }).click();
+    await page
+      .locator('#relationships')
+      .getByRole('button', { name: 'Follow target' })
+      .first()
+      .click();
     await page.getByRole('heading', { name: 'function target' }).waitFor();
     assert.equal(
       neighborRequests,
@@ -460,29 +468,49 @@ async function verifyInteractiveGraphOccurrences(
       (request) => new URL(request.url()).pathname === '/api/evidence',
     );
     await page
-      .getByRole('button', {
-        name: /function target at src\/occurrences\.ts@6:1/,
-      })
+      .locator('#relationships')
+      .getByRole('button', { name: 'View occurrence evidence' })
+      .first()
       .click();
     await staleEvidenceRequest;
-    await page.getByRole('button', { name: 'Follow symbol target' }).click();
+    await page
+      .locator('#evidence pre')
+      .getByText('target()', { exact: true })
+      .waitFor();
+    await page
+      .locator('#relationships')
+      .getByRole('button', { name: 'Follow target' })
+      .first()
+      .click();
     await page.getByRole('heading', { name: 'function target' }).waitFor();
     assert.equal(neighborRequests, 5);
+    await page
+      .locator('#evidence pre')
+      .getByText('function target', { exact: false })
+      .waitFor();
     await page.waitForTimeout(700);
-    assert.doesNotMatch(
-      await page.locator('#evidence').innerText(),
+    assert.match(
+      await page.locator('#evidence pre').innerText(),
       /function target/,
-      'changing roots invalidates in-flight evidence from the prior graph',
+      'a delayed old occurrence cannot replace the new root declaration evidence',
     );
     await page.getByRole('button', { name: 'Back' }).click();
     await page.getByRole('heading', { name: 'function root' }).waitFor();
     assert.equal(neighborRequests, 6);
+    const restoredOccurrence = page
+      .locator('#relationships .relationship-item')
+      .filter({ hasText: 'CALLS exact' })
+      .first();
+    assert.equal(
+      await restoredOccurrence.evaluate((row) =>
+        row.classList.contains('selected'),
+      ),
+      true,
+      'Back restores the still-valid selected relationship occurrence',
+    );
     await page
-      .getByRole('heading', { name: 'Selected symbol: function target' })
-      .waitFor();
-    await page
-      .locator('#evidence')
-      .getByText(/occurrences\.ts@6:/)
+      .locator('#evidence pre')
+      .getByText('target()', { exact: true })
       .waitFor();
     assertLocalOnly(page);
     await page.context().close();
@@ -574,6 +602,7 @@ async function main(): Promise<void> {
     await verifyInteractiveGraphOccurrences(browser);
     await verifyTruncatedGraphOnlyExposesReturnedEdges(browser);
     await verifySafeEvidence(browser);
+    await verifyWorkspacePresentation(browser, todo);
     await verifyGitSourceDiscovery(browser);
     await verifyRepositoryNavigation(browser);
     await verifyFilePaginationOrdering(browser);

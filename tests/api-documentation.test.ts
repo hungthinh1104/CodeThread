@@ -212,7 +212,7 @@ describe('implemented HTTP route documentation', () => {
       ),
       staticRoutes = staticViewerRoutes();
     expect(apiRoutes.size).toBe(8);
-    expect(staticRoutes.size).toBe(7);
+    expect(staticRoutes.size).toBe(9);
     expectDocumented(apiRoutes, viewerSection);
     expectDocumented(staticRoutes, viewerSection);
   });

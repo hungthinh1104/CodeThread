@@ -3,9 +3,17 @@ import { rm } from 'node:fs/promises';
 import type { Browser, Page } from 'playwright';
 import { repositoryViewerFixture } from '../helpers/repository-viewer.ts';
 import { createRepositoryViewer } from '../../scripts/viewer.ts';
-import { openPage, assertLocalOnly } from './helpers.ts';
+import {
+  closeEvidenceInspector,
+  openEvidenceInspector,
+  openPage,
+  assertLocalOnly,
+} from './helpers.ts';
 
 async function search(page: Page, name: string) {
+  const traceTab = page.getByRole('tab', { name: 'Trace' });
+  if ((await traceTab.getAttribute('aria-selected')) !== 'true')
+    await traceTab.click();
   const resultResponse = page.waitForResponse((response) => {
     const request = response.request();
     if (
@@ -122,10 +130,12 @@ export async function verifyRepositoryNavigation(browser: Browser) {
       .getByRole('button', { name: 'View occurrence evidence', exact: true })
       .first()
       .click();
+    await openEvidenceInspector(page);
     await page
       .locator('#evidence pre')
       .getByText('target()', { exact: true })
       .waitFor();
+    await closeEvidenceInspector(page);
     assert.equal(
       await page.locator('#relationships .relationship-item').count(),
       2,
@@ -155,10 +165,12 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     await page
       .getByRole('button', { name: 'View declaration evidence', exact: true })
       .click();
+    await openEvidenceInspector(page);
     await page
       .locator('#evidence pre')
       .getByText(/export function target/)
       .waitFor();
+    await closeEvidenceInspector(page);
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await root(page, 'entry');
     assert.equal(await project.inputValue(), a);
@@ -166,17 +178,21 @@ export async function verifyRepositoryNavigation(browser: Browser) {
       await page.getByLabel('Direction', { exact: true }).inputValue(),
       'outgoing',
     );
+    await openEvidenceInspector(page);
     await page
       .locator('#evidence pre')
       .getByText('target()', { exact: true })
       .waitFor();
+    await closeEvidenceInspector(page);
     await page.getByRole('button', { name: 'Forward', exact: true }).click();
     await root(page, 'target');
     assert.equal(await project.inputValue(), b);
+    await openEvidenceInspector(page);
     await page
       .locator('#evidence pre')
       .getByText(/export function target/)
       .waitFor();
+    await closeEvidenceInspector(page);
 
     // Capture a completed old-context response and release it after a new context has a root.
     let release!: () => void, seen!: () => void;

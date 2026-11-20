@@ -38,9 +38,11 @@ v0:
       complete pinned inventory; no inferred dependency closure.
     worktree: Dirty working-tree contents are ignored.
   presentation: >-
-    A bounded textual CLI and an opt-in loopback browser proof. The existing
-    viewer can be reopened from a persisted local snapshot through the backend
-    adapter; a general persistent product frontend remains gated.
+    A bounded textual CLI, an opt-in loopback browser proof and the scoped
+    CT-WORKSPACE-001B local Investigation Workspace candidate over persisted
+    snapshots. Its same-origin BFF only adapts existing validated read APIs; a
+    general frontend, repository administration, multiuser service and
+    production deployment remain gated.
 research:
   title_role:
     The official thesis title is academic metadata, not a mandatory product

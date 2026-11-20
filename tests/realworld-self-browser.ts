@@ -94,6 +94,9 @@ async function chooseRoot(
   page: Page,
   anchor: Anchor & { symbol: string },
 ): Promise<void> {
+  const traceTab = page.getByRole('tab', { name: 'Trace' });
+  if ((await traceTab.getAttribute('aria-selected')) !== 'true')
+    await traceTab.click();
   const search = page.getByLabel('Name or source path', { exact: true });
   const catalogResponse = page.waitForResponse(
     (candidate) => {

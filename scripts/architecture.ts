@@ -28,7 +28,22 @@ const allowed: Record<string, readonly string[]> = {
     '@codethread/contracts',
     '@types/node',
   ],
+  '@codethread/investigation-workspace': [
+    '@codethread/contracts',
+    '@types/node',
+    '@types/react',
+    '@types/react-dom',
+    'next',
+    'react',
+    'react-dom',
+    'typescript',
+    'zod',
+  ],
 };
+const publicSubpaths: Record<string, readonly string[]> = {
+  '@codethread/investigation-workspace': ['next/server'],
+};
+const applicationPackages = new Set(['@codethread/investigation-workspace']);
 const nodeBuiltins: Record<string, readonly string[]> = {
   '@codethread/symbol-indexer': [
     'node:crypto',
@@ -40,6 +55,7 @@ const nodeBuiltins: Record<string, readonly string[]> = {
     'node:v8',
   ],
   '@codethread/trace-engine': ['node:crypto'],
+  '@codethread/investigation-workspace': ['node:crypto'],
 };
 const implementationFacades: Record<string, ReadonlySet<string>> = {
   '@codethread/contracts': new Set(['index.ts', 'schemas.ts', 'results.ts']),
@@ -137,7 +153,10 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
     );
     if (!allowed[entry.name])
       errors.push(`${entry.name}: missing explicit module ownership`);
-    if (Object.keys(entry.exports).length !== 1 || !('.' in entry.exports))
+    if (
+      !applicationPackages.has(entry.name) &&
+      (Object.keys(entry.exports).length !== 1 || !('.' in entry.exports))
+    )
       errors.push(`${entry.name}: only the public root export is allowed`);
     for (const dependency of Object.keys({
       ...entry.dependencies,
@@ -187,7 +206,10 @@ export function checkArchitecture(packages: readonly PackageInput[]): string[] {
           errors.push(`${entry.name}: undeclared import ${specifier}`);
         if (!allowed[entry.name]?.includes(imported))
           errors.push(`${entry.name}: forbidden import ${specifier}`);
-        if (specifier !== imported)
+        if (
+          specifier !== imported &&
+          !publicSubpaths[entry.name]?.includes(specifier)
+        )
           errors.push(`${entry.name}: deep import ${specifier}`);
       }
       visitModuleImports(

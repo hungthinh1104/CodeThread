@@ -19,6 +19,8 @@ import {
   renderSourceFiles,
   renderContextChoices,
 } from './viewer-client/repository.js';
+import { renderEvidenceState } from './viewer-client/evidence.js';
+import { installWorkspaceControls } from './viewer-client/workspace.js';
 const token = location.hash.slice(1);
 const state = {
   projectId: null,
@@ -131,6 +133,7 @@ function applyQueryState(
     relationKinds.length !== state.relationKinds.length ||
     relationKinds.some((kind) => !state.relationKinds.includes(kind));
   if (!queryChanged) return false;
+  const rootChanged = rootSymbolId !== state.rootSymbolId;
   if (remember && state.rootSymbolId !== null) {
     navigation.remember(cloneState());
   }
@@ -142,6 +145,12 @@ function applyQueryState(
     selectedGraphSymbolId: null,
     evidenceId: null,
   });
+  if (rootChanged) byId('selected-symbol-header').replaceChildren();
+  clearEvidenceState(
+    rootChanged
+      ? 'Loading verified declaration evidence...'
+      : 'Loading evidence for the current query...',
+  );
   followQuerySequence++;
   pendingContextChoices = [];
   byId('context-choices').hidden = true;
@@ -516,6 +525,10 @@ function renderInvestigation() {
     return;
   }
   const rootPanel = byId('root-symbol');
+  const selectedHeader = byId('selected-symbol-header');
+  selectedHeader.replaceChildren();
+  appendText(selectedHeader, 'strong', `${root.kind} ${root.name}`);
+  appendText(selectedHeader, 'span', symbolAnchor(root));
   rootPanel.replaceChildren();
   const rootHeading = appendText(rootPanel, 'h3', `${root.kind} ${root.name}`);
   rootHeading.tabIndex = -1;
@@ -540,15 +553,53 @@ function renderInvestigation() {
   renderUnknowns(result.unknowns);
   renderSelection();
   if (state.evidenceId) void showEvidence(state.evidenceId);
+  else if (
+    graph.evidenceRefs.some((item) => item.id === root.declarationEvidenceId)
+  ) {
+    state.evidenceId = root.declarationEvidenceId;
+    void showEvidence(root.declarationEvidenceId);
+  } else
+    clearEvidenceState('Declaration evidence is not in the current result.');
+}
+
+function clearEvidenceState(message) {
+  renderEvidenceState(byId('source-evidence'), byId('evidence'), {
+    kind: 'empty',
+    message,
+  });
+}
+
+function evidenceLabel(evidenceId) {
+  const occurrence = graphResult?.graph.relations.find(
+    (item) => item.siteEvidenceId === evidenceId,
+  );
+  if (occurrence) return 'Relationship occurrence evidence';
+  if (
+    graphResult?.graph.relations.some((item) =>
+      item.resolution.evidenceIds.includes(evidenceId),
+    )
+  )
+    return 'Relationship resolution evidence';
+  if (
+    graphResult?.unknowns.items.some((item) => item.evidenceId === evidenceId)
+  )
+    return 'Unresolved source occurrence';
+  if (
+    graphResult?.graph.symbols.some(
+      (item) => item.declarationEvidenceId === evidenceId,
+    )
+  )
+    return 'Declaration evidence';
+  return 'Verified source evidence';
 }
 
 async function showEvidence(evidenceId) {
   if (!state.snapshotId) return;
   const sequence = ++evidenceQuerySequence;
   const snapshotId = state.snapshotId;
-  const panel = byId('evidence');
-  panel.replaceChildren();
-  appendText(panel, 'p', 'Loading verified source…');
+  renderEvidenceState(byId('source-evidence'), byId('evidence'), {
+    kind: 'loading',
+  });
   try {
     const result = await api('/api/evidence', 'POST', {
       snapshotId,
@@ -557,32 +608,19 @@ async function showEvidence(evidenceId) {
     if (sequence !== evidenceQuerySequence || state.evidenceId !== evidenceId)
       return;
     const item = result.items[0];
-    panel.replaceChildren();
-    if (!item) {
-      appendText(panel, 'p', 'Evidence unavailable: EVIDENCE_NOT_FOUND');
-      return;
-    }
-    if (item.status === 'unavailable') {
-      appendText(panel, 'p', `Evidence unavailable: ${item.code}`);
-      return;
-    }
-    const range = item.evidence.range;
-    appendText(
-      panel,
-      'p',
-      `${item.filePath}@${range.start.line}:${range.start.column}–${range.end.line}:${range.end.column}`,
-    );
-    appendText(panel, 'p', `SHA-256 ${item.evidence.contentHash}`);
-    appendText(panel, 'pre', item.text, 'evidence-excerpt');
+    renderEvidenceState(byId('source-evidence'), byId('evidence'), {
+      kind: 'result',
+      item,
+      label: evidenceLabel(evidenceId),
+    });
   } catch (error) {
     if (sequence !== evidenceQuerySequence || state.evidenceId !== evidenceId)
       return;
-    panel.replaceChildren();
-    appendText(
-      panel,
-      'p',
-      error instanceof Error ? error.message : 'Evidence lookup failed.',
-    );
+    renderEvidenceState(byId('source-evidence'), byId('evidence'), {
+      kind: 'error',
+      message:
+        error instanceof Error ? error.message : 'Evidence lookup failed.',
+    });
   }
 }
 
@@ -817,6 +855,8 @@ async function changeProject(
     selectedGraphSymbolId: null,
     evidenceId: null,
   });
+  byId('selected-symbol-header').replaceChildren();
+  clearEvidenceState('Select a symbol to load verified declaration evidence.');
   byId('symbol-results').replaceChildren();
   byId('symbol-count').textContent = '';
   byId('context-choices').hidden = true;
@@ -896,4 +936,5 @@ async function initialize() {
 
 renderFilters();
 renderHistoryButton();
+installWorkspaceControls();
 void initialize();
