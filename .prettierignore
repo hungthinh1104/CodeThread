@@ -2,6 +2,8 @@ pnpm-lock.yaml
 .tooling/
 node_modules/
 **/dist/
+packages/investigation-workspace/AGENTS.md
+packages/investigation-workspace/next-env.d.ts
 artifacts/
 *.tsbuildinfo
 fixtures/semantic/sources/

@@ -1,10 +1,13 @@
 node_modules/
+**/.next/
 dist/
 .tooling/
 .codethread-cache/
 .pnpm-store/
 .vitest/
 coverage/
+packages/investigation-workspace/next-env.d.ts
+packages/investigation-workspace/tsconfig.workspace-test-*.json
 artifacts/
 /local-study-data/
 *.tsbuildinfo

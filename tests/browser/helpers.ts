@@ -70,11 +70,28 @@ export function assertLocalOnly(page: Page): void {
   );
 }
 
+export async function openEvidenceInspector(page: Page): Promise<void> {
+  const toggle = page.getByRole('button', { name: 'Evidence', exact: true });
+  if (
+    (await toggle.isVisible()) &&
+    (await toggle.getAttribute('aria-expanded')) !== 'true'
+  )
+    await toggle.click();
+}
+
+export async function closeEvidenceInspector(page: Page): Promise<void> {
+  const close = page.locator('#close-inspector');
+  if (await close.isVisible()) await close.click();
+}
+
 export async function selectByName(
   page: Page,
   name: string,
   kind: string,
 ): Promise<void> {
+  const traceTab = page.getByRole('tab', { name: 'Trace' });
+  if ((await traceTab.getAttribute('aria-selected')) !== 'true')
+    await traceTab.click();
   const search = page.getByLabel('Name or source path');
   await search.fill(name);
   await search.press('Enter');

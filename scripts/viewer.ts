@@ -149,6 +149,8 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
     '/viewer-client/projection.js',
     '/viewer-client/history.js',
     '/viewer-client/repository.js',
+    '/viewer-client/evidence.js',
+    '/viewer-client/workspace.js',
   ];
   const reads = await Promise.allSettled(
     paths.map(async (path) => {

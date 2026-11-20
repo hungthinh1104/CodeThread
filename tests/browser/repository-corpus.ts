@@ -47,6 +47,7 @@ export async function verifyRepositoryCliBrowser(browser: Browser) {
     const url = output[1]!,
       origin = new URL(url).origin;
     const page = await openPage(browser, origin, url, 'project-select');
+    await page.getByRole('tab', { name: 'Trace' }).click();
     assert.match(
       await page.locator('#repository-summary').innerText(),
       /21 regular \.ts files/,
@@ -295,6 +296,15 @@ async function verifySourcemapsRepositoryCliBrowser(browser: Browser) {
     await symbolResult.waitFor();
     assert.equal(await symbolResult.count(), 1);
     await symbolResult.click();
+    await page
+      .locator('#source-evidence pre')
+      .getByText(new RegExp(`function ${anchors.symbol}`))
+      .waitFor();
+    assert.match(
+      await page.locator('#source-evidence').innerText(),
+      new RegExp(anchors.sourceSha256),
+    );
+    await page.getByRole('tab', { name: 'Trace' }).click();
     await page
       .getByRole('heading', { name: `function ${anchors.symbol}`, exact: true })
       .waitFor();
