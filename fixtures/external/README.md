@@ -1,8 +1,8 @@
 # External semantic evaluation inputs
 
-The source-pinned graph claims have a separate
-[independent reviewer packet](GRAPH-REVIEW.md). Existing labels remain
-unreviewed until a human records a review there.
+Use the [source annotation worksheet](BLIND-REVIEW.md) for blinded semantic
+review. [The historical graph packet](GRAPH-REVIEW.md) contains expected answers
+and can be used for reconciliation after the response is frozen.
 
 The following source subsets and questions were selected and annotated before
 running CodeThread on them. Codex authored the labels on 2026-11-02 from the
@@ -114,3 +114,45 @@ gold set. Browser task completion, source labels and total project occurrences
 must be reported as separate counts. No human participant or comprehension
 outcome is measured; the Codex-authored labels have not received independent
 human review.
+
+## Closed-owner audit and review ledger
+
+`repository-review.json` freezes the worksheet, repository revisions and
+verified corpus manifests, pinned compiler context identities, lexical owners
+and source occurrence inventories. The inventory walks source syntax without
+target inference. It records complete call expressions, property or indexed
+access arguments and constructor expressions. Nested function bodies have
+separate ownership. The historical gold digest covers the corrections and all
+denominators. The original annotations are preserved.
+
+The two historical closed owners have five labeled calls. Acceptance compares
+those sites with the independent syntax inventory and looks for every emitted
+exact relation in the owners' scopes, across relation kinds and before graph
+truncation. The additional class-method scope is pending source annotation. The
+scope inventories contain 14 candidate sites in total. These are selected small
+scopes in two pinned repositories.
+
+To record a genuine review, keep the reviewer's dated response. Add one ledger
+record for its scope with an alias, independence attestation, method, exposure,
+source answers and disposition. Use `review_existing` for reconciliation against
+original labels or `blind_authored` for source answers recorded without prior
+exposure. The `exposure` field records `none`, `labels_only`, `predictions` or
+`unknown`. Only an independent existing-label review can be accepted with
+`labels_only` exposure. An accepted response must account for every frozen
+candidate site, with the pinned excerpt and full target anchor for an exact
+answer. Record disagreements and the dated adjudicator decision or retain the
+disputed or excluded disposition. The record SHA-256 covers its schema-ordered
+JSON fields except `recordSha256` and binds the response to the frozen input
+digest. Candidate branches and retained reviewer records provide the audit trail
+for who reviewed the source. Maintainers verify reviewer identity and
+independence from that record.
+
+The existing `pnpm eval:external` report includes both the historical
+engineering assertions and a separate review assessment. Exact precision uses
+correct exact claims divided by distinct emitted exact claims in a complete,
+valid reviewed scope. Recall uses the same numerator over eligible annotated
+exact sites in that scope. A wrong exact claim can both increase the wrong count
+and miss an expected exact answer. Unreviewed and partial cases have counts
+only. The raw call-observation totals count source occurrences per project,
+including unsupported and unresolved observations and unscored sites. They
+provide no repository-wide precision denominator.

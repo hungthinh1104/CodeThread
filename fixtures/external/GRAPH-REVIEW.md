@@ -2,6 +2,9 @@
 
 ## Review status
 
+This historical packet contains the expected answers. Share the separate
+[source annotation worksheet](BLIND-REVIEW.md) with a blinded reviewer.
+
 This packet is prepared for an independent reviewer. No independent review has
 been completed, and the existing labels remain unreviewed. The two cases below
 are narrow static source claims; they do not establish runtime behavior,

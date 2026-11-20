@@ -83,8 +83,9 @@ export async function loadRepositoryCorpus(name: RepositoryCorpusName) {
     manifestPath = resolve(root, 'repository.json');
   if ((await lstat(manifestPath)).size > 16 * 1024 * 1024)
     throw new Error('Corpus manifest is too large');
+  const manifestBytes = await readFile(manifestPath);
   const manifest = manifestSchema.parse(
-    JSON.parse(await readFile(manifestPath, 'utf8')),
+    JSON.parse(manifestBytes.toString('utf8')),
   );
   if (
     manifest.repository !== pin.repository ||
@@ -153,6 +154,7 @@ export async function loadRepositoryCorpus(name: RepositoryCorpusName) {
   return {
     name,
     manifest,
+    manifestSha256: createHash('sha256').update(manifestBytes).digest('hex'),
     files,
     metadata,
     licenses,

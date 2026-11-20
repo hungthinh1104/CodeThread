@@ -347,7 +347,15 @@ async function inspectWorkspaceFrontend(
     const traceText = await page.locator('#trace-panel').innerText();
     expect(traceText).toContain('Coverage: partial');
     expect(traceText).toContain('Query not truncated');
-    expect(traceText).toMatch(/unresolved|unsupported/i);
+    for (const status of ['unresolved', 'unsupported']) {
+      const uncertain = page
+        .locator('#trace-panel .relationship-list li')
+        .filter({ hasText: new RegExp('CALLS.*' + status) });
+      await uncertain.first().waitFor();
+      expect(
+        await uncertain.getByRole('button', { name: /^Follow / }).count(),
+      ).toBe(0);
+    }
     expect(await page.locator('#evidence-inspector').innerText()).toContain(
       sourceHash,
     );
@@ -425,6 +433,13 @@ async function inspectWorkspaceFrontend(
       expect(
         await otherTab.locator('#trace-panel .coverage-summary').innerText(),
       ).toContain('Truncated: result_limit');
+      // One root and at most 49 target declarations fit the 50-node request.
+      expect(
+        await otherTab
+          .locator('#trace-panel .relationship-list')
+          .getByRole('button', { name: /^Follow callee/ })
+          .count(),
+      ).toBe(49);
       const retried = page.waitForResponse((response) =>
         response.url().endsWith('/api/workspace/files'),
       );

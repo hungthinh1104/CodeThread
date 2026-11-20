@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadRepositoryCorpus } from './repository-corpus.ts';
 import type {
@@ -9,234 +10,305 @@ import { materializeRepositoryCorpus } from './repository-corpus-git.ts';
 import { analyzeGitRepository } from './investigation/repository-session.ts';
 import type { RepositoryInvestigationSession } from './investigation/repository-session.ts';
 import { loadRepositoryGold } from './repository-gold.ts';
-import type { RepositoryGold } from './repository-gold.ts';
+import type {
+  RepositoryGold,
+  RepositoryGoldAnchor,
+} from './repository-gold.ts';
 import { validateRepositoryGoldCorrections } from './repository-gold-review.ts';
+import { goldSiteKey } from './repository-gold-source.ts';
+import { repositoryGoldContext } from './repository-gold-trace.ts';
+import type { RepositoryGoldContext } from './repository-gold-trace.ts';
 import {
-  equalGoldRange,
-  repositoryGoldContext,
-  symbolMatchesGold,
-  validateClosedGoldOwner,
-  validateRepositoryGoldLabel,
-} from './repository-graph-gold.ts';
-import type { RepositoryGoldContext } from './repository-graph-gold.ts';
+  auditScope,
+  checkLabel,
+  countGoldIssues,
+  describeError,
+  labelFailures,
+  matchesOwner,
+  observationCounts,
+  scopedRatio,
+  summarizeChecks,
+} from './repository-claim-report.ts';
+import type { Failure } from './repository-claim-report.ts';
+import {
+  loadRepositoryReview,
+  verifyRepositoryReview,
+} from './repository-review.ts';
+import type { RepositoryReview } from './repository-review.ts';
+
+function inventoryPin({
+  path,
+  sha256,
+  byteLength,
+}: Pick<
+  RepositoryCorpus['manifest']['files'][number],
+  'path' | 'sha256' | 'byteLength'
+>) {
+  return { path, sha256, byteLength };
+}
+
+function verifyIntake(
+  session: RepositoryInvestigationSession,
+  corpus: RepositoryCorpus,
+  repositoryId: string,
+) {
+  assert.equal(
+    session.repositoryId,
+    repositoryId,
+    'Repository identity differs from the frozen evaluation',
+  );
+  assert.equal(
+    session.commitId,
+    corpus.manifest.revision,
+    'Repository revision changed',
+  );
+  assert.equal(
+    session.inventory.complete,
+    true,
+    'Whole source inventory is incomplete',
+  );
+  assert.deepEqual(
+    session.files.map(inventoryPin),
+    corpus.manifest.files.map(inventoryPin),
+    'Whole source inventory differs from independent pinned Git inventory',
+  );
+  assert.equal(
+    session.sourceCoverageComplete,
+    true,
+    'Some committed TypeScript source was not analyzed',
+  );
+  assert.equal(
+    session.analysisComplete,
+    true,
+    'A repository project failed or was skipped',
+  );
+  const missingContext = session.projects.some((project) =>
+    project.snapshot?.facts.diagnostics.some(({ code }) =>
+      ['TS_2307', 'TS_2688', 'TS_6053', 'TS_7016', 'TS_2792'].includes(code),
+    ),
+  );
+  if (missingContext)
+    assert.equal(
+      session.contextComplete,
+      false,
+      'Missing source/type context was reported complete',
+    );
+}
+
+function repositoryContext(
+  session: RepositoryInvestigationSession,
+  corpus: RepositoryCorpus,
+  review: RepositoryReview,
+  configPath: string,
+): RepositoryGoldContext {
+  const pin = review.freeze.contexts.find(
+    (item) => item.repository === corpus.name && item.configPath === configPath,
+  );
+  const projects = session.projects.filter(
+    (item) => item.project.configPath === configPath,
+  );
+  const [project] = projects;
+  assert(
+    pin &&
+      projects.length === 1 &&
+      project?.status === 'ready' &&
+      project.snapshot,
+    'Gold project has no unique usable snapshot in the frozen context',
+  );
+  assert.equal(
+    project.project.id,
+    pin.projectId,
+    'Gold project identity differs from the frozen context',
+  );
+  const identity = project.snapshot.facts.identity;
+  assert.equal(
+    identity.repositoryId,
+    review.freeze.repositoryId,
+    'Gold snapshot belongs to another repository',
+  );
+  assert.equal(
+    identity.configurationHash,
+    pin.configurationHash,
+    'Gold snapshot belongs to another compiler context',
+  );
+  assert.equal(
+    identity.sourceFingerprint,
+    pin.sourceFingerprint,
+    'Gold snapshot source membership differs from the frozen context',
+  );
+  // The fingerprint binds the admitted input set. Each project's analyzed
+  // files are a subset selected by that compiler context.
+  const files = corpus.manifest.files
+    .map(inventoryPin)
+    .sort((left, right) =>
+      Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)),
+    );
+  const admittedFingerprint = createHash('sha256')
+    .update(JSON.stringify({ version: 1, files }))
+    .digest('hex');
+  assert.equal(
+    admittedFingerprint,
+    pin.sourceFingerprint,
+    'Gold repository inputs differ from the frozen source fingerprint',
+  );
+  const admitted = new Map(files.map((file) => [file.path, file]));
+  const analyzed = project.snapshot.facts.files;
+  assert.equal(
+    new Set(analyzed.map((file) => file.path)).size,
+    analyzed.length,
+    'Gold snapshot repeats a path in its compiler context',
+  );
+  assert(
+    analyzed.every((file) => {
+      const pinned = admitted.get(file.path);
+      return (
+        pinned?.sha256 === file.contentHash &&
+        pinned.byteLength === file.byteLength
+      );
+    }),
+    'Gold snapshot contains a file outside the pinned source inputs',
+  );
+  return repositoryGoldContext(project.snapshot);
+}
 
 export function evaluateRepositorySession(
   session: RepositoryInvestigationSession,
   corpus: RepositoryCorpus,
-  gold: RepositoryGold,
+  inputGold: RepositoryGold,
+  inputReview: RepositoryReview,
 ) {
+  // A bad ledger or modified historical denominator produces no score.
+  const { gold, review, scopes } = verifyRepositoryReview(
+    inputReview,
+    corpus,
+    inputGold,
+  );
+  validateRepositoryGoldCorrections(corpus, gold);
   const allLabels = gold.labels.filter(
     (label) => label.repository === corpus.name,
   );
   const corrections = gold.corrections.filter(
-    (correction) => correction.repository === corpus.name,
+    (item) => item.repository === corpus.name,
   );
-  const goldOccurrenceKey = (item: {
-    repository: string;
+  const occurrenceKey = (entry: {
     configPath: string;
-    site: { file: string; start: { offset: number }; end: { offset: number } };
+    site: RepositoryGoldAnchor;
   }) =>
     JSON.stringify([
-      item.repository,
-      item.configPath,
-      item.site.file,
-      item.site.start.offset,
-      item.site.end.offset,
+      entry.configPath,
+      goldSiteKey(entry.site.file, entry.site),
     ]);
-  const correctedOccurrenceKeys = new Set(corrections.map(goldOccurrenceKey));
+  const excluded = new Set(corrections.map(occurrenceKey));
   const labels = allLabels.filter(
-    (label) => !correctedOccurrenceKeys.has(goldOccurrenceKey(label)),
+    (label) => !excluded.has(occurrenceKey(label)),
   );
-  const postPredictionLabels = allLabels.filter((label) =>
-    correctedOccurrenceKeys.has(goldOccurrenceKey(label)),
-  );
-  const failures: {
-    configPath: string | null;
-    site?: string;
-    message: string;
-  }[] = [];
-  const cache = new Map<string, RepositoryGoldContext>();
-  const context = (configPath: string) => {
-    const cached = cache.get(configPath);
-    if (cached) return cached;
-    const project = session.projects.find(
-      (project) => project.project.configPath === configPath,
-    );
-    assert(
-      project?.snapshot && project.status === 'ready',
-      'Gold project has no usable snapshot',
-    );
-    const result = repositoryGoldContext(project.snapshot);
-    cache.set(configPath, result);
-    return result;
-  };
+  const failures: Failure[] = [];
+  const reviewFailures: Failure[] = [];
+  let intakeValid = true;
   try {
-    validateRepositoryGoldCorrections(corpus, gold);
-    assert(
-      labels.length > 0,
-      'Repository has no independently specified acceptance cases',
-    );
-    assert.equal(
-      session.commitId,
-      corpus.manifest.revision,
-      'Repository revision changed',
-    );
-    assert.equal(
-      session.inventory.complete,
-      true,
-      'Whole source inventory is incomplete',
-    );
-    assert.deepEqual(
-      session.files.map(({ path, sha256, byteLength }) => ({
-        path,
-        sha256,
-        byteLength,
-      })),
-      corpus.manifest.files.map(({ path, sha256, byteLength }) => ({
-        path,
-        sha256,
-        byteLength,
-      })),
-      'Whole source inventory differs from independent pinned Git inventory',
-    );
-    assert.equal(
-      session.sourceCoverageComplete,
-      true,
-      'Some committed TypeScript source was not analyzed',
-    );
-    assert.equal(
-      session.analysisComplete,
-      true,
-      'A repository project failed or was skipped',
-    );
-    const missingContext = session.projects.some((project) =>
-      project.snapshot?.facts.diagnostics.some((diagnostic) =>
-        ['TS_2307', 'TS_2688', 'TS_6053', 'TS_7016', 'TS_2792'].includes(
-          diagnostic.code,
-        ),
-      ),
-    );
-    if (missingContext)
-      assert.equal(
-        session.contextComplete,
-        false,
-        'Missing source/type context was reported complete',
-      );
+    verifyIntake(session, corpus, review.freeze.repositoryId);
   } catch (error) {
+    intakeValid = false;
     failures.push({
       configPath: null,
-      message:
-        error instanceof Error
-          ? error.message
-          : 'Repository intake gate failed',
+      code: 'input_mismatch',
+      message: describeError(error),
     });
   }
-  let observedLabeledCases = 0,
-    correctCases = 0,
-    correctExact = 0,
-    wrongExact = 0,
-    missedExact = 0;
-  for (const label of labels) {
-    try {
-      assert.equal(
-        label.revision,
-        corpus.manifest.revision,
-        'Gold revision mismatch',
-      );
-      const project = context(label.configPath);
-      const observation = project.snapshot.facts.observations.find(
-        (observation) => {
-          const evidence = project.evidence.get(observation.evidenceId),
-            file = evidence && project.files.get(evidence.fileId);
-          return (
-            file?.path === label.site.file &&
-            evidence &&
-            equalGoldRange(evidence.range, label.site)
-          );
-        },
-      );
-      if (observation) observedLabeledCases++;
-      if (observation?.status === 'exact') {
-        const relation =
-          observation.relationId &&
-          project.relations.get(observation.relationId);
-        const targetId =
-          relation && relation.resolution.status === 'exact'
-            ? relation.resolution.targetId
-            : null;
-        const target = project.snapshot.facts.symbols.find(
-          (symbol) => symbol.id === targetId,
-        );
-        if (
-          !label.target ||
-          !target ||
-          !symbolMatchesGold(project.snapshot, target, label.target)
-        )
-          wrongExact++;
-      } else if (label.status === 'exact') missedExact++;
-      validateRepositoryGoldLabel(project, label, corpus);
-      correctCases++;
-      if (label.status === 'exact') correctExact++;
-    } catch (error) {
-      failures.push({
-        configPath: label.configPath,
-        site: `${label.site.file}:${label.site.start.line}:${label.site.start.column}`,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Gold acceptance case failed',
-      });
-    }
-  }
-  for (const closed of gold.closedOwners.filter(
-    (owner) => owner.repository === corpus.name,
-  )) {
-    try {
-      validateClosedGoldOwner(
-        context(closed.configPath),
-        closed.owner,
-        labels.filter((label) => label.configPath === closed.configPath),
-      );
-    } catch (error) {
-      failures.push({
-        configPath: closed.configPath,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Closed owner graph gate failed',
-      });
-    }
-  }
-  const rawCounts = {
-    exact: 0,
-    unresolved: 0,
-    ambiguous: 0,
-    unsupported: 0,
-    projectOccurrences: 0,
-    uniqueSourceOccurrences: 0,
+  const cache = new Map<string, RepositoryGoldContext>();
+  const context = (path: string) => {
+    const previous = cache.get(path);
+    if (previous) return previous;
+    const result = repositoryContext(session, corpus, review, path);
+    cache.set(path, result);
+    return result;
   };
-  const sites = new Set<string>();
-  for (const project of session.projects)
-    if (project.snapshot) {
-      const snapshot = project.snapshot,
-        evidence = new Map(
-          snapshot.facts.evidenceRefs.map((item) => [item.id, item]),
-        );
-      const files = new Map(
-        snapshot.facts.files.map((file) => [file.id, file]),
-      );
-      for (const observation of snapshot.facts.observations) {
-        rawCounts[observation.status]++;
-        rawCounts.projectOccurrences++;
-        const site = evidence.get(observation.evidenceId),
-          file = site && files.get(site.fileId);
-        if (site && file)
-          sites.add(
-            `${file.path}:${file.contentHash}:${site.range.start.offset}:${site.range.end.offset}`,
-          );
-      }
+  const cases = labels.map((label) => checkLabel(label, context, corpus));
+  const historicalOwners = gold.closedOwners.filter(
+    (owner) => owner.repository === corpus.name,
+  );
+  for (const owner of historicalOwners)
+    assert(
+      scopes.some((scope) => matchesOwner(scope, owner)),
+      'Historical closed owner is missing from the frozen review plan',
+    );
+  const closedCases = cases.filter(({ label }) =>
+    historicalOwners.some((owner) => matchesOwner(label, owner)),
+  );
+  const partialCases = cases.filter((item) => !closedCases.includes(item));
+  const unexpectedIds: string[] = [];
+  failures.push(...cases.flatMap(labelFailures));
+  const scopeReports = scopes.map((scope) => {
+    const isHistorical = historicalOwners.some((owner) =>
+      matchesOwner(scope, owner),
+    );
+    const historical = isHistorical
+      ? auditScope(
+          scope,
+          closedCases.filter(({ label }) => matchesOwner(label, scope)),
+          context,
+          false,
+        )
+      : null;
+    if (historical) {
+      failures.push(...historical.failures);
+      unexpectedIds.push(...historical.unexpectedIds);
     }
-  rawCounts.uniqueSourceOccurrences = sites.size;
+    const response = scope.accepted;
+    const reviewedCases =
+      response?.answers.map((answer) =>
+        checkLabel(
+          { ...answer, configPath: scope.configPath, owner: scope.owner },
+          context,
+          corpus,
+        ),
+      ) ?? [];
+    const reviewed = response
+      ? auditScope(scope, reviewedCases, context, true)
+      : null;
+    const independentIssues = reviewed
+      ? [...reviewedCases.flatMap(labelFailures), ...reviewed.failures]
+      : [];
+    reviewFailures.push(...independentIssues);
+    const valid =
+      intakeValid &&
+      reviewed &&
+      !independentIssues.some(
+        ({ code }) =>
+          code === 'identity_mismatch' || code === 'invalid_projection',
+      );
+    return {
+      id: scope.id,
+      configPath: scope.configPath,
+      owner: scope.owner,
+      occurrences: scope.occurrences,
+      historicalCallClosure: historical,
+      review: scope.record ?? null,
+      reviewed,
+      reviewedIssues: countGoldIssues(independentIssues),
+      precision: valid
+        ? scopedRatio(reviewed.correctExact, reviewed.observedExact)
+        : null,
+      recall: valid
+        ? scopedRatio(reviewed.correctExact, reviewed.expectedExact)
+        : null,
+    };
+  });
+  const history = summarizeChecks(cases, unexpectedIds);
+  const rawCounts = observationCounts(session);
+  const countReviewed = (method: 'review_existing' | 'blind_authored') =>
+    scopes
+      .filter((scope) => scope.accepted?.method === method)
+      .reduce((count, scope) => count + scope.accepted!.answers.length, 0);
+  const scoredKeys = new Set(labels.map(occurrenceKey));
+  const reviewedExistingCases = scopes
+    .filter((scope) => scope.accepted?.method === 'review_existing')
+    .flatMap((scope) =>
+      scope.accepted!.answers.map((answer) =>
+        occurrenceKey({ configPath: scope.configPath, site: answer.site }),
+      ),
+    )
+    .filter((key) => scoredKeys.has(key)).length;
   return {
     repository: corpus.manifest.repository,
     revision: corpus.manifest.revision,
@@ -252,18 +324,38 @@ export function evaluateRepositorySession(
     counts: {
       labeledCases: allLabels.length,
       scoredCases: labels.length,
-      observedLabeledCases,
       prePredictionCases: labels.length,
-      postPredictionExcludedCases: postPredictionLabels.length,
-      correctCases,
-      expectedExact: labels.filter((label) => label.status === 'exact').length,
-      correctExact,
-      wrongExact,
-      missedExact,
+      postPredictionExcludedCases: allLabels.length - labels.length,
+      ...history,
+    },
+    semanticAudit: {
+      frozenInputSha256: review.frozenInputSha256,
+      originalAuthor: gold.author,
+      historicalClosedCases: closedCases.length,
+      historicalPartialCases: partialCases.length,
+      historicalPartialResults: summarizeChecks(partialCases, []),
+      reviewedExistingCases,
+      existingReviewSupplementalCases:
+        countReviewed('review_existing') - reviewedExistingCases,
+      unreviewedHistoricalCases: labels.length - reviewedExistingCases,
+      blindHumanAuthoredCases: countReviewed('blind_authored'),
+      previouslyExposedReviewedCases: scopes
+        .filter((scope) => scope.accepted?.exposure === 'labels_only')
+        .reduce((count, scope) => count + scope.accepted!.answers.length, 0),
+      pendingScopes: scopes.filter((scope) => !scope.record).length,
+      disputedScopes: scopes.filter(
+        (scope) => scope.record?.disposition === 'disputed',
+      ).length,
+      excludedScopes: scopes.filter(
+        (scope) => scope.record?.disposition === 'excluded',
+      ).length,
+      issues: countGoldIssues(failures),
+      reviewIssues: countGoldIssues(reviewFailures),
+      scopes: scopeReports,
     },
     rawCounts,
     unscoredProjectOccurrences:
-      rawCounts.projectOccurrences - observedLabeledCases,
+      rawCounts.projectOccurrences - history.matchedCallObservations,
     completeness: {
       inventory: session.inventory.complete,
       sourceCoverage: session.sourceCoverageComplete,
@@ -281,27 +373,35 @@ export function evaluateRepositorySession(
       execution: project.snapshot?.execution ?? null,
     })),
     metrics: session.metrics,
-    gate: { passed: failures.length === 0, failures },
+    gate: {
+      passed: failures.length + reviewFailures.length === 0,
+      failures: [...failures, ...reviewFailures],
+    },
     interpretation:
-      'Correctness is evaluated only on source-authored labels fixed before predictions; post-prediction corrections are disclosed but excluded from acceptance counts. All other occurrence counts are unscored static output, not a repository-wide accuracy claim.',
+      'Historical AI-authored engineering assertions and independent review are separate. Valid completed review scopes report exact-claim precision and recall. Raw call observations outside the historical labels are not correct negatives.',
   };
 }
 
 export async function evaluatePinnedRepository(name: RepositoryCorpusName) {
-  const corpus = await loadRepositoryCorpus(name),
-    gold = await loadRepositoryGold();
+  const [corpus, gold, review] = await Promise.all([
+    loadRepositoryCorpus(name),
+    loadRepositoryGold(),
+    loadRepositoryReview(),
+  ]);
+  verifyRepositoryReview(review, corpus, gold);
   const repository = await materializeRepositoryCorpus(corpus);
   try {
     const session = await analyzeGitRepository({
       repositoryPath: repository.directory,
-      repositoryId: '00000000-0000-4000-8000-000000000076',
+      repositoryId: review.freeze.repositoryId,
       revision: corpus.manifest.revision,
     });
     return {
-      report: evaluateRepositorySession(session, corpus, gold),
+      report: evaluateRepositorySession(session, corpus, gold, review),
       session,
       corpus,
       gold,
+      review,
     };
   } finally {
     await repository.cleanup();
@@ -319,10 +419,7 @@ export async function runRepositoryEvaluations(): Promise<void> {
         JSON.stringify({
           name,
           gate: { passed: false },
-          failure:
-            error instanceof Error
-              ? error.message
-              : 'Repository evaluation failed',
+          failure: describeError(error),
         }) + '\n',
       );
       process.exitCode = 1;
