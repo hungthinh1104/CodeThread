@@ -37,7 +37,9 @@ export function runWorker(
       { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
     const chunks: Buffer[] = [];
-    const onAbort = () => child.kill();
+    // The worker has no external state to flush on cancellation or a bound.
+    const terminate = () => child.kill('SIGKILL');
+    const onAbort = terminate;
     signal?.addEventListener('abort', onAbort, { once: true });
     const cleanup = () => {
       clearTimeout(timer);
@@ -49,7 +51,7 @@ export function runWorker(
       stderr = '';
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      terminate();
     }, remaining);
     child.stdout.on('data', (chunk: Buffer) => {
       outputBytes += chunk.length;
@@ -58,7 +60,7 @@ export function runWorker(
         analysisResourceLimits(input.resourceProfile).maxResponseBytes
       ) {
         overflow = true;
-        child.kill();
+        terminate();
       } else chunks.push(chunk);
     });
     // Drain stderr without exposing untrusted source text or retaining unbounded output.
@@ -132,7 +134,7 @@ export function runWorker(
       analysisResourceLimits(input.resourceProfile).maxRequestBytes
     ) {
       overflow = true;
-      child.kill();
+      terminate();
     } else child.stdin.end(request);
   });
 }

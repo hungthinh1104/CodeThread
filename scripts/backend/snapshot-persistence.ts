@@ -14,14 +14,18 @@ import {
 type Sql = Database;
 type Snapshot = { facts: AnalysisFacts; source: VerifiedSourceReader };
 
+export async function protectSnapshotRead(db: Sql, snapshotId: string) {
+  await db`SELECT pg_advisory_xact_lock_shared(
+    1919606126,hashtext(${snapshotId}::text))`;
+}
+
 export async function loadSnapshot(
   db: Sql,
   snapshotId: string,
 ): Promise<Snapshot> {
   return db.begin(async (transaction) => {
     const scoped = transaction as unknown as Sql;
-    await scoped`SELECT pg_advisory_xact_lock_shared(
-      1919606126,hashtext(${snapshotId}::text))`;
+    await protectSnapshotRead(scoped, snapshotId);
     return loadSnapshotContentsInTransaction(scoped, snapshotId);
   });
 }
