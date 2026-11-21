@@ -15,6 +15,14 @@ import { createGitRepository } from './helpers/git-fixture.ts';
 const databaseUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
 const token = 'query-admission-test-token-000000';
 
+function signal() {
+  let notify = () => {};
+  const promise = new Promise<void>((resolve) => {
+    notify = resolve;
+  });
+  return { promise, notify };
+}
+
 async function checkRetentionRace(
   db: Database,
   service: ScanService,
@@ -24,14 +32,14 @@ async function checkRetentionRace(
   expected: unknown,
 ) {
   await db`UPDATE codethread.repository SET active_job_id=NULL WHERE id=${repositoryId}`;
-  const checked = Promise.withResolvers<void>();
-  const resume = Promise.withResolvers<void>();
+  const checked = signal();
+  const resume = signal();
   const read = service.publishedSnapshot.bind(service);
   const lookup = vi
     .spyOn(service, 'publishedSnapshot')
     .mockImplementation(async (...args) => {
       const snapshotId = await read(...args);
-      checked.resolve();
+      checked.notify();
       await resume.promise;
       return snapshotId;
     });
@@ -48,7 +56,7 @@ async function checkRetentionRace(
       }),
     ]);
     await prune();
-    resume.resolve();
+    resume.notify();
     const response = await pending;
     expect(response.status, JSON.stringify(await response.clone().json())).toBe(
       200,
@@ -58,7 +66,7 @@ async function checkRetentionRace(
       await db`SELECT id FROM codethread.scan_job WHERE id=${jobId}`,
     ).toHaveLength(1);
   } finally {
-    resume.resolve();
+    resume.notify();
     lookup.mockRestore();
     await pending.catch(() => {});
   }
