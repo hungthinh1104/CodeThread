@@ -222,15 +222,20 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
       expect(await resumed.json()).toEqual(original);
 
       // PostgreSQL enforces the configured lock deadline and every slot is returned.
-      await heldLockTimeout(db, snapshotId, () =>
-        fetch(base + path, { method: 'POST', headers, body }),
+      await heldLockTimeout(db, snapshotId, (signal) =>
+        fetch(base + path, { method: 'POST', headers, body, signal }),
       );
       await checkRetentionRace(
         db,
         service,
         repo.id,
         job.id,
-        () => fetch(base + path, { method: 'POST', headers, body }),
+        () =>
+          fetch(base + path.replace(job.id, job.id.toUpperCase()), {
+            method: 'POST',
+            headers,
+            body,
+          }),
         original,
       );
     } finally {
@@ -258,12 +263,15 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
 async function heldLockTimeout(
   db: Database,
   snapshotId: string,
-  request: () => Promise<Response>,
+  request: (signal: AbortSignal) => Promise<Response>,
 ) {
   const lock = await db.reserve();
   try {
     await lock`SELECT pg_advisory_lock(1919606126, hashtext(${snapshotId}::text))`;
-    const blocked = await Promise.all(Array.from({ length: 4 }, request));
+    const signal = AbortSignal.timeout(15_000);
+    const blocked = await Promise.all(
+      Array.from({ length: 4 }, () => request(signal)),
+    );
     expect(blocked.map(({ status }) => status)).toEqual([500, 500, 500, 500]);
     for (const response of blocked)
       expect(await response.json()).toMatchObject({
@@ -273,7 +281,7 @@ async function heldLockTimeout(
     await lock`SELECT pg_advisory_unlock(1919606126, hashtext(${snapshotId}::text))`;
     await lock.release();
   }
-  const recovered = await request();
+  const recovered = await request(AbortSignal.timeout(15_000));
   expect(recovered.status).toBe(200);
   await recovered.json();
 }

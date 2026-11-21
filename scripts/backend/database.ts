@@ -12,7 +12,7 @@ export function withScanRead<T>(
   return db.begin(async (transaction) => {
     const scoped = transaction as unknown as Database;
     await scoped`SELECT pg_advisory_xact_lock_shared(
-      1919606127,hashtext(${jobId}::text))`;
+      1919606127,hashtext(${jobId}::uuid::text))`;
     return await read(scoped);
   }) as Promise<T>;
 }
