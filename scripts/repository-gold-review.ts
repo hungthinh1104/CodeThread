@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import type { RepositoryCorpus } from './repository-corpus.ts';
 import type { RepositoryGold } from './repository-gold.ts';
-import { equalGoldRange } from './repository-graph-gold.ts';
+import { equalGoldRange } from './repository-gold-source.ts';
 
 /** Annotation corrections remain visible and must be justified by the original source. */
 export function validateRepositoryGoldCorrections(
