@@ -432,10 +432,16 @@ export function InvestigationWorkspace() {
       return null;
     }
     ++navigationRestoreGeneration.current;
-    const generation = resetProject(projectId);
+    const selection = selectionGeneration.current;
+    const contextAtStart = contextGeneration.current;
+    const isCurrent = () =>
+      selection === selectionGeneration.current &&
+      contextAtStart === contextGeneration.current;
+    reportWorkspaceError(null);
     try {
       const projection = await readSession(scope);
-      if (generation !== contextGeneration.current) return null;
+      if (!isCurrent()) return null;
+      resetProject(projectId);
       scopeRef.current = scope;
       setSession(projection);
       const entry: NavigationEntry = {
@@ -451,8 +457,8 @@ export function InvestigationWorkspace() {
       else pushNavigation(entry);
       return scope;
     } catch (error) {
-      if (generation === contextGeneration.current)
-        reportWorkspaceError(errorMessage(error), true);
+      if (isCurrent())
+        reportWorkspaceError(errorMessage(error), !scopeRef.current);
       return null;
     }
   }

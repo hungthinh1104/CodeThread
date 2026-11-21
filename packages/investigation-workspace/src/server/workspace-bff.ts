@@ -38,10 +38,14 @@ export type WorkspaceMetadata = {
 type SessionRegistry = Map<string, WorkspaceSession>;
 type ServerGlobal = typeof globalThis & {
   codethreadWorkspaceSessions?: SessionRegistry;
+  codethreadWorkspacePendingOpens?: { count: number };
 };
 
 const serverGlobal = globalThis as ServerGlobal;
 const sessions = (serverGlobal.codethreadWorkspaceSessions ??= new Map());
+const pendingOpens = (serverGlobal.codethreadWorkspacePendingOpens ??= {
+  count: 0,
+});
 
 export class WorkspaceBffError extends Error {
   readonly status: number;
@@ -374,12 +378,21 @@ export async function openWorkspace(
       }
     }
   }
-  if (sessions.size >= MAX_SESSIONS)
+  if (sessions.size + pendingOpens.count >= MAX_SESSIONS)
     throw new WorkspaceBffError(
       429,
       'WORKSPACE_CAPACITY',
       'Too many local workspace sessions are active. Retry after a session expires.',
     );
+  pendingOpens.count++;
+  try {
+    return await createWorkspaceSession(scanId);
+  } finally {
+    pendingOpens.count--;
+  }
+}
+
+async function createWorkspaceSession(scanId: string) {
   const scan = (await backendRequest(
     'GET /v1/scans/:id',
     `/v1/scans/${scanId}`,

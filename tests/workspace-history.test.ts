@@ -67,6 +67,7 @@ async function projectFixture(
     graph: boolean;
     missingEvidence: boolean;
     destinationGraph?: 'unavailable' | 'missing-root' | null;
+    destinationSessionUnavailable?: boolean;
     wrongDestinationEvidence?: boolean;
   },
 ) {
@@ -160,15 +161,16 @@ async function projectFixture(
         return;
       }
       if (
-        operation === 'neighbors' &&
-        fault.destinationGraph === 'unavailable'
+        (operation === 'neighbors' &&
+          fault.destinationGraph === 'unavailable') ||
+        (operation === 'session' && fault.destinationSessionUnavailable)
       ) {
         await route.fulfill({
           status: 503,
           json: {
             error: {
               code: 'TEST_DESTINATION_UNAVAILABLE',
-              message: 'Destination graph failed.',
+              message: 'The destination context read failed.',
             },
           },
         });
@@ -299,6 +301,51 @@ it.each(['catalog selection', 'context match'] as const)(
   },
   90_000,
 );
+
+it('retains the current investigation when the project picker cannot open a session', async () => {
+  await withWorkspace(async (page, origin) => {
+    const fault = {
+      session: false,
+      graph: false,
+      missingEvidence: false,
+      destinationSessionUnavailable: true,
+    };
+    await projectFixture(page, fault);
+    await page.goto(origin);
+    await page.getByLabel('Repository and scan').selectOption(repositoryId);
+    await choose(page, 'root');
+    const inspector = page.locator('#evidence-inspector .evidence-card');
+    await inspector.waitFor();
+    const originalEvidence = await inspector.innerText();
+    const historyLength = await page.evaluate(() => window.history.length);
+    const picker = page.getByLabel('Project context');
+    await picker.selectOption(otherProjectId);
+    await page
+      .getByRole('alert')
+      .getByText(/TEST_DESTINATION_UNAVAILABLE/)
+      .waitFor();
+    assert.equal(await picker.inputValue(), projectId);
+    assert.equal(await excerpt(page, 'root').isVisible(), true);
+    assert.equal(await inspector.innerText(), originalEvidence);
+    assert.equal(
+      await page.evaluate(() => window.history.length),
+      historyLength,
+    );
+
+    fault.destinationSessionUnavailable = false;
+    await picker.selectOption(otherProjectId);
+    await page.waitForFunction(
+      (id) =>
+        document.querySelector<HTMLSelectElement>('#project-select')?.value ===
+        id,
+      otherProjectId,
+    );
+    await excerpt(page, 'root').waitFor({ state: 'hidden' });
+    await historyControl(page, 'Back').click();
+    await excerpt(page, 'root').waitFor();
+    assert.equal(await picker.inputValue(), projectId);
+  });
+}, 90_000);
 
 it('keeps the loaded inventory explicit and retries the failed page offset', async () => {
   await withWorkspace(async (page, origin) => {

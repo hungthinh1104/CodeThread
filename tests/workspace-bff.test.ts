@@ -91,6 +91,71 @@ describe('local Investigation Workspace BFF', () => {
     vi.unstubAllEnvs();
   });
 
+  it('bounds concurrent new sessions and restores admission after failure and expiry', async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 31 * 60_000);
+    const { fetcher } = backendAndViewerFetch();
+    const forward = fetcher.getMockImplementation()!;
+    let release = () => {};
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let scanReads = 0;
+    const unavailable = () =>
+      json(
+        {
+          error: { code: 'UNAVAILABLE', message: 'Fixture scan read failed.' },
+        },
+        503,
+      );
+    fetcher.mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/scans/' + scanId)) {
+        const read = ++scanReads;
+        await stalled;
+        if (read === 1) return unavailable();
+      }
+      return forward(input, init);
+    });
+    const pending = Promise.allSettled(
+      Array.from({ length: 5 }, () => openWorkspace(scanId)),
+    );
+    try {
+      release();
+      const outcomes = await pending;
+      expect(
+        outcomes.filter(({ status }) => status === 'fulfilled'),
+      ).toHaveLength(3);
+      expect(outcomes[0]).toMatchObject({
+        status: 'rejected',
+        reason: { status: 503 },
+      });
+      expect(outcomes[4]).toMatchObject({
+        status: 'rejected',
+        reason: { status: 429, code: 'WORKSPACE_CAPACITY' },
+      });
+      expect(scanReads).toBe(4);
+      await expect(openWorkspace(scanId)).resolves.toMatchObject({
+        metadata: { scanId },
+      });
+      await expect(openWorkspace(scanId)).rejects.toMatchObject({
+        status: 429,
+      });
+      clock.mockReturnValue(now + 62 * 60_000);
+      await expect(openWorkspace(scanId)).resolves.toMatchObject({
+        metadata: { scanId },
+      });
+    } finally {
+      clock.mockReturnValue(now + 93 * 60_000);
+      fetcher.mockImplementation(async () => unavailable());
+      try {
+        await openWorkspace(scanId);
+      } catch {
+        /* Cleanup leaves the registry empty. */
+      }
+      clock.mockRestore();
+    }
+  });
+
   it('keeps both upstream credentials server-side and validates each projection', async () => {
     const { seen } = backendAndViewerFetch();
     const opened = await openWorkspace(scanId);
