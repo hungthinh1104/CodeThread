@@ -2,8 +2,9 @@ import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbo
 import { rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { connect } from '../scripts/backend/database.ts';
+import type { Database } from '../scripts/backend/database.ts';
 import { makeApi } from '../scripts/backend/http.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
 import { ScanService } from '../scripts/backend/service.ts';
@@ -13,6 +14,59 @@ import { createGitRepository } from './helpers/git-fixture.ts';
 
 const databaseUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
 const token = 'query-admission-test-token-000000';
+
+async function checkRetentionRace(
+  db: Database,
+  service: ScanService,
+  repositoryId: string,
+  jobId: string,
+  request: () => Promise<Response>,
+  expected: unknown,
+) {
+  await db`UPDATE codethread.repository SET active_job_id=NULL WHERE id=${repositoryId}`;
+  const checked = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const read = service.publishedSnapshot.bind(service);
+  const lookup = vi
+    .spyOn(service, 'publishedSnapshot')
+    .mockImplementation(async (...args) => {
+      const snapshotId = await read(...args);
+      checked.resolve();
+      await resume.promise;
+      return snapshotId;
+    });
+  const prune = () =>
+    db`SELECT * FROM codethread.prune_inactive_data(clock_timestamp(),100,100,1000)`;
+  const pending = request();
+  try {
+    await Promise.race([
+      checked.promise,
+      pending.then((result) => {
+        throw new Error(
+          'Query ended before scoped hydration with HTTP ' + result.status,
+        );
+      }),
+    ]);
+    await prune();
+    resume.resolve();
+    const response = await pending;
+    expect(response.status, JSON.stringify(await response.clone().json())).toBe(
+      200,
+    );
+    expect(await response.json()).toEqual(expected);
+    expect(
+      await db`SELECT id FROM codethread.scan_job WHERE id=${jobId}`,
+    ).toHaveLength(1);
+  } finally {
+    resume.resolve();
+    lookup.mockRestore();
+    await pending.catch(() => {});
+  }
+  await prune();
+  const gone = await request();
+  expect(gone.status).toBe(404);
+  expect(await gone.json()).toMatchObject({ error: { code: 'NOT_FOUND' } });
+}
 
 async function reservePort() {
   const server = createServer();
@@ -166,6 +220,19 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
       });
       expect(resumed.status).toBe(200);
       expect(await resumed.json()).toEqual(original);
+
+      // PostgreSQL enforces the configured lock deadline and every slot is returned.
+      await heldLockTimeout(db, snapshotId, () =>
+        fetch(base + path, { method: 'POST', headers, body }),
+      );
+      await checkRetentionRace(
+        db,
+        service,
+        repo.id,
+        job.id,
+        () => fetch(base + path, { method: 'POST', headers, body }),
+        original,
+      );
     } finally {
       if (held && snapshotId) {
         await held`SELECT pg_advisory_unlock(1919606126, hashtext(${snapshotId}::text))`.catch(
@@ -187,3 +254,26 @@ describe.skipIf(!databaseUrl)('heavy HTTP query admission', () => {
     }
   }, 90_000);
 });
+
+async function heldLockTimeout(
+  db: Database,
+  snapshotId: string,
+  request: () => Promise<Response>,
+) {
+  const lock = await db.reserve();
+  try {
+    await lock`SELECT pg_advisory_lock(1919606126, hashtext(${snapshotId}::text))`;
+    const blocked = await Promise.all(Array.from({ length: 4 }, request));
+    expect(blocked.map(({ status }) => status)).toEqual([500, 500, 500, 500]);
+    for (const response of blocked)
+      expect(await response.json()).toMatchObject({
+        error: { code: 'INTERNAL_ERROR' },
+      });
+  } finally {
+    await lock`SELECT pg_advisory_unlock(1919606126, hashtext(${snapshotId}::text))`;
+    await lock.release();
+  }
+  const recovered = await request();
+  expect(recovered.status).toBe(200);
+  await recovered.json();
+}
