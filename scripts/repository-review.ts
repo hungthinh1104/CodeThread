@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   codeRelationKindSchema,
@@ -27,7 +27,9 @@ import type { GoldOwnerInventory } from './repository-gold-source.ts';
 
 const repository = z.enum(['ufo', 'sourcemaps']);
 const frozenReviewInputSha256 =
-  'ee9aa1c3e0d7aee70301119d8eb53c3ac470a7a5b74cdbfe3bd62cf67a0de526';
+  '9a88d0bb205710558445ebf380dc7ffb69d05b226e3627d3f863e56cb4f9ed45';
+// Public Ed25519 keys are pinned by a reviewed change after confirming ownership.
+const trustedMaintainerKeys: ReadonlyMap<string, string> = new Map();
 const revision = z.string().regex(/^[a-f0-9]{40}$/);
 const location = { repository, configPath: snapshotPathSchema };
 const scopeId = z.string().regex(/^[a-z0-9-]{1,80}$/);
@@ -64,6 +66,10 @@ const freezeSchema = z.strictObject({
     .length(2),
   contexts: z.array(contextSchema).min(1).max(32),
   scopes: z.array(scopeSchema).min(1).max(32),
+  inventoryVersion: z.literal(2),
+  supersedesFrozenInputSha256: z.literal(
+    'ee9aa1c3e0d7aee70301119d8eb53c3ac470a7a5b74cdbfe3bd62cf67a0de526',
+  ),
 });
 
 const responseSchema = z.strictObject({
@@ -75,6 +81,15 @@ const responseSchema = z.strictObject({
   target: repositoryGoldAnchorSchema.nullable(),
   rationale: z.string().trim().min(1).max(2048),
 });
+
+const attestationSchema = z.strictObject({
+  maintainerKeyId: hashSchema,
+  reviewerAccountId: z.string().regex(/^[1-9][0-9]{0,19}$/),
+  responseSha256: hashSchema,
+  verifiedAt: z.iso.date(),
+  signature: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+});
+type ReviewAttestation = z.infer<typeof attestationSchema>;
 
 const recordSchema = z.strictObject({
   scopeId,
@@ -96,10 +111,11 @@ const recordSchema = z.strictObject({
     })
     .nullable(),
   recordSha256: hashSchema,
+  maintainerAttestation: attestationSchema.optional(),
 });
 
 const reviewSchema = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   historicalGoldSha256: z.literal(historicalRepositoryGoldSha256),
   freeze: freezeSchema,
   frozenInputSha256: hashSchema,
@@ -111,6 +127,33 @@ export type ScopedReviewRecord = z.infer<typeof recordSchema>;
 const hash = (data: string | Uint8Array) =>
   createHash('sha256').update(data).digest('hex');
 const jsonHash = (value: unknown) => hash(JSON.stringify(value));
+
+export function verifyReviewMaintainerSignature(
+  recordSha256: string,
+  attestation: ReviewAttestation,
+  publicKeyPem: string,
+): boolean {
+  const key = createPublicKey(publicKeyPem);
+  if (key.asymmetricKeyType !== 'ed25519') return false;
+  const keyId = hash(key.export({ format: 'der', type: 'spki' }));
+  if (attestation.maintainerKeyId !== keyId) return false;
+  const message = Buffer.from(
+    JSON.stringify([
+      'codethread/repository-review/v2',
+      recordSha256,
+      keyId,
+      attestation.reviewerAccountId,
+      attestation.responseSha256,
+      attestation.verifiedAt,
+    ]),
+  );
+  return verify(
+    null,
+    message,
+    key,
+    Buffer.from(attestation.signature, 'base64url'),
+  );
+}
 
 function assertUnique(keys: readonly string[], message: string): void {
   assert.equal(new Set(keys).size, keys.length, message);
@@ -162,7 +205,7 @@ export function verifyReviewManifest(input: unknown): RepositoryReview {
     records.map((record) => record.scopeId),
     'Duplicate review disposition',
   );
-  for (const { recordSha256, ...record } of records) {
+  for (const { recordSha256, maintainerAttestation, ...record } of records) {
     assert(
       freeze.scopes.some((scope) => scope.id === record.scopeId),
       'Review has no frozen scope',
@@ -181,6 +224,22 @@ export function verifyReviewManifest(input: unknown): RepositoryReview {
       record.reviewedAt >= freeze.frozenAt,
       'Review predates the input freeze',
     );
+    if (maintainerAttestation) {
+      const key = trustedMaintainerKeys.get(
+        maintainerAttestation.maintainerKeyId,
+      );
+      assert(key, 'Review attestation uses an untrusted maintainer key');
+      assert(
+        maintainerAttestation.verifiedAt >=
+          (record.adjudication?.decidedAt ?? record.reviewedAt) &&
+          verifyReviewMaintainerSignature(
+            recordSha256,
+            maintainerAttestation,
+            key,
+          ),
+        'Review attestation does not bind the verified response and record',
+      );
+    }
     if (record.disposition !== 'accepted') continue;
     assert(
       record.exposure === 'none' ||
@@ -202,14 +261,21 @@ export function verifyReviewManifest(input: unknown): RepositoryReview {
 
 export async function loadRepositoryReview(): Promise<RepositoryReview> {
   const [worksheet, ledger] = await Promise.all([
-    readFile('fixtures/external/BLIND-REVIEW.md'),
-    readFile('fixtures/external/repository-review.json', 'utf8'),
+    readFile('fixtures/external/BLIND-REVIEW-v2.md'),
+    readFile('fixtures/external/repository-review-v2.json', 'utf8'),
   ]);
   const review = verifyReviewManifest(JSON.parse(ledger));
   assert.equal(
     hash(worksheet),
     review.freeze.worksheetSha256,
     'Blind review worksheet changed',
+  );
+  assert(
+    review.records.every(
+      ({ disposition, maintainerAttestation }) =>
+        disposition !== 'accepted' || maintainerAttestation !== undefined,
+    ),
+    'Canonical accepted review requires a trusted maintainer attestation',
   );
   return review;
 }

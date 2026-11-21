@@ -1,8 +1,9 @@
 # External semantic evaluation inputs
 
-Use the [source annotation worksheet](BLIND-REVIEW.md) for blinded semantic
-review. [The historical graph packet](GRAPH-REVIEW.md) contains expected answers
-and can be used for reconciliation after the response is frozen.
+Use the [source annotation worksheet v2](BLIND-REVIEW-v2.md) for blinded
+semantic review. [The historical graph packet](GRAPH-REVIEW.md) contains
+expected answers and can be used for reconciliation after the response is
+frozen.
 
 The following source subsets and questions were selected and annotated before
 running CodeThread on them. Codex authored the labels on 2026-11-02 from the
@@ -117,13 +118,15 @@ human review.
 
 ## Closed-owner audit and review ledger
 
-`repository-review.json` freezes the worksheet, repository revisions and
+`repository-review-v2.json` freezes the worksheet, repository revisions and
 verified corpus manifests, pinned compiler context identities, lexical owners
 and source occurrence inventories. The inventory walks source syntax without
 target inference. It records complete call expressions, property or indexed
-access arguments and constructor expressions. Nested function bodies have
+access arguments through transparent parentheses, and constructor expressions.
+The access span excludes enclosing parentheses. Nested function bodies have
 separate ownership. The historical gold digest covers the corrections and all
-denominators. The original annotations are preserved.
+denominators. The original annotations and the [v1 worksheet](BLIND-REVIEW.md)
+and [v1 freeze](repository-review.json) remain available as historical inputs.
 
 The two historical closed owners have five labeled calls. Acceptance compares
 those sites with the independent syntax inventory and looks for every emitted
@@ -141,14 +144,26 @@ exposure. The `exposure` field records `none`, `labels_only`, `predictions` or
 `labels_only` exposure. An accepted response must account for every frozen
 candidate site, with the pinned excerpt and full target anchor for an exact
 answer. Record disagreements and the dated adjudicator decision or retain the
-disputed or excluded disposition. The record SHA-256 covers its schema-ordered
-JSON fields except `recordSha256` and binds the response to the frozen input
-digest. Candidate branches and retained reviewer records provide the audit trail
-for who reviewed the source. Maintainers verify reviewer identity and
-independence from that record.
+disputed or excluded disposition. The record SHA-256 covers the schema-ordered
+JSON fields preceding `recordSha256` and binds the response to the frozen input
+digest.
+
+The canonical ledger requires a trusted maintainer attestation for each accepted
+scope. The maintainer verifies the reviewer's account and independence, prior
+exposure, the dated original response and any adjudication. The repository pins
+maintainer Ed25519 public keys through code review. Use the SHA-256 of the key's
+DER SPKI bytes as `maintainerKeyId`. Sign the compact UTF-8 JSON array
+`["codethread/repository-review/v2", recordSha256, maintainerKeyId, reviewerAccountId, responseSha256, verifiedAt]`.
+Record the numeric account ID as a string, the digest of the retained original
+response, the verification date and the unpadded base64url signature in
+`maintainerAttestation`. The signature authenticates the maintainer's assertion
+and binds it to the source response and record. The maintainer owns the identity
+and exposure verification. The key list starts empty pending that review.
 
 The existing `pnpm eval:external` report includes both the historical
-engineering assertions and a separate review assessment. Exact precision uses
+engineering assertions and a separate review assessment. The in-memory scorer
+can exercise complete synthetic records with `unattested` provenance. Those
+records contribute zero to the independent review counts. Exact precision uses
 correct exact claims divided by distinct emitted exact claims in a complete,
 valid reviewed scope. Recall uses the same numerator over eligible annotated
 exact sites in that scope. A wrong exact claim can both increase the wrong count

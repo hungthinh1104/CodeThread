@@ -14,6 +14,22 @@ import type {
 import type { WorkerOutput } from './protocol.js';
 import { hash, identity } from './identity.js';
 
+type ReferenceArgument =
+  ts.PropertyAccessExpression | ts.ElementAccessExpression;
+
+function referenceArgument(
+  expression: ts.Expression,
+): ReferenceArgument | undefined {
+  while (ts.isParenthesizedExpression(expression))
+    expression = expression.expression;
+  if (
+    ts.isPropertyAccessExpression(expression) ||
+    ts.isElementAccessExpression(expression)
+  )
+    return expression;
+  return undefined;
+}
+
 export function extractFacts(
   program: ts.Program,
   base: AnalysisFacts,
@@ -65,8 +81,7 @@ export function extractFacts(
       if (ts.isCallExpression(node))
         for (const argument of node.arguments)
           if (
-            (ts.isPropertyAccessExpression(argument) ||
-              ts.isElementAccessExpression(argument)) &&
+            referenceArgument(argument) &&
             ++referenceCandidateCount > limits.maxReferenceSites
           )
             return {
@@ -333,7 +348,7 @@ export function extractFacts(
   for (const file of sourceFiles) {
     const source = files.get(file.fileName)!;
     function addReference(
-      node: ts.Expression,
+      node: ReferenceArgument,
       owner: CodeSymbol | undefined,
     ): void {
       const site = evidence(file, node.getStart(file), node.end);
@@ -346,8 +361,6 @@ export function extractFacts(
       let methodDeclarations: ts.MethodDeclaration[] = [];
       if (ts.isElementAccessExpression(node)) {
         code = 'REFERENCE_COMPUTED_UNSUPPORTED';
-      } else if (!ts.isPropertyAccessExpression(node)) {
-        code = 'REFERENCE_SYNTAX_UNSUPPORTED';
       } else if (node.questionDotToken) {
         code = 'REFERENCE_OPTIONAL_UNSUPPORTED';
       } else {
@@ -686,11 +699,8 @@ export function extractFacts(
           eligible: status !== 'unsupported',
         });
         for (const argument of node.arguments) {
-          if (
-            ts.isPropertyAccessExpression(argument) ||
-            ts.isElementAccessExpression(argument)
-          )
-            addReference(argument, inheritedReferenceOwner);
+          const access = referenceArgument(argument);
+          if (access) addReference(access, inheritedReferenceOwner);
         }
       }
       if (ts.isFunctionLike(node)) {
@@ -874,14 +884,13 @@ function collectSemanticDiagnosticFiles(
       if (ts.isCallExpression(node)) {
         if (callOwner) addDirectTarget(file, node.expression);
         if (referenceOwner)
-          for (const argument of node.arguments)
-            if (
-              ts.isPropertyAccessExpression(argument) ||
-              ts.isElementAccessExpression(argument)
-            ) {
+          for (const argument of node.arguments) {
+            const access = referenceArgument(argument);
+            if (access) {
               add(file);
-              addReferenceTarget(file, argument);
+              addReferenceTarget(file, access);
             }
+          }
       }
       if (ts.isFunctionLike(node)) {
         const functionOwner =

@@ -266,14 +266,14 @@ export function evaluateRepositorySession(
     const reviewed = response
       ? auditScope(scope, reviewedCases, context, true)
       : null;
-    const independentIssues = reviewed
+    const reviewIssues = reviewed
       ? [...reviewedCases.flatMap(labelFailures), ...reviewed.failures]
       : [];
-    reviewFailures.push(...independentIssues);
+    reviewFailures.push(...reviewIssues);
     const valid =
       intakeValid &&
       reviewed &&
-      !independentIssues.some(
+      !reviewIssues.some(
         ({ code }) =>
           code === 'identity_mismatch' || code === 'invalid_projection',
       );
@@ -284,8 +284,13 @@ export function evaluateRepositorySession(
       occurrences: scope.occurrences,
       historicalCallClosure: historical,
       review: scope.record ?? null,
+      reviewProvenance: response?.maintainerAttestation
+        ? 'maintainer_attested'
+        : response
+          ? 'unattested'
+          : 'none',
       reviewed,
-      reviewedIssues: countGoldIssues(independentIssues),
+      reviewedIssues: countGoldIssues(reviewIssues),
       precision: valid
         ? scopedRatio(reviewed.correctExact, reviewed.observedExact)
         : null,
@@ -296,12 +301,18 @@ export function evaluateRepositorySession(
   });
   const history = summarizeChecks(cases, unexpectedIds);
   const rawCounts = observationCounts(session);
+  const attestedScopes = scopes.filter(
+    (scope) => scope.accepted?.maintainerAttestation,
+  );
+  const unattestedScopes = scopes.filter(
+    (scope) => scope.accepted && !scope.accepted.maintainerAttestation,
+  );
   const countReviewed = (method: 'review_existing' | 'blind_authored') =>
-    scopes
+    attestedScopes
       .filter((scope) => scope.accepted?.method === method)
       .reduce((count, scope) => count + scope.accepted!.answers.length, 0);
   const scoredKeys = new Set(labels.map(occurrenceKey));
-  const reviewedExistingCases = scopes
+  const reviewedExistingCases = attestedScopes
     .filter((scope) => scope.accepted?.method === 'review_existing')
     .flatMap((scope) =>
       scope.accepted!.answers.map((answer) =>
@@ -338,8 +349,13 @@ export function evaluateRepositorySession(
       existingReviewSupplementalCases:
         countReviewed('review_existing') - reviewedExistingCases,
       unreviewedHistoricalCases: labels.length - reviewedExistingCases,
+      unattestedAcceptedScopes: unattestedScopes.length,
+      unattestedAcceptedCases: unattestedScopes.reduce(
+        (count, scope) => count + scope.accepted!.answers.length,
+        0,
+      ),
       blindHumanAuthoredCases: countReviewed('blind_authored'),
-      previouslyExposedReviewedCases: scopes
+      previouslyExposedReviewedCases: attestedScopes
         .filter((scope) => scope.accepted?.exposure === 'labels_only')
         .reduce((count, scope) => count + scope.accepted!.answers.length, 0),
       pendingScopes: scopes.filter((scope) => !scope.record).length,
@@ -378,7 +394,7 @@ export function evaluateRepositorySession(
       failures: [...failures, ...reviewFailures],
     },
     interpretation:
-      'Historical AI-authored engineering assertions and independent review are separate. Valid completed review scopes report exact-claim precision and recall. Raw call observations outside the historical labels are not correct negatives.',
+      'Exact-claim precision and recall describe each valid scope and its review provenance. Independent counts require a trusted maintainer attestation. Raw call observations outside the historical labels are unscored.',
   };
 }
 

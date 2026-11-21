@@ -592,6 +592,112 @@ describe('whole-repository source-pinned acceptance', () => {
     ).toThrow(/Reviewed denominator does not cover the complete owner/);
   });
 
+  it('scores a complete synthetic review without granting human provenance', () => {
+    const { corpus, gold, review, session } = evaluated.get('ufo')!;
+    const scope = review.freeze.scopes.find(
+      ({ id }) => id === 'ufo-with-query',
+    )!;
+    const inventory = inventoryGoldOwner(corpus, scope.owner);
+    const expectedTargets = new Map([
+      ['parseURL(input)', 'parseURL'],
+      ['parseQuery(parsed.search)', 'parseQuery'],
+      ['stringifyQuery(mergedQuery)', 'stringifyQuery'],
+      ['stringifyParsedURL(parsed)', 'stringifyParsedURL'],
+    ]);
+    const answers = inventory.sites.map(({ kind, site }) => {
+      const excerpt = pinnedSourceExcerpt(corpus, site);
+      const expression = expectedTargets.get(excerpt);
+      const target =
+        gold.labels.find(
+          (label) =>
+            label.repository === 'ufo' && label.expression === expression,
+        )?.target ?? null;
+      return {
+        site,
+        excerpt,
+        kind,
+        direction: target ? ('owner_to_target' as const) : null,
+        status: target ? ('exact' as const) : ('absent' as const),
+        target,
+        rationale: 'Synthetic scorer control from pinned source expressions.',
+      };
+    });
+    expect(answers.map(({ excerpt, status }) => [excerpt, status])).toEqual([
+      ['parseURL(input)', 'exact'],
+      ['parseQuery(parsed.search)', 'exact'],
+      ['parsed.search', 'absent'],
+      ['stringifyQuery(mergedQuery)', 'exact'],
+      ['stringifyParsedURL(parsed)', 'exact'],
+    ]);
+    function acceptedLedger(responses: typeof answers) {
+      const record = {
+        scopeId: scope.id,
+        frozenInputSha256: review.frozenInputSha256,
+        reviewerAlias: 'synthetic-scorer-control',
+        reviewerDidNotAuthorLabels: true as const,
+        reviewedAt: review.freeze.frozenAt,
+        method: 'blind_authored' as const,
+        exposure: 'none' as const,
+        disposition: 'accepted' as const,
+        answers: responses,
+        disagreements: [],
+        adjudication: null,
+      };
+      return {
+        ...review,
+        records: [
+          {
+            ...record,
+            recordSha256: createHash('sha256')
+              .update(JSON.stringify(record))
+              .digest('hex'),
+          },
+        ],
+      };
+    }
+    const accepted = evaluateRepositorySession(
+      session,
+      corpus,
+      gold,
+      acceptedLedger(answers),
+    );
+    expect(accepted.gate.passed).toBe(true);
+    expect(accepted.semanticAudit).toMatchObject({
+      blindHumanAuthoredCases: 0,
+      unattestedAcceptedScopes: 1,
+      unattestedAcceptedCases: 5,
+      scopes: [
+        {
+          reviewProvenance: 'unattested',
+          reviewed: { correctExact: 4, expectedExact: 4, observedExact: 4 },
+          precision: { numerator: 4, denominator: 4, value: 1 },
+          recall: { numerator: 4, denominator: 4, value: 1 },
+        },
+        { reviewProvenance: 'none' },
+      ],
+    });
+
+    const wrongTarget = answers.map((answer) =>
+      answer.excerpt === 'parseURL(input)'
+        ? { ...answer, target: answers[1]!.target }
+        : answer,
+    );
+    const wrong = evaluateRepositorySession(
+      session,
+      corpus,
+      gold,
+      acceptedLedger(wrongTarget),
+    );
+    expect(wrong.gate.passed).toBe(false);
+    expect(wrong.semanticAudit.scopes[0]).toMatchObject({
+      precision: { numerator: 3, denominator: 4, value: 0.75 },
+      recall: { numerator: 3, denominator: 4, value: 0.75 },
+      reviewed: { correctExact: 3, expectedExact: 4, observedExact: 4 },
+      reviewedIssues: { wrong_target: 1 },
+    });
+    expect(wrong.counts).toEqual(accepted.counts);
+  });
+
   it('inventories both same-start calls and keeps nested function sites outside the owner', () => {
     const { corpus } = evaluated.get('ufo')!;
     const source = [

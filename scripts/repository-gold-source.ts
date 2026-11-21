@@ -105,6 +105,19 @@ export function verifyGoldDeclarationAnchor(
   pinnedDeclaration(corpus, declaration);
 }
 
+function isCallArgumentAccess(node: ts.Node): boolean {
+  if (
+    !ts.isPropertyAccessExpression(node) &&
+    !ts.isElementAccessExpression(node)
+  )
+    return false;
+  let argument: ts.Expression = node;
+  while (ts.isParenthesizedExpression(argument.parent))
+    argument = argument.parent;
+  const parent = argument.parent;
+  return ts.isCallExpression(parent) && parent.arguments.includes(argument);
+}
+
 /** Syntax inventory only. No checker, extraction results, or target inference. */
 export function inventoryGoldOwner(
   corpus: RepositoryCorpus,
@@ -135,15 +148,8 @@ export function inventoryGoldOwner(
       nestedOwners.push({ start: node.getStart(syntax), end: node.end });
       return;
     }
-    if (ts.isCallExpression(node)) {
-      record(node, 'calls');
-      for (const argument of node.arguments)
-        if (
-          ts.isPropertyAccessExpression(argument) ||
-          ts.isElementAccessExpression(argument)
-        )
-          record(argument, 'references');
-    }
+    if (ts.isCallExpression(node)) record(node, 'calls');
+    if (isCallArgumentAccess(node)) record(node, 'references');
     if (ts.isNewExpression(node)) record(node, 'constructs');
     ts.forEachChild(node, visit);
   }
