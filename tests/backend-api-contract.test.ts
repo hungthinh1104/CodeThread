@@ -275,6 +275,72 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
       await rm(directory, { recursive: true, force: true });
   });
 
+  it('shares one viewer across concurrent opens of the same scan and recovers capacity', async () => {
+    const open = (id: string) =>
+      request('/v1/scans/' + id + '/viewer', { method: 'POST' });
+    const responses = await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        open(index % 2 ? context.scanId.toUpperCase() : context.scanId),
+      ),
+    );
+    expect(responses.map(({ status }) => status)).toEqual([
+      200, 200, 200, 200, 200,
+    ]);
+    const viewersByOpen = await Promise.all(
+      responses.map((response) => response.json()),
+    );
+    const first = viewersByOpen[0];
+    expect(viewersByOpen).toEqual(Array.from({ length: 5 }, () => first));
+
+    const laterJobs: string[] = [];
+    const capacityFixture = await createGitRepository(
+      [{ path: 'index.ts', source: backendContractSource }],
+      temporaryDirectories,
+    );
+    const capacityRepository = await service!.register(
+      capacityFixture.directory,
+    );
+    for (let index = 0; index < 4; index++) {
+      const scan = await service!.accept(
+        capacityRepository.id,
+        capacityFixture.revision,
+        randomUUID(),
+      );
+      const deadline = Date.now() + 30_000;
+      for (;;) {
+        const { state } = await service!.job(scan.id);
+        if (state === 'succeeded') break;
+        if (
+          state === 'failed' ||
+          state === 'cancelled' ||
+          Date.now() >= deadline
+        )
+          throw new Error('Viewer capacity fixture scan ended in ' + state);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      laterJobs.push(scan.id);
+    }
+    try {
+      const distinctViewers = new Set([first.url]);
+      for (const id of laterJobs.slice(0, 3)) {
+        const opened = await open(id);
+        expect(opened.status).toBe(200);
+        distinctViewers.add((await opened.json()).url);
+      }
+      expect(distinctViewers.size).toBe(4);
+      const lastJob = laterJobs[3]!;
+      const full = await open(lastJob);
+      expect(full.status).toBe(429);
+      expect(await full.json()).toMatchObject({
+        error: { code: 'VIEWER_CAPACITY' },
+      });
+      await viewers!.closeAll();
+      expect((await open(lastJob)).status).toBe(200);
+    } finally {
+      await viewers!.closeAll();
+    }
+  }, 60_000);
+
   for (const testCase of backendApiContractCases) {
     it(
       `${testCase.route} returns its valid public response`,

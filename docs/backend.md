@@ -215,7 +215,9 @@ acceptance; this candidate does not return 201 or 202.
 The viewer adapter reconstructs the existing viewer from persisted data. It does
 not send the backend bearer token to browser JavaScript. The viewer gets a
 separate short-lived loopback token in its URL fragment; the server limits at
-most four active viewers and closes each session after 30 minutes.
+most four active scan viewers and closes each viewer after 30 minutes. Reopening
+a retained scan shares its listener and original expiry. Closing a browser tab
+leaves the session available to other tabs until it expires.
 
 ## Retention and backup
 
