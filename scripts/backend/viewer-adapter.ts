@@ -17,8 +17,7 @@ const MAX_VIEWERS = 4;
 const VIEWER_TTL_MS = 30 * 60 * 1000;
 
 export class PersistentViewerManager {
-  private readonly active = new Set<ActiveViewer>();
-  private opening = 0;
+  private readonly active = new Map<string, Promise<ActiveViewer>>();
   private readonly db: Database;
 
   constructor(db: Database) {
@@ -26,53 +25,82 @@ export class PersistentViewerManager {
   }
 
   async open(jobId: string): Promise<{ url: string; expiresAt: string }> {
-    if (this.active.size + this.opening >= MAX_VIEWERS)
-      throw new ServiceError(
-        429,
-        'VIEWER_CAPACITY',
-        'Close an existing local viewer before opening another.',
-      );
-    this.opening++;
-    try {
-      let session;
+    const scanId = jobId.toLowerCase();
+    const existing = this.active.get(scanId);
+    let viewer: ActiveViewer;
+    if (existing) {
+      viewer = await existing;
+      const [retained] = await this.db`SELECT id FROM codethread.scan_job
+        WHERE id=${scanId} AND state='succeeded'`;
+      if (!retained) throw new ServiceError(404, 'NOT_FOUND', 'Scan not found');
+    } else {
+      if (this.active.size >= MAX_VIEWERS)
+        throw new ServiceError(
+          429,
+          'VIEWER_CAPACITY',
+          'Too many scan viewers are active. Retry after a viewer expires.',
+        );
+      const opening: Promise<ActiveViewer> = this.startViewer(scanId, () => {
+        if (this.active.get(scanId) === opening) this.active.delete(scanId);
+      });
+      this.active.set(scanId, opening);
       try {
-        session = await loadRepositorySession(this.db, jobId);
+        viewer = await opening;
       } catch (error) {
-        if (error instanceof RepositorySessionUnavailableError)
-          throw new ServiceError(
-            error.reason === 'not_found' ? 404 : 409,
-            error.reason === 'not_found' ? 'NOT_FOUND' : 'VIEWER_NOT_READY',
-            error.message,
-          );
+        if (this.active.get(scanId) === opening) this.active.delete(scanId);
         throw error;
       }
-      const handle = await createRepositoryViewer(session),
-        expiresAt = Date.now() + VIEWER_TTL_MS;
-      const active: ActiveViewer = {
-        handle,
-        expiresAt,
-        timer: setTimeout(() => {
-          void handle
-            .close()
-            .catch(() => {})
-            .finally(() => this.active.delete(active));
-        }, VIEWER_TTL_MS),
-      };
-      active.timer.unref();
-      this.active.add(active);
-      return { url: handle.url, expiresAt: new Date(expiresAt).toISOString() };
-    } finally {
-      this.opening--;
     }
+    if (Date.now() >= viewer.expiresAt)
+      throw new ServiceError(
+        409,
+        'VIEWER_NOT_READY',
+        'The viewer is expiring. Retry shortly.',
+      );
+    return {
+      url: viewer.handle.url,
+      expiresAt: new Date(viewer.expiresAt).toISOString(),
+    };
+  }
+
+  private async startViewer(
+    jobId: string,
+    remove: () => void,
+  ): Promise<ActiveViewer> {
+    let session;
+    try {
+      session = await loadRepositorySession(this.db, jobId);
+    } catch (error) {
+      if (error instanceof RepositorySessionUnavailableError)
+        throw new ServiceError(
+          error.reason === 'not_found' ? 404 : 409,
+          error.reason === 'not_found' ? 'NOT_FOUND' : 'VIEWER_NOT_READY',
+          error.message,
+        );
+      throw error;
+    }
+    const handle = await createRepositoryViewer(session);
+    const expiresAt = Date.now() + VIEWER_TTL_MS;
+    const timer = setTimeout(() => {
+      void handle
+        .close()
+        .catch(() => {})
+        .finally(remove);
+    }, VIEWER_TTL_MS);
+    timer.unref();
+    return { handle, expiresAt, timer };
   }
 
   async closeAll(): Promise<void> {
-    const viewers = [...this.active];
+    const viewers = [...this.active.values()];
     this.active.clear();
     await Promise.all(
-      viewers.map(async ({ handle, timer }) => {
-        clearTimeout(timer);
-        await handle.close();
+      viewers.map(async (opening) => {
+        const viewer = await opening.catch(() => null);
+        if (viewer) {
+          clearTimeout(viewer.timer);
+          await viewer.handle.close();
+        }
       }),
     );
   }

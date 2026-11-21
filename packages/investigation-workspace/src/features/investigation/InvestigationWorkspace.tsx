@@ -140,6 +140,44 @@ function evidenceId(item: EvidenceProjection['items'][number]): string {
   return item.status === 'available' ? item.evidence.id : item.evidenceId;
 }
 
+async function readEvidence(id: string, scope: Scope) {
+  const response = await readViewer<ApiResponse<EvidenceProjection>>(
+    scope.scanId,
+    'evidence',
+    {
+      projectId: scope.projectId,
+      request: { snapshotId: scope.snapshotId, evidenceIds: [id] },
+    },
+  );
+  const item = unwrapScoped(response, scope).items.find(
+    (candidate) => evidenceId(candidate) === id,
+  );
+  if (!item)
+    throw new ApiFailure(502, {
+      error: {
+        code: 'WORKSPACE_EVIDENCE_MISSING',
+        message:
+          'The validated evidence response omitted the requested identity.',
+      },
+    });
+  return item;
+}
+
+function projectScope(
+  projectId: string,
+  workspace: WorkspaceMetadata | null,
+  projects: ProjectContexts | null,
+): Scope | null {
+  const project = projects?.items.find((item) => item.id === projectId);
+  if (!workspace || project?.status !== 'ready' || !project.snapshotId)
+    return null;
+  return {
+    scanId: workspace.scanId,
+    projectId,
+    snapshotId: project.snapshotId,
+  };
+}
+
 function emptySearchState(): SearchState {
   return { items: [], offset: 0, total: 0, nextOffset: null };
 }
@@ -160,7 +198,10 @@ export function InvestigationWorkspace() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [files, setFiles] = useState<FilePage | null>(null);
   const [filesLoading, setFilesLoading] = useState(false);
-  const [filesError, setFilesError] = useState<string | null>(null);
+  const [filesError, setFilesError] = useState<{
+    offset: number;
+    message: string;
+  } | null>(null);
   const [selected, setSelected] = useState<CodeSymbol | null>(null);
   const [graph, setGraph] = useState<GraphProjection | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
@@ -380,23 +421,18 @@ export function InvestigationWorkspace() {
     projectId: string,
     metadata = workspace,
     contexts = projects,
-    historyMode: 'push' | 'replace' | 'none' = 'push',
+    historyMode: 'push' | 'replace' = 'push',
   ): Promise<Scope | null> {
     if (!metadata || !contexts) return null;
-    const project = contexts.items.find((item) => item.id === projectId);
-    if (!project || project.status !== 'ready' || !project.snapshotId) {
+    const scope = projectScope(projectId, metadata, contexts);
+    if (!scope) {
       reportWorkspaceError(
         'Only a ready project context with a published snapshot can be selected.',
       );
       return null;
     }
-    if (historyMode !== 'none') ++navigationRestoreGeneration.current;
+    ++navigationRestoreGeneration.current;
     const generation = resetProject(projectId);
-    const scope = {
-      scanId: metadata.scanId,
-      projectId,
-      snapshotId: project.snapshotId,
-    };
     try {
       const projection = await readSession(scope);
       if (generation !== contextGeneration.current) return null;
@@ -412,7 +448,7 @@ export function InvestigationWorkspace() {
         view: 'source',
       };
       if (historyMode === 'replace') resetNavigation(entry);
-      else if (historyMode === 'push') pushNavigation(entry);
+      else pushNavigation(entry);
       return scope;
     } catch (error) {
       if (generation === contextGeneration.current)
@@ -474,30 +510,13 @@ export function InvestigationWorkspace() {
     setSelectedRelationId(relationId);
     setEvidence(null);
     try {
-      const response = await readViewer<ApiResponse<EvidenceProjection>>(
-        scope.scanId,
-        'evidence',
-        {
-          projectId: scope.projectId,
-          request: { snapshotId: scope.snapshotId, evidenceIds: [id] },
-        },
-      );
-      const projection = unwrapScoped(response, scope);
+      const item = await readEvidence(id, scope);
       if (
         generation !== evidenceGeneration.current ||
         scopeRef.current?.projectId !== scope.projectId ||
         scopeRef.current?.snapshotId !== scope.snapshotId
       )
         return;
-      const item = projection.items.find(
-        (candidate) => evidenceId(candidate) === id,
-      );
-      if (!item) {
-        setEvidenceError(
-          'The validated evidence response omitted the requested identity.',
-        );
-        return;
-      }
       setEvidence(item);
     } catch (error) {
       if (generation === evidenceGeneration.current)
@@ -507,13 +526,89 @@ export function InvestigationWorkspace() {
     }
   }
 
+  async function openScopedDeclaration(
+    scope: Scope,
+    symbolId: string,
+    generation: number,
+    reportError: (message: string | null) => void,
+  ): Promise<boolean> {
+    const contextAtStart = contextGeneration.current;
+    const isCurrent = () =>
+      generation === selectionGeneration.current &&
+      contextAtStart === contextGeneration.current;
+    const current = scopeRef.current;
+    const changesProject =
+      scope.scanId !== current?.scanId ||
+      scope.projectId !== current.projectId ||
+      scope.snapshotId !== current.snapshotId;
+    reportError(null);
+    try {
+      const destination = changesProject ? await readSession(scope) : session;
+      if (!destination || !isCurrent()) return false;
+      const projection = await readGraph(
+        symbolId,
+        scope,
+        relationKinds,
+        direction,
+      );
+      if (!isCurrent()) return false;
+      const root = projection.graph.symbols.find(
+        (symbol) =>
+          symbol.id === symbolId && symbol.snapshotId === scope.snapshotId,
+      );
+      if (!root || projection.graph.rootSymbolId !== symbolId) {
+        reportError(
+          'The destination query did not return the verified declaration.',
+        );
+        return false;
+      }
+      const declaration = await readEvidence(root.declarationEvidenceId, scope);
+      if (!isCurrent()) return false;
+      if (changesProject) {
+        resetProject(scope.projectId);
+        scopeRef.current = scope;
+        setSession(destination);
+      } else {
+        clearSelection();
+      }
+      setSelected(root);
+      setGraph(projection);
+      setEvidence(declaration);
+      requestedEvidenceId.current = root.declarationEvidenceId;
+      pushNavigation({
+        ...scope,
+        root,
+        relationKinds,
+        direction,
+        selectedRelationId: null,
+        selectedEvidenceId: root.declarationEvidenceId,
+        view: 'source',
+      });
+      return true;
+    } catch (error) {
+      if (isCurrent()) reportError(errorMessage(error));
+      return false;
+    }
+  }
+
+  function focusSelectedDeclaration(generation: number) {
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      window.requestAnimationFrame(() => {
+        if (generation !== selectionGeneration.current) return;
+        const heading = workspaceHeadingRef.current;
+        heading?.focus({ preventScroll: true });
+        heading?.closest('main')?.scrollIntoView({ block: 'start' });
+      });
+    }
+  }
+
   async function chooseSymbol(item: SearchItem) {
     const generation = ++selectionGeneration.current;
-    let scope = scopeRef.current;
-    if (scope?.projectId !== item.projectId) {
-      scope = await selectProject(item.projectId, workspace, projects, 'none');
-      if (!scope || generation !== selectionGeneration.current) return;
-    }
+    const active = scopeRef.current;
+    const scope =
+      active?.projectId === item.projectId
+        ? active
+        : projectScope(item.projectId, workspace, projects);
     if (
       !scope ||
       scope.projectId !== item.projectId ||
@@ -523,6 +618,18 @@ export function InvestigationWorkspace() {
       reportWorkspaceError(
         'The selected symbol does not match the active snapshot identity.',
       );
+      return;
+    }
+    if (scope !== active) {
+      if (
+        await openScopedDeclaration(
+          scope,
+          item.symbol.id,
+          generation,
+          reportWorkspaceError,
+        )
+      )
+        focusSelectedDeclaration(generation);
       return;
     }
     setSelected(item.symbol);
@@ -543,14 +650,7 @@ export function InvestigationWorkspace() {
     pushNavigation(entry);
     void loadGraph(item.symbol, scope, relationKinds, direction);
     void loadEvidence(item.symbol.declarationEvidenceId, scope);
-    if (window.matchMedia('(max-width: 760px)').matches) {
-      window.requestAnimationFrame(() => {
-        if (generation !== selectionGeneration.current) return;
-        const heading = workspaceHeadingRef.current;
-        heading?.focus({ preventScroll: true });
-        heading?.closest('main')?.scrollIntoView({ block: 'start' });
-      });
-    }
+    focusSelectedDeclaration(generation);
   }
 
   async function chooseFile(file: FilePage['items'][number]) {
@@ -725,70 +825,19 @@ export function InvestigationWorkspace() {
     candidate: FollowContextProjection['candidates'][number],
   ) {
     const generation = ++selectionGeneration.current;
-    const context = projects?.items.find(
-      (item) => item.id === candidate.projectId,
-    );
-    if (
-      !context ||
-      context.status !== 'ready' ||
-      context.snapshotId !== candidate.snapshotId
-    ) {
+    const scope = projectScope(candidate.projectId, workspace, projects);
+    if (!scope || scope.snapshotId !== candidate.snapshotId) {
       setContextSearchMessage(
         'The destination context is no longer ready or its snapshot identity changed.',
       );
       return;
     }
-    if (candidate.projectId !== scopeRef.current?.projectId) {
-      const scope = await selectProject(
-        candidate.projectId,
-        workspace,
-        projects,
-        'none',
-      );
-      if (!scope) return;
-    }
-    if (generation !== selectionGeneration.current) return;
-    const scope = scopeRef.current;
-    if (
-      !scope ||
-      scope.projectId !== candidate.projectId ||
-      scope.snapshotId !== candidate.snapshotId
-    ) {
-      setContextSearchMessage(
-        'The selected context does not match the verified declaration snapshot.',
-      );
-      return;
-    }
-    const projection = await loadGraph(
-      candidate.symbolId,
+    await openScopedDeclaration(
       scope,
-      relationKinds,
-      direction,
+      candidate.symbolId,
+      generation,
+      setContextSearchMessage,
     );
-    if (generation !== selectionGeneration.current) return;
-    const root = projection?.graph.symbols.find(
-      (symbol) => symbol.id === candidate.symbolId,
-    );
-    if (!root) {
-      setContextSearchMessage(
-        'The destination query did not return the verified declaration.',
-      );
-      return;
-    }
-    setSelected(root);
-    setActiveView('source');
-    setContextCandidates([]);
-    setContextSearchMessage(null);
-    pushNavigation({
-      ...scope,
-      root,
-      relationKinds,
-      direction,
-      selectedRelationId: null,
-      selectedEvidenceId: root.declarationEvidenceId,
-      view: 'source',
-    });
-    void loadEvidence(root.declarationEvidenceId, scope);
   }
 
   async function changeFilters(
@@ -964,7 +1013,7 @@ export function InvestigationWorkspace() {
       })
       .catch((error: unknown) => {
         if (generation === fileGeneration.current)
-          setFilesError(errorMessage(error));
+          setFilesError({ offset: 0, message: errorMessage(error) });
       })
       .finally(() => {
         if (generation === fileGeneration.current) setFilesLoading(false);
@@ -1126,7 +1175,7 @@ export function InvestigationWorkspace() {
       }
     } catch (error) {
       if (generation === fileGeneration.current)
-        setFilesError(errorMessage(error));
+        setFilesError({ offset, message: errorMessage(error) });
     } finally {
       if (generation === fileGeneration.current) setFilesLoading(false);
     }
@@ -1145,7 +1194,7 @@ export function InvestigationWorkspace() {
   }
 
   function retryFiles() {
-    void chooseFilesPage(files?.offset ?? 0);
+    if (filesError) void chooseFilesPage(filesError.offset);
   }
 
   function retrySearch() {
@@ -1260,7 +1309,7 @@ export function InvestigationWorkspace() {
           onChooseSymbol={(item) => void chooseSymbol(item)}
           files={files}
           filesLoading={filesLoading}
-          filesError={filesError}
+          filesError={filesError?.message ?? null}
           onRetryFiles={retryFiles}
           onFilesPage={(offset) => void chooseFilesPage(offset)}
           onChooseFile={(file) => void chooseFile(file)}

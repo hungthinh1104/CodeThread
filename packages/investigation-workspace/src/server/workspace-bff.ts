@@ -378,7 +378,7 @@ export async function openWorkspace(
     throw new WorkspaceBffError(
       429,
       'WORKSPACE_CAPACITY',
-      'Close or wait for an existing local workspace to expire.',
+      'Too many local workspace sessions are active. Retry after a session expires.',
     );
   const scan = (await backendRequest(
     'GET /v1/scans/:id',
