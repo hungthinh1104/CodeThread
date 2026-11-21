@@ -361,7 +361,7 @@ export function extractFacts(
       let methodDeclarations: ts.MethodDeclaration[] = [];
       if (ts.isElementAccessExpression(node)) {
         code = 'REFERENCE_COMPUTED_UNSUPPORTED';
-      } else if (node.questionDotToken) {
+      } else if (ts.isPropertyAccessChain(node)) {
         code = 'REFERENCE_OPTIONAL_UNSUPPORTED';
       } else {
         member = checker.getSymbolAtLocation(node.name);
@@ -859,7 +859,7 @@ function collectSemanticDiagnosticFiles(
   function addReferenceTarget(file: ts.SourceFile, expression: ts.Expression) {
     if (
       !ts.isPropertyAccessExpression(expression) ||
-      expression.questionDotToken
+      ts.isPropertyAccessChain(expression)
     )
       return;
     const declarations =

@@ -109,4 +109,53 @@ describe('method-shaped arguments through transparent parentheses', () => {
       'router["remove"]',
     ]);
   });
+
+  it('keeps chained optional access unsupported with and without parentheses', async () => {
+    const source = Buffer.from(
+      text +
+        '\n' +
+        [
+          'declare const maybe: { current: Router } | null;',
+          'function accept(handler: (() => number) | undefined) { return handler; }',
+          'export function optional() {',
+          '  accept(maybe?.current.getAll);',
+          '  accept((maybe?.current.getOne));',
+          '}',
+        ].join('\n'),
+    );
+    const { facts, source: retained } = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-000000000076',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path,
+          bytes: source,
+          sha256: createHash('sha256').update(source).digest('hex'),
+        },
+      ],
+    });
+    const owner = facts.symbols.find(({ name }) => name === 'optional');
+    const references = facts.relations.filter(
+      ({ kind, sourceSymbolId }) =>
+        kind === 'references' && sourceSymbolId === owner?.id,
+    );
+    expect(
+      references.map(({ resolution, siteEvidenceId }) => {
+        const evidence = retained.readEvidence(siteEvidenceId);
+        return [
+          evidence.status === 'available' && evidence.text,
+          resolution.status,
+          resolution.targetId,
+        ];
+      }),
+    ).toEqual([
+      ['maybe?.current.getAll', 'unsupported', null],
+      ['maybe?.current.getOne', 'unsupported', null],
+    ]);
+    expect(
+      facts.diagnostics.filter(
+        ({ code }) => code === 'REFERENCE_OPTIONAL_UNSUPPORTED',
+      ),
+    ).toHaveLength(2);
+  });
 });

@@ -46,7 +46,7 @@ it('checks the signature over the exact source response, reviewer and ledger rec
     ]),
   );
   attestation.signature = sign(null, message, privateKey).toString('base64url');
-  const pem = publicKey.export({ type: 'spki', format: 'pem' });
+  const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
   expect(verifyReviewMaintainerSignature(recordSha256, attestation, pem)).toBe(
     true,
   );
