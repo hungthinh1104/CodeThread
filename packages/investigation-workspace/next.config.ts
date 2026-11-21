@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
       }
     : {}),
   poweredByHeader: false,
+  images: { unoptimized: true },
   reactStrictMode: true,
   transpilePackages: ['@codethread/contracts', '@codethread/code-model'],
 };

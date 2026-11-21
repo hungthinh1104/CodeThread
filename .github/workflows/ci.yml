@@ -59,53 +59,63 @@ jobs:
         run: pnpm --silent eval:external
       - name: Dependency security audit (requires advisory service)
         run: pnpm security:check
-      - name: Check out the Workspace design baseline
-        if: >-
-          runner.os == 'Linux' && github.event_name == 'pull_request' &&
-          github.event.pull_request.number == 40 && github.base_ref ==
-          'feat/ct-workspace-design-001a'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: 426baf0cc609eee88f80e6264a1a4f954504394f
-          path: .tooling/workspace-design-baseline
-          persist-credentials: false
-      - name: Capture Workspace fixture evidence
-        if: >-
-          runner.os == 'Linux' && github.event_name == 'pull_request' &&
-          github.event.pull_request.number == 40 && github.base_ref ==
-          'feat/ct-workspace-design-001a'
+      - name: Detect Workspace changes
+        id: workspace-diff
+        if: runner.os == 'Linux' && github.event_name == 'pull_request'
+        shell: bash
         env:
-          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
-          VISUAL_OUTPUT: ${{ runner.temp }}/ct-workspace-design-008
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          status=0
+          git diff --quiet "$BASE_SHA" HEAD -- \
+            packages/investigation-workspace packages/contracts scripts/viewer.css \
+            'scripts/viewer*.ts' 'tests/browser/workspace-*.ts' \
+            pnpm-lock.yaml .github/workflows/ci.yml || status=$?
+          case "$status" in
+            0) echo 'changed=false' >> "$GITHUB_OUTPUT" ;;
+            1) echo 'changed=true' >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+      - name: Capture Workspace fixture evidence
+        if: steps.workspace-diff.outputs.changed == 'true'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          VISUAL_OUTPUT: ${{ runner.temp }}/workspace-visual
           NEXT_TELEMETRY_DISABLED: 1
         run: |
-          git fetch --no-tags --depth=1 origin "$CANDIDATE_SHA"
+          checkout_sha="$(git rev-parse HEAD)"
           baseline='.tooling/workspace-design-baseline'
-          cp tests/browser/workspace-design-evidence.ts tests/browser/workspace-presentation.ts tests/browser/workspace-zoom.ts "$baseline/tests/browser/"
+          git worktree add --detach "$baseline" "$BASE_SHA"
+          cp tests/browser/workspace-design-evidence.ts \
+            tests/browser/workspace-presentation.ts tests/browser/workspace-zoom.ts \
+            "$baseline/tests/browser/"
           (
             cd "$baseline"
             pnpm install --frozen-lockfile
             pnpm build
-            node tests/browser/workspace-design-evidence.ts before "$VISUAL_OUTPUT/before" 426baf0cc609eee88f80e6264a1a4f954504394f
+            node tests/browser/workspace-design-evidence.ts before "$VISUAL_OUTPUT/before" "$BASE_SHA"
             node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/before" before
           )
-          node tests/browser/workspace-design-evidence.ts after "$VISUAL_OUTPUT/after" "$CANDIDATE_SHA"
+          node tests/browser/workspace-design-evidence.ts after "$VISUAL_OUTPUT/after" "$checkout_sha"
           node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/after"
           node tests/browser/workspace-design-evidence.ts compare "$VISUAL_OUTPUT"
+          printf '{"base":"%s","prHead":"%s","checkout":"%s"}\n' \
+            "$BASE_SHA" "$PR_HEAD_SHA" "$checkout_sha" > "$VISUAL_OUTPUT/revisions.json"
       - name: Upload Workspace fixture evidence
-        if: >-
-          runner.os == 'Linux' && github.event_name == 'pull_request' &&
-          github.event.pull_request.number == 40 && github.base_ref ==
-          'feat/ct-workspace-design-001a'
+        if: steps.workspace-diff.outputs.changed == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ct-workspace-design-008
+          name: workspace-visual-${{ github.event.pull_request.head.sha }}
           path: |
-            ${{ runner.temp }}/ct-workspace-design-008/before/*.png
-            ${{ runner.temp }}/ct-workspace-design-008/before/*.json
-            ${{ runner.temp }}/ct-workspace-design-008/after/*.png
-            ${{ runner.temp }}/ct-workspace-design-008/after/*.json
-            ${{ runner.temp }}/ct-workspace-design-008/comparison.json
+            ${{ runner.temp }}/workspace-visual/before/*.png
+            ${{ runner.temp }}/workspace-visual/before/*.json
+            ${{ runner.temp }}/workspace-visual/after/*.png
+            ${{ runner.temp }}/workspace-visual/after/*.json
+            ${{ runner.temp }}/workspace-visual/comparison.json
+            ${{ runner.temp }}/workspace-visual/revisions.json
           if-no-files-found: error
           retention-days: 30
 
