@@ -146,12 +146,13 @@ from the evidence action. The default output is
 `artifacts/ct-workspace-001b/next-app/`.
 
 The Ubuntu pull request job captures fixture evidence when the diff changes
-Workspace sources, shared contracts, viewer sources, visual test helpers, the
-lockfile or the workflow. The `workspace-visual-<pr-head-sha>` artifact contains
-before and after PNGs, tab zoom measurements, and a comparison of geometry,
-request counts and interaction timings. Both captures use the same runner and
-fixture bytes. The artifact records the base SHA, PR head SHA and the exact CI
-checkout used for the candidate. These timings describe the fixture run.
+Workspace sources, shared code model and contracts, viewer sources, visual test
+helpers, the lockfile or the workflow. The `workspace-visual-<pr-head-sha>`
+artifact contains before and after PNGs, tab zoom measurements, and a comparison
+of geometry, request counts and interaction timings. Both captures use the same
+runner and fixture bytes. The artifact records the base SHA, PR head SHA and the
+exact CI checkout used for the candidate. These timings describe the fixture
+run.
 
 Browser regressions cover repository and context switching, catalog/file
 pagination, symbol search, trace filters/direction, exact target following,

@@ -69,7 +69,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE_SHA"
           status=0
           git diff --quiet "$BASE_SHA" HEAD -- \
-            packages/investigation-workspace packages/contracts scripts/viewer.css \
+            packages/investigation-workspace packages/contracts packages/code-model scripts/viewer.css \
             'scripts/viewer*.ts' 'tests/browser/workspace-*.ts' \
             pnpm-lock.yaml .github/workflows/ci.yml || status=$?
           case "$status" in
@@ -86,11 +86,12 @@ jobs:
           VISUAL_OUTPUT: ${{ runner.temp }}/workspace-visual
           NEXT_TELEMETRY_DISABLED: 1
         run: |
-          checkout_sha="$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           baseline='.tooling/workspace-design-baseline'
           git worktree add --detach "$baseline" "$BASE_SHA"
           cp tests/browser/workspace-design-evidence.ts \
             tests/browser/workspace-presentation.ts tests/browser/workspace-zoom.ts \
+            tests/browser/workspace-app.ts \
             "$baseline/tests/browser/"
           (
             cd "$baseline"
@@ -99,11 +100,11 @@ jobs:
             node tests/browser/workspace-design-evidence.ts before "$VISUAL_OUTPUT/before" "$BASE_SHA"
             node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/before" before
           )
-          node tests/browser/workspace-design-evidence.ts after "$VISUAL_OUTPUT/after" "$checkout_sha"
+          node tests/browser/workspace-design-evidence.ts after "$VISUAL_OUTPUT/after" "$GITHUB_SHA"
           node tests/browser/workspace-zoom.ts "$VISUAL_OUTPUT/after"
           node tests/browser/workspace-design-evidence.ts compare "$VISUAL_OUTPUT"
           printf '{"base":"%s","prHead":"%s","checkout":"%s"}\n' \
-            "$BASE_SHA" "$PR_HEAD_SHA" "$checkout_sha" > "$VISUAL_OUTPUT/revisions.json"
+            "$BASE_SHA" "$PR_HEAD_SHA" "$GITHUB_SHA" > "$VISUAL_OUTPUT/revisions.json"
       - name: Upload Workspace fixture evidence
         if: steps.workspace-diff.outputs.changed == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
