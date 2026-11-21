@@ -84,6 +84,15 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
           });
         await waitFor(health, (response) => response.status === 200);
         if (scenario === 'blocked-input') {
+          const [settings] = await runtime.lease.db`
+            SELECT current_setting('statement_timeout') AS statement_timeout,
+                   current_setting('lock_timeout') AS lock_timeout`;
+          expect(settings).toMatchObject({
+            statement_timeout: '1min',
+            lock_timeout: '5s',
+          });
+          // Exercise database-initiated recovery after the readiness deadline.
+          await runtime.lease.db`SET statement_timeout = '20s'`;
           const repo = await runtime.service.register(folder);
           await db.unsafe(`CREATE FUNCTION codethread.readiness_pause() RETURNS trigger LANGUAGE plpgsql AS $$
             BEGIN PERFORM pg_sleep(25); RETURN NEW; END $$`);
@@ -108,7 +117,11 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
             worker: 'unavailable',
             ready: false,
           });
-          await db`SELECT pg_cancel_backend(${worker[0]!.pid})`;
+          await waitFor(
+            () => db`SELECT pid FROM pg_stat_activity WHERE pid=${worker[0]!.pid}
+              AND wait_event='PgSleep'`,
+            (rows) => rows.length === 0,
+          );
           await db.unsafe(
             'DROP TRIGGER readiness_pause ON codethread.scan_input_file',
           );
