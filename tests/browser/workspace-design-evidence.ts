@@ -40,7 +40,7 @@ const fixtures = [
     text: 'export function unicodePath() { return "điều tra"; }\n',
   },
 ];
-const widths = [1440, 1280, 768, 390] as const;
+const widths = [1440, 1280, 1024, 768, 390, 320] as const;
 const themes = ['light', 'dark'] as const;
 const sharedTokens = [
   'canvas',

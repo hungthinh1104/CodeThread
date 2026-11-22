@@ -133,7 +133,7 @@ async function captureStates(
 ): Promise<void> {
   await mkdir(directory, { recursive: true });
   const { context, page } = await openWorkspacePage(browser, origin);
-  const widths = [1440, 1280, 768] as const;
+  const widths = [1440, 1280, 1024, 768, 390, 320] as const;
   const themes = ['light', 'dark'] as const;
   const states = [
     'empty',
@@ -409,6 +409,18 @@ export async function verifyWorkspacePresentation(
         await page.evaluate(() => document.activeElement?.id),
         'inspector-toggle',
       );
+
+      for (const [width, columns] of [
+        [1024, 2],
+        [390, 1],
+        [320, 1],
+      ] as const) {
+        const layout = await layoutAt(page, width);
+        assert.equal(layout.columns.trim().split(/\s+/).length, columns);
+        assert.equal(layout.hasHorizontalOverflow, false);
+        await assertNoHorizontalOverflow(page, width);
+        await waitForCompactInspector(page, width <= 900);
+      }
 
       for (const width of [720, 640, 384]) {
         await layoutAt(page, width);
