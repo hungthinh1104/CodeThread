@@ -1,18 +1,33 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import type { AnalysisFacts, CodeRelation } from '@codethread/code-model';
+import { createSourcePositionIndex } from '@codethread/code-model';
+import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import {
   parseGraphNeighborsResult,
   graphNeighborsRequestSchema,
+  getSourceEvidenceRequestSchema,
+  parseGetSourceEvidenceResult,
 } from '@codethread/contracts';
 import {
   evaluatePinnedRepository,
   evaluateRepositorySession,
 } from '../scripts/eval-repository.ts';
 import {
-  repositoryGoldContext,
+  inspectClosedGoldOwner,
+  symbolMatchesGold,
   validateClosedGoldOwner,
   validateRepositoryGoldLabel,
 } from '../scripts/repository-graph-gold.ts';
+import { repositoryGoldContext } from '../scripts/repository-gold-trace.ts';
 import { validateRepositoryGoldCorrections } from '../scripts/repository-gold-review.ts';
+import {
+  equalGoldRange,
+  inventoryGoldOwner,
+  pinnedSourceExcerpt,
+} from '../scripts/repository-gold-source.ts';
+import { verifyReviewManifest } from '../scripts/repository-review.ts';
 
 type Evaluated = Awaited<ReturnType<typeof evaluatePinnedRepository>>;
 const evaluated = new Map<'ufo' | 'sourcemaps', Evaluated>();
@@ -20,6 +35,55 @@ beforeAll(async () => {
   for (const name of ['ufo', 'sourcemaps'] as const)
     evaluated.set(name, await evaluatePinnedRepository(name));
 }, 120000);
+
+function ufoSubject() {
+  const ground = evaluated.get('ufo')!;
+  const project = ground.session.projects.find(
+    ({ project }) => project.configPath === 'tsconfig.json',
+  )!;
+  const label = ground.gold.labels.find(
+    (item) => item.repository === 'ufo' && item.expression === 'parseURL',
+  )!;
+  const snapshot = project.snapshot!;
+  const facts = structuredClone(snapshot.facts);
+  const evidence = facts.evidenceRefs.find(
+    (item) =>
+      equalGoldRange(item.range, label.site) &&
+      item.contentHash === label.site.sourceSha256,
+  )!;
+  const relation = facts.relations.find(
+    (item) => item.siteEvidenceId === evidence.id,
+  )!;
+  assert(relation.resolution.status === 'exact');
+  const owner = facts.symbols.find(
+    (symbol) => symbol.id === relation.sourceSymbolId,
+  )!;
+  const wrong = facts.symbols.find((symbol) => symbol.name === 'parseQuery')!;
+  assert(label.target && symbolMatchesGold(snapshot, owner, label.owner));
+  assert(relation.resolution.targetId !== wrong.id);
+  return { ground, project, snapshot, facts, evidence, relation, owner, wrong };
+}
+
+type MutationSubject = ReturnType<typeof ufoSubject>;
+function auditFacts(
+  subject: MutationSubject,
+  facts: AnalysisFacts = subject.facts,
+) {
+  const { ground, project, snapshot } = subject;
+  return evaluateRepositorySession(
+    {
+      ...ground.session,
+      projects: ground.session.projects.map((entry) =>
+        entry === project
+          ? { ...entry, snapshot: { ...snapshot, facts } }
+          : entry,
+      ),
+    },
+    ground.corpus,
+    ground.gold,
+    ground.review,
+  );
+}
 
 describe('whole-repository source-pinned acceptance', () => {
   it.each([
@@ -53,6 +117,24 @@ describe('whole-repository source-pinned acceptance', () => {
       expect(result.report.unscoredProjectOccurrences).toBe(
         result.report.rawCounts.projectOccurrences - (labels - excluded),
       );
+      expect(result.report.semanticAudit).toMatchObject({
+        originalAuthor: 'Codex',
+        historicalClosedCases: name === 'ufo' ? 4 : 1,
+        historicalPartialCases: name === 'ufo' ? 0 : 3,
+        reviewedExistingCases: 0,
+        blindHumanAuthoredCases: 0,
+      });
+      expect(
+        result.report.semanticAudit.scopes.map(
+          ({ occurrences }) => occurrences,
+        ),
+      ).toEqual(name === 'ufo' ? [5, 8] : [1]);
+      expect(
+        result.report.semanticAudit.scopes.every(
+          ({ precision, recall, review }) =>
+            precision === null && recall === null && review === null,
+        ),
+      ).toBe(true);
     },
   );
 
@@ -93,6 +175,7 @@ describe('whole-repository source-pinned acceptance', () => {
         empty,
         closed.owner,
         result.gold.labels.filter((label) => label.repository === 'ufo'),
+        inventoryGoldOwner(result.corpus, closed.owner),
       ),
     ).toThrow(/missing or fabricated graph occurrences/);
   });
@@ -160,6 +243,117 @@ describe('whole-repository source-pinned acceptance', () => {
     ).toThrow(/different exact target/);
   });
 
+  it('refuses to verify an exact row when the direct projection exceeded its result budget', () => {
+    const { ground, snapshot } = ufoSubject();
+    const label = ground.gold.labels.find(
+      (entry) => entry.repository === 'ufo' && entry.expression === 'parseURL',
+    )!;
+    const healthy = repositoryGoldContext(snapshot);
+    const truncated = {
+      ...healthy,
+      queries: {
+        ...healthy.queries,
+        neighbors(input: unknown) {
+          const request = graphNeighborsRequestSchema.parse(input);
+          const graph = healthy.queries.neighbors(request);
+          return parseGraphNeighborsResult(request, {
+            ...graph,
+            meta: {
+              ...graph.meta,
+              truncated: true,
+              truncationReasons: ['result_limit'],
+            },
+          });
+        },
+      },
+    };
+    expect(() =>
+      validateRepositoryGoldLabel(truncated, label, ground.corpus),
+    ).toThrow(/exceeded the direct-scope budget/);
+  });
+
+  it('rejects a valid-shaped exact edge emitted only by the kind-specific projection', () => {
+    const { ground, snapshot, owner, relation } = ufoSubject();
+    const label = ground.gold.labels.find(
+      (entry) => entry.repository === 'ufo' && entry.expression === 'parseURL',
+    )!;
+    const healthy = repositoryGoldContext(snapshot);
+    const exact = relation.resolution;
+    assert(exact.status === 'exact');
+    const extra: CodeRelation = {
+      ...relation,
+      id: '80fa9ee6-d6c5-4f05-a223-79bcf217a175',
+      key: 'review-mutation-projection-only',
+      siteEvidenceId: owner.declarationEvidenceId,
+      resolution: {
+        ...exact,
+        evidenceIds: exact.evidenceIds.filter(
+          (id) => id !== relation.siteEvidenceId,
+        ),
+      },
+    };
+    const candidate = {
+      ...healthy,
+      queries: {
+        ...healthy.queries,
+        neighbors(input: unknown) {
+          const request = graphNeighborsRequestSchema.parse(input);
+          const graph = healthy.queries.neighbors(request);
+          if (
+            request.symbolId !== owner.id ||
+            request.direction !== 'outgoing' ||
+            request.relationKinds.length !== 1 ||
+            request.relationKinds[0] !== 'calls'
+          )
+            return graph;
+          return parseGraphNeighborsResult(request, {
+            ...graph,
+            relations: [...graph.relations, extra],
+          });
+        },
+      },
+    };
+    expect(() =>
+      validateRepositoryGoldLabel(candidate, label, ground.corpus),
+    ).toThrow(/emitted an EXACT edge absent from snapshot facts/);
+  });
+
+  it('rejects a verified-text response with substituted extractor provenance', () => {
+    const { ground, snapshot } = ufoSubject();
+    const label = ground.gold.labels.find(
+      (entry) => entry.repository === 'ufo' && entry.expression === 'parseURL',
+    )!;
+    const healthy = repositoryGoldContext(snapshot);
+    const candidate = {
+      ...healthy,
+      queries: {
+        ...healthy.queries,
+        sourceEvidence(input: unknown) {
+          const request = getSourceEvidenceRequestSchema.parse(input);
+          const result = healthy.queries.sourceEvidence(request);
+          const items = result.items.map((item) =>
+            item.status === 'available'
+              ? {
+                  ...item,
+                  evidence: {
+                    ...item.evidence,
+                    extractor: {
+                      ...item.evidence.extractor,
+                      version: 'mutated-provenance',
+                    },
+                  },
+                }
+              : item,
+          );
+          return parseGetSourceEvidenceResult(request, { ...result, items });
+        },
+      },
+    };
+    expect(() =>
+      validateRepositoryGoldLabel(candidate, label, ground.corpus),
+    ).toThrow(/differs from the original source/);
+  });
+
   it('rejects a fabricated complete source selection and missing-context status', () => {
     const result = evaluated.get('sourcemaps')!;
     const missing = {
@@ -173,6 +367,7 @@ describe('whole-repository source-pinned acceptance', () => {
       result.session,
       missing,
       result.gold,
+      result.review,
     );
     expect(omitted.gate.passed).toBe(false);
     expect(
@@ -184,6 +379,7 @@ describe('whole-repository source-pinned acceptance', () => {
       { ...result.session, contextComplete: true },
       result.corpus,
       result.gold,
+      result.review,
     );
     expect(context.gate.passed).toBe(false);
     expect(
@@ -221,5 +417,592 @@ describe('whole-repository source-pinned acceptance', () => {
     expect(() =>
       validateRepositoryGoldCorrections(result.corpus, duplicate),
     ).toThrow(/Duplicate post-prediction correction/);
+  });
+
+  it('refuses to score a rewritten correction denominator', () => {
+    const result = evaluated.get('sourcemaps')!;
+    expect(() =>
+      evaluateRepositorySession(
+        result.session,
+        result.corpus,
+        { ...result.gold, authoredBeforePredictions: true, corrections: [] },
+        result.review,
+      ),
+    ).toThrow(/Historical gold or its correction denominator changed/);
+  });
+
+  it('rejects editing the frozen review denominator or upgrading provenance without a record', () => {
+    const result = evaluated.get('ufo')!;
+    const modified = structuredClone(result.review);
+    modified.freeze.scopes[0]!.occurrences++;
+    expect(() => verifyReviewManifest(modified)).toThrow(
+      /Frozen review input changed/,
+    );
+    const narrowed = structuredClone(result.review);
+    narrowed.freeze.scopes = narrowed.freeze.scopes.filter(
+      (scope) => scope.id !== 'ufo-url-append',
+    );
+    narrowed.frozenInputSha256 = createHash('sha256')
+      .update(JSON.stringify(narrowed.freeze))
+      .digest('hex');
+    expect(() => verifyReviewManifest(narrowed)).toThrow(
+      /does not name the pinned input freeze/,
+    );
+    expect(() =>
+      evaluateRepositorySession(
+        result.session,
+        result.corpus,
+        { ...result.gold, reviewStatus: 'independently_reviewed' as never },
+        result.review,
+      ),
+    ).toThrow(/not_independently_reviewed/);
+    expect(() =>
+      verifyReviewManifest({
+        ...result.review,
+        records: [
+          {
+            scopeId: result.review.freeze.scopes[0]!.id,
+            disposition: 'accepted',
+          },
+        ],
+      }),
+    ).toThrow(/reviewerAlias/);
+  });
+
+  it('rejects attaching the correct snapshot to a different compiler project', () => {
+    const baseline = evaluated.get('ufo')!;
+    const session = {
+      ...baseline.session,
+      projects: baseline.session.projects.map((item) =>
+        item.project.configPath === 'tsconfig.json'
+          ? {
+              ...item,
+              project: {
+                ...item.project,
+                id: 'project:111111111111111111111111',
+              },
+            }
+          : item,
+      ),
+    };
+    const report = evaluateRepositorySession(
+      session,
+      baseline.corpus,
+      baseline.gold,
+      baseline.review,
+    );
+    expect(report.gate.passed).toBe(false);
+    expect(report.gate.failures).toContainEqual(
+      expect.objectContaining({
+        code: 'identity_mismatch',
+        message: expect.stringContaining('Gold project identity differs'),
+      }),
+    );
+  });
+
+  it('rejects a coherent snapshot from another context of the same repository', () => {
+    const { session, corpus, gold, review } = evaluated.get('sourcemaps')!;
+    const foreign = session.projects.find(
+      ({ project }) =>
+        project.configPath === 'packages/trace-mapping/tsconfig.build.json',
+    )!.snapshot!;
+    const altered = {
+      ...session,
+      projects: session.projects.map((item) =>
+        item.project.configPath === 'packages/trace-mapping/tsconfig.json'
+          ? { ...item, snapshot: foreign }
+          : item,
+      ),
+    };
+    const report = evaluateRepositorySession(altered, corpus, gold, review);
+    expect(report.gate.passed).toBe(false);
+    expect(report.gate.failures).toContainEqual(
+      expect.objectContaining({
+        code: 'identity_mismatch',
+        message: expect.stringContaining('another compiler context'),
+      }),
+    );
+  });
+
+  it('keeps a disputed test record out of scoring and rejects retrospective promotion', () => {
+    const baseline = evaluated.get('ufo')!;
+    // Invalid promotion controls. No reviewer claims are written to the ledger.
+    const disputed = {
+      scopeId: baseline.review.freeze.scopes[0]!.id,
+      frozenInputSha256: baseline.review.frozenInputSha256,
+      reviewerAlias: 'synthetic-control',
+      reviewerDidNotAuthorLabels: true,
+      reviewedAt: baseline.review.freeze.frozenAt,
+      method: 'blind_authored',
+      exposure: 'predictions',
+      disposition: 'disputed',
+      answers: [],
+      disagreements: ['Synthetic disagreement for the promotion control.'],
+      adjudication: null,
+    };
+    const seal = (record: typeof disputed) => ({
+      ...record,
+      recordSha256: createHash('sha256')
+        .update(JSON.stringify(record))
+        .digest('hex'),
+    });
+    const ledger = { ...baseline.review, records: [seal(disputed)] };
+    const review = verifyReviewManifest(ledger);
+    const report = evaluateRepositorySession(
+      baseline.session,
+      baseline.corpus,
+      baseline.gold,
+      review,
+    );
+    expect(report.semanticAudit).toMatchObject({
+      blindHumanAuthoredCases: 0,
+      disputedScopes: 1,
+    });
+    expect(report.semanticAudit.scopes[0]!.precision).toBeNull();
+    expect(() =>
+      verifyReviewManifest({
+        ...ledger,
+        records: [{ ...ledger.records[0], disposition: 'accepted' }],
+      }),
+    ).toThrow(/Review evidence or provenance changed/);
+    expect(() =>
+      verifyReviewManifest({
+        ...ledger,
+        records: [seal({ ...disputed, disposition: 'accepted' })],
+      }),
+    ).toThrow(/exposed to predictions/);
+    const incomplete = verifyReviewManifest({
+      ...ledger,
+      records: [
+        seal({
+          ...disputed,
+          disposition: 'accepted',
+          exposure: 'none',
+          disagreements: [],
+        }),
+      ],
+    });
+    expect(() =>
+      evaluateRepositorySession(
+        baseline.session,
+        baseline.corpus,
+        baseline.gold,
+        incomplete,
+      ),
+    ).toThrow(/Reviewed denominator does not cover the complete owner/);
+  });
+
+  it('scores a complete synthetic review without granting human provenance', () => {
+    const { corpus, gold, review, session } = evaluated.get('ufo')!;
+    const scope = review.freeze.scopes.find(
+      ({ id }) => id === 'ufo-with-query',
+    )!;
+    const inventory = inventoryGoldOwner(corpus, scope.owner);
+    const expectedTargets = new Map([
+      ['parseURL(input)', 'parseURL'],
+      ['parseQuery(parsed.search)', 'parseQuery'],
+      ['stringifyQuery(mergedQuery)', 'stringifyQuery'],
+      ['stringifyParsedURL(parsed)', 'stringifyParsedURL'],
+    ]);
+    const answers = inventory.sites.map(({ kind, site }) => {
+      const excerpt = pinnedSourceExcerpt(corpus, site);
+      const expression = expectedTargets.get(excerpt);
+      const target =
+        gold.labels.find(
+          (label) =>
+            label.repository === 'ufo' && label.expression === expression,
+        )?.target ?? null;
+      return {
+        site,
+        excerpt,
+        kind,
+        direction: target ? ('owner_to_target' as const) : null,
+        status: target ? ('exact' as const) : ('absent' as const),
+        target,
+        rationale: 'Synthetic scorer control from pinned source expressions.',
+      };
+    });
+    expect(answers.map(({ excerpt, status }) => [excerpt, status])).toEqual([
+      ['parseURL(input)', 'exact'],
+      ['parseQuery(parsed.search)', 'exact'],
+      ['parsed.search', 'absent'],
+      ['stringifyQuery(mergedQuery)', 'exact'],
+      ['stringifyParsedURL(parsed)', 'exact'],
+    ]);
+    function acceptedLedger(responses: typeof answers) {
+      const record = {
+        scopeId: scope.id,
+        frozenInputSha256: review.frozenInputSha256,
+        reviewerAlias: 'synthetic-scorer-control',
+        reviewerDidNotAuthorLabels: true as const,
+        reviewedAt: review.freeze.frozenAt,
+        method: 'blind_authored' as const,
+        exposure: 'none' as const,
+        disposition: 'accepted' as const,
+        answers: responses,
+        disagreements: [],
+        adjudication: null,
+      };
+      return {
+        ...review,
+        records: [
+          {
+            ...record,
+            recordSha256: createHash('sha256')
+              .update(JSON.stringify(record))
+              .digest('hex'),
+          },
+        ],
+      };
+    }
+    const accepted = evaluateRepositorySession(
+      session,
+      corpus,
+      gold,
+      acceptedLedger(answers),
+    );
+    expect(accepted.gate.passed).toBe(true);
+    expect(accepted.semanticAudit).toMatchObject({
+      blindHumanAuthoredCases: 0,
+      unattestedAcceptedScopes: 1,
+      unattestedAcceptedCases: 5,
+      scopes: [
+        {
+          reviewProvenance: 'unattested',
+          reviewed: { correctExact: 4, expectedExact: 4, observedExact: 4 },
+          precision: { numerator: 4, denominator: 4, value: 1 },
+          recall: { numerator: 4, denominator: 4, value: 1 },
+        },
+        { reviewProvenance: 'none' },
+      ],
+    });
+
+    const wrongTarget = answers.map((answer) =>
+      answer.excerpt === 'parseURL(input)'
+        ? { ...answer, target: answers[1]!.target }
+        : answer,
+    );
+    const wrong = evaluateRepositorySession(
+      session,
+      corpus,
+      gold,
+      acceptedLedger(wrongTarget),
+    );
+    expect(wrong.gate.passed).toBe(false);
+    expect(wrong.semanticAudit.scopes[0]).toMatchObject({
+      precision: { numerator: 3, denominator: 4, value: 0.75 },
+      recall: { numerator: 3, denominator: 4, value: 0.75 },
+      reviewed: { correctExact: 3, expectedExact: 4, observedExact: 4 },
+      reviewedIssues: { wrong_target: 1 },
+    });
+    expect(wrong.counts).toEqual(accepted.counts);
+  });
+
+  it('inventories both same-start calls and keeps nested function sites outside the owner', () => {
+    const { corpus } = evaluated.get('ufo')!;
+    const source = [
+      'function outer() {',
+      '  factory()();',
+      '  register(value.run);',
+      '  function nested() { elsewhere(); }',
+      '  outer();',
+      '}',
+    ].join('\n');
+    const file = 'nested-inventory.ts';
+    const bytes = Buffer.from(source);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const blobId = createHash('sha1')
+      .update('blob ' + bytes.length + '\0')
+      .update(bytes)
+      .digest('hex');
+    const fixture = {
+      ...corpus,
+      files: [
+        {
+          path: file,
+          sha256,
+          blobId,
+          mode: '100644' as const,
+          bytes,
+          byteLength: bytes.length,
+        },
+      ],
+    };
+    const owner = {
+      file,
+      sourceSha256: sha256,
+      start: { offset: 0, line: 1, column: 1 },
+      end: { offset: source.length, line: 6, column: 2 },
+    };
+    expect(
+      inventoryGoldOwner(fixture, owner).sites.map(({ kind, site }) => [
+        kind,
+        pinnedSourceExcerpt(fixture, site),
+      ]),
+    ).toEqual([
+      ['calls', 'factory()'],
+      ['calls', 'factory()()'],
+      ['calls', 'register(value.run)'],
+      ['references', 'value.run'],
+      ['calls', 'outer()'],
+    ]);
+  });
+});
+
+describe('closed owner false-exact regression controls', () => {
+  it('finds a shifted source span attributed to the wrong enclosing function', async () => {
+    const closedDeclaration = 'function closed() { return destination(); }';
+    const destination = 'function destination() { return 2; }';
+    const source = [
+      'class Box { read() { return 1; } }',
+      destination,
+      'export function outer() {',
+      '  ' + closedDeclaration,
+      '  return closed();',
+      '}',
+    ].join('\n');
+    const path = 'lexical-closure.ts';
+    const bytes = Buffer.from(source);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const snapshot = await analyzeManifest({
+      repositoryId: '10000000-0000-4000-8000-000000000013',
+      compilerOptions: COMPILER_PROFILE,
+      files: [{ path, bytes, sha256 }],
+    });
+    const positions = createSourcePositionIndex(source);
+    const anchor = (excerpt: string) => {
+      const start = source.indexOf(excerpt);
+      assert(start >= 0);
+      return {
+        file: path,
+        sourceSha256: sha256,
+        start: positions.positionAt(start),
+        end: positions.positionAt(start + excerpt.length),
+      };
+    };
+    const owner = anchor(closedDeclaration);
+    const site = anchor('destination();');
+    site.end = positions.positionAt(site.end.offset - 1);
+    const expected = {
+      owner,
+      site,
+      target: anchor(destination),
+      status: 'exact' as const,
+    };
+    const corpus = {
+      ...evaluated.get('ufo')!.corpus,
+      files: [
+        {
+          path,
+          sha256,
+          bytes,
+          byteLength: bytes.length,
+          blobId: '',
+          mode: '100644' as const,
+        },
+      ],
+    };
+    const outer = snapshot.facts.symbols.find(
+      (symbol) => symbol.name === 'outer',
+    )!;
+    const target = snapshot.facts.symbols.find(
+      (symbol) => symbol.name === 'read',
+    )!;
+    const real = snapshot.facts.evidenceRefs.find((item) =>
+      equalGoldRange(item.range, site),
+    )!;
+    assert(outer && target && real);
+    const shifted = {
+      ...real,
+      id: 'd098e7aa-4c73-4bbd-9df8-fec0c84284a6',
+      range: {
+        start: positions.positionAt(real.range.start.offset + 1),
+        end: real.range.end,
+      },
+    };
+    const extra: CodeRelation = {
+      snapshotId: snapshot.facts.snapshotId,
+      id: '734c8858-c147-4fdb-8aec-ec3802c4c481',
+      key: 'shifted-reference-control',
+      siteEvidenceId: shifted.id,
+      sourceSymbolId: outer.id,
+      kind: 'references',
+      resolution: {
+        status: 'exact',
+        targetId: target.id,
+        evidenceIds: [
+          shifted.id,
+          outer.declarationEvidenceId,
+          target.declarationEvidenceId,
+        ],
+      },
+    };
+    const context = repositoryGoldContext({
+      ...snapshot,
+      facts: {
+        ...snapshot.facts,
+        evidenceRefs: [...snapshot.facts.evidenceRefs, shifted],
+        relations: [...snapshot.facts.relations, extra],
+      },
+    });
+    expect(
+      context.queries.neighbors({
+        snapshotId: snapshot.facts.snapshotId,
+        symbolId: outer.id,
+        relationKinds: ['references'],
+        depth: 1,
+        direction: 'outgoing',
+        nodeLimit: 20,
+      }).relations,
+    ).toContainEqual(extra);
+    expect(
+      inspectClosedGoldOwner(
+        context,
+        owner,
+        [expected],
+        inventoryGoldOwner(corpus, owner),
+      ).unexpected,
+    ).toEqual([extra]);
+  });
+
+  const mutations: [string, (subject: MutationSubject) => void][] = [
+    [
+      'wrong_target',
+      ({ relation, wrong }) => {
+        assert(relation.resolution.status === 'exact');
+        relation.resolution.targetId = wrong.id;
+        relation.resolution.evidenceIds = [
+          ...relation.resolution.evidenceIds,
+          wrong.declarationEvidenceId,
+        ];
+      },
+    ],
+    [
+      'wrong_kind',
+      ({ relation }) => {
+        relation.kind = 'references';
+      },
+    ],
+    [
+      'wrong_owner',
+      ({ relation, wrong }) => {
+        relation.sourceSymbolId = wrong.id;
+      },
+    ],
+    [
+      'wrong_direction',
+      ({ relation, owner }) => {
+        assert(relation.resolution.status === 'exact');
+        relation.sourceSymbolId = relation.resolution.targetId;
+        relation.resolution.targetId = owner.id;
+      },
+    ],
+    [
+      'evidence_mismatch',
+      ({ evidence }) => {
+        evidence.contentHash = '0'.repeat(64);
+      },
+    ],
+    [
+      'identity_mismatch',
+      ({ relation }) => {
+        relation.snapshotId = '11111111-1111-4111-8111-111111111111';
+      },
+    ],
+  ];
+  it.each(mutations)(
+    'records %s and refuses the exact claim',
+    (code, mutate) => {
+      const subject = ufoSubject();
+      mutate(subject);
+      const report = auditFacts(subject);
+      expect(report.gate.passed).toBe(false);
+      expect(report.gate.failures).toContainEqual(
+        expect.objectContaining({
+          code,
+          site: expect.stringMatching(/^src\/utils\.ts:349:/),
+        }),
+      );
+      expect(report.counts.expectedExact).toBe(4);
+      expect(report.counts.observedExact).toBe(4);
+      expect(report.counts.wrongExact).toBeGreaterThanOrEqual(1);
+    },
+  );
+
+  it('fails when a valid projection omits one expected call occurrence', () => {
+    const subject = ufoSubject();
+    const { facts, relation } = subject;
+    const altered = {
+      ...facts,
+      relations: facts.relations.filter((item) => item.id !== relation.id),
+      observations: facts.observations.filter(
+        (item) => item.relationId !== relation.id,
+      ),
+      counts: {
+        ...facts.counts,
+        callSites: facts.counts.callSites - 1,
+        exact: facts.counts.exact - 1,
+      },
+    };
+    expect(
+      () =>
+        repositoryGoldContext({ ...subject.snapshot, facts: altered }).queries,
+    ).not.toThrow();
+    const report = auditFacts(subject, altered);
+    expect(report.gate.passed).toBe(false);
+    expect(report.counts).toMatchObject({
+      expectedExact: 4,
+      observedExact: 3,
+      correctExact: 3,
+      wrongExact: 0,
+      missedExact: 1,
+    });
+    expect(report.gate.failures).toContainEqual(
+      expect.objectContaining({ code: 'missing_occurrence' }),
+    );
+  });
+
+  it('fails on an unlabelled exact REFERENCES edge that passes fact and trace validation', () => {
+    const subject = ufoSubject();
+    const { facts, owner } = subject;
+    const target = facts.symbols.find((symbol) => symbol.kind === 'method')!;
+    const extra: CodeRelation = {
+      id: 'f0e8c014-97be-432b-9378-b20112a483df',
+      key: 'review-mutation-exact-reference',
+      snapshotId: facts.snapshotId,
+      kind: 'references',
+      sourceSymbolId: owner.id,
+      siteEvidenceId: owner.declarationEvidenceId,
+      resolution: {
+        status: 'exact',
+        targetId: target.id,
+        evidenceIds: [
+          owner.declarationEvidenceId,
+          target.declarationEvidenceId,
+        ],
+      },
+    };
+    const altered = { ...facts, relations: [...facts.relations, extra] };
+    const graph = repositoryGoldContext({
+      ...subject.snapshot,
+      facts: altered,
+    }).queries.neighbors({
+      snapshotId: facts.snapshotId,
+      symbolId: owner.id,
+      relationKinds: ['calls', 'references'],
+      direction: 'outgoing',
+      depth: 1,
+      nodeLimit: 200,
+    });
+    expect(graph.relations).toContainEqual(extra);
+    const report = auditFacts(subject, altered);
+    expect(report.gate.passed).toBe(false);
+    expect(report.semanticAudit.issues.unexpected_exact).toBe(1);
+    expect(report.counts).toMatchObject({
+      expectedExact: 4,
+      observedExact: 5,
+      correctExact: 4,
+      wrongExact: 1,
+    });
   });
 });

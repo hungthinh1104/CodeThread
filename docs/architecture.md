@@ -998,17 +998,18 @@ call affected by a compiler error cannot produce an exact relation.
 
 CT-INDEX-001B additionally emits method symbols for body-bearing method
 declarations and occurrence-level `references` relations for noncomputed method
-properties passed directly as call arguments. The checker must identify exactly
-one source method declaration; overloads, accessors, computed or optional
-access, ambiguous candidates, absent declarations and compiler errors affecting
-the member or target retain null targets and diagnostics. Reference ownership is
-the nearest supported named function or method body; unsupported lexical owners
-receive evidence and diagnostics without a graph edge. A method call owner does
-not establish method execution. A reference is a static compiler-selected
-declaration only: it does not identify a runtime receiver, prove successful
-registration, or establish method execution. Named imports serve resolution, but
-import occurrence facts and general property/reference support remain
-unimplemented.
+properties passed as call arguments, including through transparent parentheses.
+The occurrence spans the access expression inside those parentheses. The checker
+must identify exactly one source method declaration; overloads, accessors,
+computed or optional access, ambiguous candidates, absent declarations and
+compiler errors affecting the member or target retain null targets and
+diagnostics. Reference ownership is the nearest supported named function or
+method body; unsupported lexical owners receive evidence and diagnostics without
+a graph edge. A method call owner does not establish method execution. A
+reference is a static compiler-selected declaration only: it does not identify a
+runtime receiver, prove successful registration, or establish method execution.
+Named imports serve resolution, but import occurrence facts and general
+property/reference support remain unimplemented.
 
 The `declarations.v1` and `relationships.v1` coverage fields are partial because
 their broader domains are not fully implemented. `named_functions.v1` describes

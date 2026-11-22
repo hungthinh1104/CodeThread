@@ -1,0 +1,106 @@
+{
+  "version": 1,
+  "historicalGoldSha256": "98eae570e125786f542a1b8ea6adc6bdf083075f0c7c94fafaa9fc3ea24a7cc2",
+  "freeze": {
+    "frozenAt": "2026-11-21",
+    "baselineSha": "12493c2e3985fcc6631e2f1c73b27b692a553a2f",
+    "worksheetSha256": "19605398a8aa633b887bc2c1c2ae0f5daec14f3f1da0e58564fc0893c380ed63",
+    "compilerVersion": "6.0.3",
+    "repositoryId": "00000000-0000-4000-8000-000000000076",
+    "sources": [
+      {
+        "repository": "ufo",
+        "revision": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+        "manifestSha256": "b7c058ded1f0c4a77d4d90f96d2ce95e3cc9f4e57db63ba9cd5e6f1cdfe7e34a"
+      },
+      {
+        "repository": "sourcemaps",
+        "revision": "b7600158f4de012d246b7834a73c7c2190e75136",
+        "manifestSha256": "02ff83733bf1915ef9e431e977844daeecde822640ba2b6d60bb7b035038fb96"
+      }
+    ],
+    "contexts": [
+      {
+        "repository": "ufo",
+        "configPath": "tsconfig.json",
+        "projectId": "project:7c82752651d902815de50023",
+        "configurationHash": "cb4b27ea592a99cd8336283dd48eb7d1257d13966b5fcef1e62eb43d3b084828",
+        "sourceFingerprint": "adbc1dfb6d2bb455828313e2aa4f19a5390b95b2730143e37f81350937fc770b"
+      },
+      {
+        "repository": "sourcemaps",
+        "configPath": "packages/trace-mapping/tsconfig.json",
+        "projectId": "project:2828c0fe2e485f97eac7f2a2",
+        "configurationHash": "2f7be2ce930ba9b5b22aab65e6af955612511733650f4df6af9a7078e78eb82b",
+        "sourceFingerprint": "3b2316f59fac35c2c84f4e7b5756cd73a2d30a1a639dd57cb537f40f79a4bafa"
+      }
+    ],
+    "scopes": [
+      {
+        "id": "ufo-with-query",
+        "repository": "ufo",
+        "configPath": "tsconfig.json",
+        "owner": {
+          "file": "src/utils.ts",
+          "sourceSha256": "bced262a057669ad04a2f4f6cb47439dbe3851f7c9db0f9b965ac7a004047933",
+          "start": {
+            "offset": 8196,
+            "line": 348,
+            "column": 1
+          },
+          "end": {
+            "offset": 8452,
+            "line": 353,
+            "column": 2
+          }
+        },
+        "inventorySha256": "c8e7263121c81578b2f3631209fbd551ea29636c05a48531d52d0d30d98f2b60",
+        "occurrences": 5
+      },
+      {
+        "id": "ufo-url-append",
+        "repository": "ufo",
+        "configPath": "tsconfig.json",
+        "owner": {
+          "file": "src/url.ts",
+          "sourceSha256": "ddf9f468f1f1c169ea6fd6bc72b746c9fc4d928ee59bb08968f894452e64feca",
+          "start": {
+            "offset": 2758,
+            "line": 117,
+            "column": 3
+          },
+          "end": {
+            "offset": 3103,
+            "line": 132,
+            "column": 4
+          }
+        },
+        "inventorySha256": "be9dbdbd6ed70ba03a98ad6a718712e532c3b2084a2cebb37e4ad816d4977b1a",
+        "occurrences": 8
+      },
+      {
+        "id": "sourcemaps-memoized-search",
+        "repository": "sourcemaps",
+        "configPath": "packages/trace-mapping/tsconfig.json",
+        "owner": {
+          "file": "packages/trace-mapping/src/binary-search.ts",
+          "sourceSha256": "8e7eb5c2efac583fab19d04082b16431e5914b3b237c1af5a59f8d1b6b88fbd8",
+          "start": {
+            "offset": 2317,
+            "line": 96,
+            "column": 1
+          },
+          "end": {
+            "offset": 3081,
+            "line": 123,
+            "column": 2
+          }
+        },
+        "inventorySha256": "094d58014caee10a4bf24350f360cbfe4742115de7a14fe47413be7a80c438e5",
+        "occurrences": 1
+      }
+    ]
+  },
+  "frozenInputSha256": "ee9aa1c3e0d7aee70301119d8eb53c3ac470a7a5b74cdbfe3bd62cf67a0de526",
+  "records": []
+}
