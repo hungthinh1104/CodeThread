@@ -3,6 +3,20 @@ import { createHash } from 'node:crypto';
 import { readMigrations } from './migration-set.ts';
 
 export type Database = ReturnType<typeof postgres>;
+
+export function withScanRead<T>(
+  db: Database,
+  jobId: string,
+  read: (scoped: Database) => Promise<T>,
+): Promise<T> {
+  return db.begin(async (transaction) => {
+    const scoped = transaction as unknown as Database;
+    await scoped`SELECT pg_advisory_xact_lock_shared(
+      1919606127,hashtext(${jobId}::uuid::text))`;
+    return await read(scoped);
+  }) as Promise<T>;
+}
+
 const connectionLimits = {
   statement_timeout: 60_000,
   lock_timeout: 5_000,

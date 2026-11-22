@@ -146,20 +146,22 @@ export function runGit(
       signal?.removeEventListener('abort', abort);
       reject(error);
     };
+    // These read-only Git commands must stop at cancellation or a resource bound.
+    const terminate = () => child.kill('SIGKILL');
     const abort = () => {
       cancelled = true;
-      child.kill();
+      terminate();
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      terminate();
     }, remaining);
     signal?.addEventListener('abort', abort, { once: true });
     child.stdout.on('data', (chunk: Buffer) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes > maxStdoutBytes) {
         overflow = true;
-        child.kill();
+        terminate();
       } else stdout.push(chunk);
     });
     child.stderr.on('data', (chunk: Buffer) => {
