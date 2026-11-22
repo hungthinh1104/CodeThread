@@ -2,7 +2,7 @@ import type {
   RepositoryInvestigationSession,
   RepositoryProjectState,
 } from '../investigation/repository-session.ts';
-import type { Database } from './database.ts';
+import { withScanRead, type Database } from './database.ts';
 import { hashSourceBytes } from './source-objects.ts';
 import { loadSnapshotContentsInTransaction } from './snapshot-persistence.ts';
 
@@ -25,12 +25,9 @@ export async function loadRepositorySession(
   db: Sql,
   jobId: string,
 ): Promise<RepositoryInvestigationSession> {
-  return db.begin(async (transaction) => {
-    const scoped = transaction as unknown as Sql;
-    await scoped`SELECT pg_advisory_xact_lock_shared(
-      1919606127,hashtext(${jobId}::text))`;
-    return loadRepositorySessionContents(scoped, jobId);
-  });
+  return withScanRead(db, jobId, (scoped) =>
+    loadRepositorySessionContents(scoped, jobId),
+  );
 }
 
 async function loadRepositorySessionContents(

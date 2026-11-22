@@ -313,9 +313,9 @@ export class ScanService {
       nextOffset: offset + items.length < count ? offset + items.length : null,
     };
   }
-  async publishedSnapshot(jobId: string, projectId: string) {
+  async publishedSnapshot(jobId: string, projectId: string, db = this.db) {
     const row = (
-      await this.db`SELECT p.snapshot_id,p.status
+      await db`SELECT p.snapshot_id,p.status
       FROM codethread.scan_project p JOIN codethread.scan_job j ON j.id=p.scan_job_id
       WHERE p.scan_job_id=${jobId} AND p.project_id=${projectId}
         AND j.state='succeeded'`

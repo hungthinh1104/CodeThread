@@ -225,7 +225,9 @@ procedure rejects future cutoffs and excessive batch sizes. It removes only old
 terminal jobs that are not active, published snapshots that are no longer
 referenced by scan projects, and source objects no longer referenced by either
 snapshots or scan inputs. Snapshot and viewer reads hold shared advisory locks;
-retention skips an item while a reader uses it. Runtime logins cannot execute
+retention skips an item while a reader uses it. The symbol, graph and evidence
+APIs validate the scan/project scope and read under the same scan lock. A
+request after pruning receives `404 NOT_FOUND`. Runtime logins cannot execute
 the procedure; grant access only to the retention role.
 
 Backups are PostgreSQL custom archives of the complete `codethread` schema,
