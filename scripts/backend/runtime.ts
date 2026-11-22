@@ -46,7 +46,8 @@ export async function startBackend(config: RuntimeConfig) {
           } finally {
             await activeLease.close();
           }
-          await Promise.all([worker, serverClosed, viewers.closeAll()]);
+          await Promise.all([worker, serverClosed]);
+          await viewers.closeAll();
         } finally {
           clearTimeout(grace);
           activeServer.closeAllConnections();

@@ -415,6 +415,21 @@ async function inspectWorkspaceFrontend(
       .first()
       .waitFor();
     if (comparison) {
+      for (let index = 0; index < 5; index++) {
+        const reopened = await context.newPage();
+        try {
+          await reopened.goto(origin, { waitUntil: 'domcontentloaded' });
+          await reopened
+            .getByLabel('Repository and scan')
+            .selectOption(repositoryId);
+          await reopened
+            .getByRole('region', { name: 'Source inventory' })
+            .getByText('packages/good/index.ts', { exact: true })
+            .waitFor();
+        } finally {
+          await reopened.close();
+        }
+      }
       const otherTab = await context.newPage();
       await otherTab.goto(origin, { waitUntil: 'domcontentloaded' });
       await otherTab

@@ -301,6 +301,7 @@ export function ExplorerRegion(props: Props) {
         {props.filesError ? (
           <p className="notice error" role="alert">
             {props.filesError}{' '}
+            {props.files ? 'Showing the previously loaded page. ' : null}
             <button type="button" onClick={props.onRetryFiles}>
               Retry file inventory
             </button>
