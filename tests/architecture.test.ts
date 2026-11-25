@@ -199,10 +199,15 @@ describe('CT-CORE-003 architecture boundaries', () => {
         path: resolve('scripts/viewer-client/browser.js'),
         content: "import 'some-package';",
       },
+      {
+        path: resolve('scripts/ai/synthesizer.ts'),
+        content: "import '../backend/service.ts';",
+      },
     ]);
     expect(wrongLayer.join(' ')).toContain('Git source module imports outside');
     expect(wrongLayer.join(' ')).toContain('compatibility facade');
     expect(wrongLayer.join(' ')).toContain('Browser viewer imports a nonlocal');
     expect(wrongLayer.join(' ')).toContain('Browser module imports a nonlocal');
+    expect(wrongLayer.join(' ')).toContain('AI module imports outside');
   });
 });

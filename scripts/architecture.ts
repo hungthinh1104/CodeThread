@@ -280,6 +280,10 @@ function applicationLayerError(
     if (!target.startsWith('scripts/viewer-client/') || !target.endsWith('.js'))
       return `Browser module imports outside its browser owner: ${origin} -> ${target}`;
   }
+  if (origin.startsWith('scripts/ai/') && isScripts) {
+    if (!target.startsWith('scripts/ai/'))
+      return `AI module imports outside its owner: ${origin} -> ${target}`;
+  }
   return undefined;
 }
 
