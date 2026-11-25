@@ -158,4 +158,53 @@ describe('method-shaped arguments through transparent parentheses', () => {
       ),
     ).toHaveLength(2);
   });
+
+  it('retains ambiguous references for mixed concrete-class and interface or arrow-property unions', async () => {
+    const source = Buffer.from(
+      [
+        'interface Runner { run(): number; }',
+        'class Concrete { run() { return 1; } }',
+        'class ArrowHolder { run = () => 2; }',
+        'class PlainData { count = 3; }',
+        'function pass(value: unknown) { return value; }',
+        'export function inspect(a: Concrete | Runner, b: Concrete | ArrowHolder, data: PlainData) {',
+        '  pass(a.run);',
+        '  pass(b.run);',
+        '  pass(data.count);',
+        '}',
+      ].join('\n'),
+    );
+    const { facts, source: retained } = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-000000000076',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'mixed-union.ts',
+          bytes: source,
+          sha256: createHash('sha256').update(source).digest('hex'),
+        },
+      ],
+    });
+    const references = facts.relations.filter(
+      ({ kind }) => kind === 'references',
+    );
+    expect(
+      references.map(({ resolution, siteEvidenceId }) => {
+        const evidence = retained.readEvidence(siteEvidenceId);
+        return [
+          evidence.status === 'available' && evidence.text,
+          resolution.status,
+          resolution.targetId,
+        ];
+      }),
+    ).toEqual([
+      ['a.run', 'ambiguous', null],
+      ['b.run', 'ambiguous', null],
+    ]);
+    expect(
+      facts.diagnostics.filter(
+        ({ code }) => code === 'REFERENCE_TARGET_AMBIGUOUS',
+      ),
+    ).toHaveLength(2);
+  });
 });

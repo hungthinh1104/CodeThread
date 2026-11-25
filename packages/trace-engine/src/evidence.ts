@@ -7,6 +7,14 @@ import type { InvestigationContext } from './context.js';
 import { sameRange } from './fact-integrity.js';
 import { createMetadata } from './projection.js';
 
+const UNAVAILABLE_CODES = new Set([
+  'SOURCE_UNAVAILABLE',
+  'HASH_MISMATCH',
+  'INVALID_ENCODING',
+  'EVIDENCE_TOO_LARGE',
+  'EVIDENCE_NOT_FOUND',
+] as const);
+
 export function sourceEvidence(
   context: InvestigationContext,
   requestInput: unknown,
@@ -39,10 +47,22 @@ export function sourceEvidence(
     } catch {
       return unavailable('SOURCE_UNAVAILABLE');
     }
-    if (result.status !== 'available')
-      return result.snapshotId === facts.snapshotId && result.evidenceId === id
-        ? result
-        : unavailable('SOURCE_UNAVAILABLE');
+    if (!result || typeof result !== 'object')
+      return unavailable('SOURCE_UNAVAILABLE');
+    if (result.status !== 'available') {
+      const code =
+        result.snapshotId === facts.snapshotId &&
+        result.evidenceId === id &&
+        UNAVAILABLE_CODES.has(result.code)
+          ? result.code
+          : 'SOURCE_UNAVAILABLE';
+      return {
+        status: 'unavailable' as const,
+        snapshotId: facts.snapshotId,
+        evidenceId: id,
+        code,
+      };
+    }
     const actual = result.evidence;
     if (
       actual.id !== expected.id ||

@@ -400,6 +400,17 @@ export function extractFacts(
             if (target) status = 'exact';
             else code = 'REFERENCE_TARGET_UNAVAILABLE';
           }
+        } else if (methodDeclarations.length === 1) {
+          const sameOwner = memberDeclarations.every(
+            (declaration) =>
+              declaration.parent === methodDeclarations[0]!.parent,
+          );
+          if (sameOwner) {
+            code = 'REFERENCE_OVERLOAD_UNSUPPORTED';
+          } else {
+            status = 'ambiguous';
+            code = 'REFERENCE_TARGET_AMBIGUOUS';
+          }
         } else if (memberDeclarations.length > 0) {
           code = 'REFERENCE_TARGET_UNSUPPORTED';
           relationCandidate = false;
@@ -781,6 +792,15 @@ export function extractFacts(
       (a.range?.start.offset ?? 0) - (b.range?.start.offset ?? 0) ||
       textOrder(a.id, b.id),
   );
+  if (
+    evidenceRefs.length > limits.maxEvidence ||
+    diagnostics.length > limits.maxDiagnostics
+  )
+    return {
+      ok: false,
+      code: 'RESOURCE_LIMIT',
+      message: 'Analysis output exceeded declared evidence or diagnostic limit',
+    };
   return {
     ok: true,
     facts: {
@@ -795,15 +815,16 @@ export function extractFacts(
         'declarations.v1': 'partial',
         'relationships.v1': 'partial',
         'named_functions.v1': 'complete',
-        'direct_calls.v1': [...errors.values()].some(
-          (entry) => entry.starts.length > 0,
-        )
-          ? 'partial'
-          : counts.unsupported > 0
-            ? counts.exact + counts.unresolved + counts.ambiguous > 0
-              ? 'partial'
-              : 'unsupported'
-            : 'complete',
+        'direct_calls.v1':
+          [...errors.values()].some((entry) => entry.starts.length > 0) ||
+          (semanticDiagnosticFiles.length < sourceFiles.length &&
+            counts.unresolved + counts.ambiguous > 0)
+            ? 'partial'
+            : counts.unsupported > 0
+              ? counts.exact + counts.unresolved + counts.ambiguous > 0
+                ? 'partial'
+                : 'unsupported'
+              : 'complete',
         'imports.v1': 'not_analyzed',
         'references.v1': 'partial',
         'test_behavior.v1': 'not_analyzed',

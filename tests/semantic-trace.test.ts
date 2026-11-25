@@ -423,4 +423,54 @@ describe('CT-INDEX-001A in-memory code investigation', () => {
       }),
     ]);
   }, 15000);
+
+  it('degrades malformed reader evidence responses safely and rejects un-normalized repositoryId', async () => {
+    const bytes = Buffer.from('export function entry() { return 1; }');
+    const snapshot = await analyzeManifest({
+      repositoryId: '00000000-0000-4000-8000-0000000000ab',
+      compilerOptions: COMPILER_PROFILE,
+      files: [
+        {
+          path: 'entry.ts',
+          bytes,
+          sha256: createHash('sha256').update(bytes).digest('hex'),
+        },
+      ],
+    });
+    const badReader = {
+      readFile: (fileId: string) => snapshot.source.readFile(fileId),
+      readEvidence: () =>
+        ({
+          status: 'unavailable',
+          snapshotId: snapshot.facts.snapshotId,
+          evidenceId: snapshot.facts.symbols[0]!.declarationEvidenceId,
+          code: 'BOGUS_CODE',
+          extra: true,
+        }) as unknown as ReturnType<typeof snapshot.source.readEvidence>,
+    };
+    const investigation = createInvestigation(snapshot.facts, badReader);
+    const result = investigation.sourceEvidence({
+      snapshotId: snapshot.facts.snapshotId,
+      evidenceIds: [snapshot.facts.symbols[0]!.declarationEvidenceId],
+    });
+    expect(result.items).toEqual([
+      {
+        status: 'unavailable',
+        snapshotId: snapshot.facts.snapshotId,
+        evidenceId: snapshot.facts.symbols[0]!.declarationEvidenceId,
+        code: 'SOURCE_UNAVAILABLE',
+      },
+    ]);
+
+    const upperFacts = {
+      ...snapshot.facts,
+      identity: {
+        ...snapshot.facts.identity,
+        repositoryId: snapshot.facts.identity.repositoryId.toUpperCase(),
+      },
+    };
+    expect(() => createInvestigation(upperFacts, snapshot.source)).toThrow(
+      expect.objectContaining({ code: 'INVALID_FACTS' }),
+    );
+  });
 });

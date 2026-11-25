@@ -57,12 +57,17 @@ export const listSymbolsRequestSchema = z.strictObject({
 });
 
 export const listSymbolsResponseSchema = scoped(
-  z.strictObject({
-    meta: queryMetaSchema,
-    items: z.array(symbolSchema).max(50),
-    total: z.number().int().nonnegative(),
-    nextOffset: z.number().int().nonnegative().nullable(),
-  }),
+  z
+    .strictObject({
+      meta: queryMetaSchema,
+      items: z.array(symbolSchema).max(50),
+      total: z.number().int().nonnegative(),
+      nextOffset: z.number().int().nonnegative().nullable(),
+    })
+    .refine(
+      (response) => response.items.length <= response.total,
+      'Symbol page cannot exceed total count',
+    ),
 );
 
 const sourceSuccessSchema = z

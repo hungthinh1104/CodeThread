@@ -41,6 +41,27 @@ export function parseListTestsResult(
       key: test.key,
     })),
   );
+  const textFilter = request.filters.text?.toLowerCase();
+  const suiteFilter = request.filters.suite?.toLowerCase();
+  for (const [index, test] of response.items.entries()) {
+    ensure(
+      (request.filters.filePath === undefined ||
+        test.filePath === request.filters.filePath) &&
+        (suiteFilter === undefined ||
+          test.suitePath.some((part) =>
+            part.toLowerCase().includes(suiteFilter),
+          ) ||
+          test.suitePath.join(' ').toLowerCase().includes(suiteFilter)) &&
+        (textFilter === undefined ||
+          test.name.toLowerCase().includes(textFilter) ||
+          test.filePath.toLowerCase().includes(textFilter) ||
+          test.suitePath.some((part) =>
+            part.toLowerCase().includes(textFilter),
+          )),
+      'Test item does not match the requested filter',
+      ['items', index],
+    );
+  }
   return response;
 }
 

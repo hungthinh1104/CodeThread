@@ -10,6 +10,7 @@ export function createProjectFilesystem(
   inputs: readonly { path: string; text: string }[],
   workspacePackages: readonly WorkspacePackage[],
   libraries: ReadonlyMap<string, string> = new Map(),
+  checkpoint?: () => void,
 ) {
   const files = new Map(
     inputs.map((file) => [PROJECT_SOURCE_ROOT + '/' + file.path, file.text]),
@@ -46,9 +47,11 @@ export function createProjectFilesystem(
     pattern: string,
   ): boolean => {
     const absolute = posix.resolve(root, pattern.replaceAll('\\', '/'));
+    const trimmed = absolute.replace(/\/$/, '');
     const glob =
-      !/[?*]/.test(absolute) && !posix.extname(absolute)
-        ? absolute.replace(/\/$/, '') + '/**/*'
+      !/[?*]/.test(absolute) &&
+      (directories.has(trimmed) || !posix.extname(trimmed))
+        ? trimmed + '/**/*'
         : absolute;
     return posix.matchesGlob(file, glob);
   };
@@ -59,29 +62,36 @@ export function createProjectFilesystem(
     readFile: (path) => files.get(canonical(path)),
     directoryExists: (path) =>
       directories.has(canonical(path)) || directories.has(path),
-    getDirectories: (path) =>
-      [...directories].filter(
-        (directory) => posix.dirname(directory) === canonical(path),
-      ),
+    getDirectories: (path) => {
+      const target = canonical(path);
+      return [...directories]
+        .filter((directory) => posix.dirname(directory) === target)
+        .map((directory) => posix.basename(directory))
+        .sort();
+    },
     realpath: canonical,
     readDirectory(rootDir, extensions, excludes, includes, depth) {
+      checkpoint?.();
       const root = canonical(rootDir);
-      return [...files.keys()]
-        .filter(
-          (path) =>
-            path.startsWith(root + '/') &&
-            (extensions === undefined ||
-              extensions.some((extension) => path.endsWith(extension))) &&
-            (depth === undefined ||
-              path.slice(root.length + 1).split('/').length <= depth + 1) &&
-            (includes ?? ['**/*']).some((pattern) =>
-              patternMatches(path, root, pattern),
-            ) &&
-            !(excludes ?? []).some((pattern) =>
-              patternMatches(path, root, pattern),
-            ),
+      const matched: string[] = [];
+      for (const path of files.keys()) {
+        checkpoint?.();
+        if (
+          path.startsWith(root + '/') &&
+          (extensions === undefined ||
+            extensions.some((extension) => path.endsWith(extension))) &&
+          (depth === undefined ||
+            path.slice(root.length + 1).split('/').length <= depth + 1) &&
+          (includes ?? ['**/*']).some((pattern) =>
+            patternMatches(path, root, pattern),
+          ) &&
+          !(excludes ?? []).some((pattern) =>
+            patternMatches(path, root, pattern),
+          )
         )
-        .sort();
+          matched.push(path);
+      }
+      return matched.sort();
     },
     onUnRecoverableConfigFileDiagnostic() {},
   };

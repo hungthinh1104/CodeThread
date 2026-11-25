@@ -486,4 +486,98 @@ describe('pinned monorepo project contexts', () => {
     expect(targetPath(second)).toBe('src/two.ts');
     expect(first.facts.snapshotId).not.toBe(second.facts.snapshotId);
   }, 30000);
+
+  it('validates extended parent configs recursively and handles dot-named directories and root references', () => {
+    const unsafeParent = planRepositoryProjects({
+      files: [file('src/index.ts', 'export function ok() { return 1; }')],
+      metadata: [
+        file('tsconfig.json', '{"extends":"./tsconfig.base.json"}'),
+        file(
+          'tsconfig.base.json',
+          JSON.stringify({
+            include: ['src/{a,b}.ts'],
+          }),
+        ),
+      ],
+      workspacePackages: [],
+    });
+    expect(
+      unsafeParent.projects.find(
+        (project) => project.configPath === 'tsconfig.json',
+      ),
+    ).toMatchObject({
+      status: 'invalid',
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: 'UNSUPPORTED_CONFIG_PATTERN' }),
+      ]),
+    });
+
+    const excessiveParentGlobs = planRepositoryProjects({
+      files: [file('src/index.ts', 'export function ok() { return 1; }')],
+      metadata: [
+        file('tsconfig.json', '{"extends":"./tsconfig.base.json"}'),
+        file(
+          'tsconfig.base.json',
+          JSON.stringify({
+            include: Array.from({ length: 129 }, () => 'src/**/*.ts'),
+          }),
+        ),
+      ],
+      workspacePackages: [],
+    });
+    expect(
+      excessiveParentGlobs.projects.find(
+        (project) => project.configPath === 'tsconfig.json',
+      ),
+    ).toMatchObject({
+      status: 'invalid',
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({ code: 'PROJECT_CONFIG_LIMIT' }),
+      ]),
+    });
+
+    const dotDirsAndRootRef = planRepositoryProjects({
+      files: [
+        file('src.v2/entry.ts', 'export function entry() { return 1; }'),
+        file(
+          'dist.old/generated.ts',
+          'export function generated() { return 2; }',
+        ),
+      ],
+      metadata: [
+        file(
+          'tsconfig.json',
+          JSON.stringify({
+            include: ['src.v2', 'dist.old'],
+            exclude: ['dist.old'],
+          }),
+        ),
+        file(
+          'packages/app/tsconfig.json',
+          JSON.stringify({
+            files: [],
+            references: [{ path: '../..' }],
+          }),
+        ),
+      ],
+      workspacePackages: [],
+    });
+    expect(
+      dotDirsAndRootRef.projects.find(
+        (project) => project.configPath === 'tsconfig.json',
+      ),
+    ).toMatchObject({
+      status: 'ready',
+      rootPaths: ['src.v2/entry.ts'],
+    });
+    expect(
+      dotDirsAndRootRef.projects.find(
+        (project) => project.configPath === 'packages/app/tsconfig.json',
+      ),
+    ).toMatchObject({
+      status: 'solution',
+      referencePaths: ['tsconfig.json'],
+      diagnostics: [],
+    });
+  });
 });

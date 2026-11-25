@@ -631,4 +631,54 @@ describe('CT-FIX-003 request-aware occurrence ownership', () => {
       ),
     ).toThrow(/step ownership/i);
   });
+  it('rejects non-advancing symbol pages and filter mismatches in diagnostics/tests', () => {
+    const trace = traceFixture();
+    expect(() =>
+      contracts.parseListSymbolsResult(
+        { snapshotId, offset: 0, limit: 50 },
+        {
+          meta: {
+            ...trace.meta,
+            truncated: true,
+            truncationReasons: ['result_limit'],
+            appliedLimits: { pageSize: 50 },
+          },
+          items: [],
+          total: 10,
+          nextOffset: 0,
+        },
+      ),
+    ).toThrow(/continuation/i);
+    expect(() =>
+      contracts.parseGetDiagnosticsResult(
+        { snapshotId, limit: 10, filters: { severity: 'error' } },
+        {
+          meta: { ...trace.meta, appliedLimits: { pageSize: 10 } },
+          items: [
+            {
+              id: id(70),
+              snapshotId,
+              code: 'SOURCE_UNSUPPORTED',
+              severity: 'warning',
+              message: 'Mismatch',
+              fileId: null,
+              filePath: null,
+              range: null,
+            },
+          ],
+          nextCursor: null,
+        },
+      ),
+    ).toThrow(/filter/i);
+    expect(() =>
+      contracts.parseListTestsResult(
+        { snapshotId, limit: 10, filters: { filePath: 'other.test.ts' } },
+        {
+          meta: { ...trace.meta, appliedLimits: { pageSize: 10 } },
+          items: [trace.test],
+          nextCursor: null,
+        },
+      ),
+    ).toThrow(/filter/i);
+  });
 });

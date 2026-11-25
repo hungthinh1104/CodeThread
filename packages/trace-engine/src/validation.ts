@@ -43,6 +43,7 @@ function validate(
   const snapshot = idSchema.parse(facts.snapshotId);
   ensure(snapshot === facts.snapshotId);
   const analysis = snapshotIdentitySchema.parse(facts.identity);
+  ensure(analysis.repositoryId === facts.identity.repositoryId);
   const identityBytes = createHash('sha256')
     .update(JSON.stringify(['snapshot', analysis]))
     .digest()

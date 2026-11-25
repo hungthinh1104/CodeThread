@@ -70,25 +70,41 @@ function relatedConfigurations(
     if (
       typeof value === 'string' &&
       value.length <= MAX_CONFIG_PATH_LENGTH &&
+      !value.includes('\\') &&
       /^\.\.?\//.test(value)
     ) {
       const path = posix.normalize(
         posix.join(posix.dirname(entry.path), value),
       );
-      const candidate = entries.has(path) ? path : path + '.json';
-      if (isSnapshotPath(candidate) && entries.has(candidate))
+      const candidate = path.endsWith('.json') ? path : path + '.json';
+      if (
+        candidate.endsWith('.json') &&
+        isSnapshotPath(candidate) &&
+        entries.has(candidate)
+      )
         related.push(candidate);
     }
   if (Array.isArray(raw.references))
     for (const reference of raw.references) {
       const value = (reference as { path?: unknown })?.path;
-      if (typeof value !== 'string' || value.length > MAX_CONFIG_PATH_LENGTH)
+      if (
+        typeof value !== 'string' ||
+        value.length > MAX_CONFIG_PATH_LENGTH ||
+        value.includes('\\') ||
+        value.startsWith('/')
+      )
         continue;
-      const path = posix.normalize(
-        posix.join(posix.dirname(entry.path), value),
-      );
-      const candidate = path.endsWith('.json') ? path : path + '/tsconfig.json';
-      if (isSnapshotPath(candidate) && entries.has(candidate))
+      const path = posix
+        .normalize(posix.join(posix.dirname(entry.path), value))
+        .replace(/\/+$/, '');
+      const candidate = path.endsWith('.json')
+        ? path
+        : posix.join(path, 'tsconfig.json');
+      if (
+        candidate.endsWith('.json') &&
+        isSnapshotPath(candidate) &&
+        entries.has(candidate)
+      )
         related.push(candidate);
     }
   return related;
