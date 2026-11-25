@@ -16,7 +16,7 @@ import type {
   AiSynthesisResponse,
   AiSynthesizeRequest,
 } from '@codethread/contracts';
-import { AiError } from './errors.js';
+import { AiError } from './errors.ts';
 
 export const STATIC_AI_DISCLAIMER =
   'Generated static synthesis (unverified). Static relationships and source excerpts do not prove runtime execution or passing tests.';

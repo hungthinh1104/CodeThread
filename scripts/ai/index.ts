@@ -1,4 +1,4 @@
-export { AiError, sanitizeAiMessage } from './errors.js';
+export { AiError, sanitizeAiMessage } from './errors.ts';
 export {
   DEFAULT_AI_MAX_RESPONSE_BYTES,
   DEFAULT_AI_TIMEOUT_MS,
@@ -7,39 +7,39 @@ export {
   DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
   loadAiConfig,
-} from './config.js';
+} from './config.ts';
 export type {
   AiConfig,
   AiLocality,
   DisabledAiConfig,
   EnabledGeminiConfig,
   EnabledOpenAiCompatibleConfig,
-} from './config.js';
+} from './config.ts';
 export {
   AI_PROMPT_VERSION,
   buildAiContextPacketFromProjection,
   buildAiPrompt,
   hashAiContextPacket,
-} from './packet.js';
-export type { BuiltAiPrompt } from './packet.js';
-export { redactSecrets } from './redact.js';
-export type { RedactionResult } from './redact.js';
+} from './packet.ts';
+export type { BuiltAiPrompt } from './packet.ts';
+export { redactSecrets } from './redact.ts';
+export type { RedactionResult } from './redact.ts';
 export {
   STATIC_AI_DISCLAIMER,
   hasRuntimeExecutionOverclaim,
   verifyAiModelOutput,
-} from './verifier.js';
-export type { VerificationProvenance } from './verifier.js';
+} from './verifier.ts';
+export type { VerificationProvenance } from './verifier.ts';
 export {
   createAiProviderFromConfig,
   createGeminiProvider,
   createMockProvider,
   createOpenAiCompatibleProvider,
   extractJsonObject,
-} from './providers.js';
-export type { AiProvider, AiProviderInput, FetchLike } from './providers.js';
-export { createAiSynthesizer } from './synthesizer.js';
+} from './providers.ts';
+export type { AiProvider, AiProviderInput, FetchLike } from './providers.ts';
+export { createAiSynthesizer } from './synthesizer.ts';
 export type {
   AiSynthesizer,
   CreateAiSynthesizerOptions,
-} from './synthesizer.js';
+} from './synthesizer.ts';

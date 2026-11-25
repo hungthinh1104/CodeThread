@@ -3,8 +3,8 @@ import type {
   AiConfig,
   EnabledGeminiConfig,
   EnabledOpenAiCompatibleConfig,
-} from './config.js';
-import { AiError } from './errors.js';
+} from './config.ts';
+import { AiError } from './errors.ts';
 
 export interface AiProviderInput {
   readonly systemPrompt: string;

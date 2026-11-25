@@ -3,12 +3,12 @@ import type {
   AiSynthesisResponse,
   AiSynthesizeRequest,
 } from '@codethread/contracts';
-import type { AiConfig } from './config.js';
-import { AiError } from './errors.js';
-import { buildAiPrompt, hashAiContextPacket } from './packet.js';
-import { createAiProviderFromConfig } from './providers.js';
-import type { AiProvider, FetchLike } from './providers.js';
-import { verifyAiModelOutput } from './verifier.js';
+import type { AiConfig } from './config.ts';
+import { AiError } from './errors.ts';
+import { buildAiPrompt, hashAiContextPacket } from './packet.ts';
+import { createAiProviderFromConfig } from './providers.ts';
+import type { AiProvider, FetchLike } from './providers.ts';
+import { verifyAiModelOutput } from './verifier.ts';
 
 export interface AiSynthesizer {
   readonly enabled: boolean;

@@ -15,7 +15,7 @@ import type {
   GetSourceEvidenceResponse,
   GraphNeighborsResponse,
 } from '@codethread/contracts';
-import { redactSecrets } from './redact.js';
+import { redactSecrets } from './redact.ts';
 
 export const AI_PROMPT_VERSION = 'ct-ai-prompt-v2';
 
