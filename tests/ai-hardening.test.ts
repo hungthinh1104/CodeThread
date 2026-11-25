@@ -327,6 +327,7 @@ describe('CT-AI-001 G4 secret redaction and prompt injection', () => {
       {
         enabled: true,
         provider: 'openai_compatible',
+        locality: 'local',
         apiKey: null,
         model: 'local',
         baseUrl: 'http://127.0.0.1:11434/v1',

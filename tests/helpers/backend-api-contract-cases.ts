@@ -683,6 +683,93 @@ export function createBackendApiContractCases(dependencies: Dependencies) {
         );
       },
     },
+    {
+      route: 'GET /v1/ai/status',
+      positive: async () => {
+        const body = await success('GET /v1/ai/status', '/v1/ai/status');
+        expect(body).toEqual({
+          enabled: true,
+          provider: 'openai_compatible',
+          locality: 'local',
+          model: 'mock-contract-v1',
+        });
+      },
+      negative: async () => {
+        await failure('/v1/ai/status?unexpected=1', 400, 'INVALID_REQUEST');
+      },
+    },
+    {
+      route: 'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+      positive: async () => {
+        const body = await success(
+          'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+          `${projectPath()}/ai/synthesize`,
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_trace',
+              neighbors: {
+                snapshotId: ctx().snapshotId,
+                symbolId: ctx().consumerId,
+                direction: 'outgoing',
+                relationKinds: ['calls'],
+                depth: 1,
+                nodeLimit: 50,
+              },
+              maxClaims: 3,
+              maxNextSteps: 2,
+            },
+          },
+        );
+        expect(body).toMatchObject({
+          snapshotId: ctx().snapshotId,
+          rootSymbolId: ctx().consumerId,
+          task: 'explain_trace',
+          evidenceBasis: 'static_generated_unverified',
+        });
+        expect((body.claims as unknown[]).length).toBeGreaterThanOrEqual(1);
+      },
+      negative: async () => {
+        await rejectStructuredBodyVariants(`${projectPath()}/ai/synthesize`, {
+          task: 'explain_trace',
+          neighbors: {
+            snapshotId: ctx().snapshotId,
+            symbolId: ctx().consumerId,
+          },
+        });
+        await failure(
+          `${projectPath()}/ai/synthesize`,
+          400,
+          'INVALID_REQUEST',
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_trace',
+              neighbors: {
+                snapshotId: ctx().snapshotId,
+                symbolId: ctx().consumerId,
+                depth: 5,
+              },
+            },
+          },
+        );
+        await failure(
+          `${projectPath()}/ai/synthesize`,
+          409,
+          'SNAPSHOT_MISMATCH',
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_trace',
+              neighbors: {
+                snapshotId: randomUUID(),
+                symbolId: ctx().consumerId,
+              },
+            },
+          },
+        );
+      },
+    },
   ];
 
   return backendApiContractCases;

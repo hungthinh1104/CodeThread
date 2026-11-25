@@ -8,6 +8,8 @@ export const DEFAULT_OPENAI_COMPATIBLE_MODEL = 'qwen2.5-coder:7b';
 export const DEFAULT_AI_TIMEOUT_MS = 15_000;
 export const DEFAULT_AI_MAX_RESPONSE_BYTES = 131_072;
 
+export type AiLocality = 'local' | 'remote';
+
 export interface DisabledAiConfig {
   readonly enabled: false;
 }
@@ -15,6 +17,7 @@ export interface DisabledAiConfig {
 export interface EnabledGeminiConfig {
   readonly enabled: true;
   readonly provider: 'gemini';
+  readonly locality: AiLocality;
   readonly apiKey: string;
   readonly model: string;
   readonly baseUrl: string;
@@ -25,6 +28,7 @@ export interface EnabledGeminiConfig {
 export interface EnabledOpenAiCompatibleConfig {
   readonly enabled: true;
   readonly provider: 'openai_compatible';
+  readonly locality: AiLocality;
   readonly apiKey: string | null;
   readonly model: string;
   readonly baseUrl: string;
@@ -65,7 +69,10 @@ function isLoopbackHost(hostname: string): boolean {
   );
 }
 
-function validateBaseUrl(raw: string, label: string): string {
+function validateBaseUrl(
+  raw: string,
+  label: string,
+): { baseUrl: string; locality: AiLocality } {
   let url: URL;
   try {
     url = new URL(raw);
@@ -84,16 +91,32 @@ function validateBaseUrl(raw: string, label: string): string {
       `${label} must not include query or fragment components`,
     );
   }
-  if (
-    url.protocol !== 'https:' &&
-    !(url.protocol === 'http:' && isLoopbackHost(url.hostname))
-  ) {
+  const loopback = isLoopbackHost(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
     throw new AiError(
       'AI_INVALID_CONFIG',
       `${label} must use https or loopback http`,
     );
   }
-  return url.toString().replace(/\/+$/, '');
+  return {
+    baseUrl: url.toString().replace(/\/+$/, ''),
+    locality: loopback ? 'local' : 'remote',
+  };
+}
+
+function assertRemoteConsent(
+  locality: AiLocality,
+  env: Readonly<Record<string, string | undefined>>,
+): void {
+  if (
+    locality === 'remote' &&
+    env['CODETHREAD_AI_ALLOW_REMOTE']?.trim() !== '1'
+  ) {
+    throw new AiError(
+      'AI_INVALID_CONFIG',
+      'CODETHREAD_AI_ALLOW_REMOTE=1 is required when using a non-loopback AI provider',
+    );
+  }
 }
 
 function readModel(raw: string | undefined, fallback: string): string {
@@ -110,6 +133,8 @@ function readModel(raw: string | undefined, fallback: string): string {
 /**
  * Loads opt-in AI configuration from environment variables.
  * Disabled by default unless CODETHREAD_AI_ENABLED is explicitly set to "1".
+ * Defaults to local Ollama (openai_compatible on loopback) when enabled so
+ * source excerpts never leave the machine without CODETHREAD_AI_ALLOW_REMOTE=1.
  */
 export function loadAiConfig(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -117,7 +142,7 @@ export function loadAiConfig(
   const enabledFlag = env['CODETHREAD_AI_ENABLED']?.trim();
   if (enabledFlag !== '1') return { enabled: false };
 
-  const providerRaw = (env['CODETHREAD_AI_PROVIDER'] ?? 'gemini')
+  const providerRaw = (env['CODETHREAD_AI_PROVIDER'] ?? 'openai_compatible')
     .trim()
     .toLowerCase();
   const timeoutMs = readInt(
@@ -147,13 +172,15 @@ export function loadAiConfig(
         'GEMINI_API_KEY is required when CODETHREAD_AI_PROVIDER=gemini',
       );
     }
-    const baseUrl = validateBaseUrl(
+    const { baseUrl, locality } = validateBaseUrl(
       (env['CODETHREAD_AI_BASE_URL'] ?? DEFAULT_GEMINI_BASE_URL).trim(),
       'CODETHREAD_AI_BASE_URL',
     );
+    assertRemoteConsent(locality, env);
     return {
       enabled: true,
       provider: 'gemini',
+      locality,
       apiKey,
       model: readModel(env['CODETHREAD_AI_MODEL'], DEFAULT_GEMINI_MODEL),
       baseUrl,
@@ -163,15 +190,15 @@ export function loadAiConfig(
   }
 
   if (providerRaw === 'openai_compatible' || providerRaw === 'ollama') {
-    const baseUrl = validateBaseUrl(
+    const { baseUrl, locality } = validateBaseUrl(
       (
         env['CODETHREAD_AI_BASE_URL'] ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL
       ).trim(),
       'CODETHREAD_AI_BASE_URL',
     );
-    const parsedUrl = new URL(baseUrl);
+    assertRemoteConsent(locality, env);
     const apiKey = (env['CODETHREAD_AI_API_KEY'] ?? '').trim() || null;
-    if (!isLoopbackHost(parsedUrl.hostname) && apiKey === null) {
+    if (locality === 'remote' && apiKey === null) {
       throw new AiError(
         'AI_INVALID_CONFIG',
         'CODETHREAD_AI_API_KEY is required for non-loopback openai_compatible endpoints',
@@ -180,6 +207,7 @@ export function loadAiConfig(
     return {
       enabled: true,
       provider: 'openai_compatible',
+      locality,
       apiKey,
       model: readModel(
         env['CODETHREAD_AI_MODEL'],

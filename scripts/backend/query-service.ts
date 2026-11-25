@@ -1,4 +1,5 @@
 import { summarizeCoverage } from '@codethread/code-model';
+import { TraceError } from '@codethread/trace-engine';
 import { z } from 'zod';
 import {
   getSourceEvidenceRequestSchema,
@@ -49,6 +50,10 @@ export class BackendQueryService {
   constructor(db: Database, scans: Pick<ScanService, 'publishedSnapshot'>) {
     this.db = db;
     this.scans = scans;
+  }
+
+  get activeHeavyQueryCount(): number {
+    return this.activeHeavyQueries;
   }
 
   async symbols(jobId: string, projectId: string, input: unknown) {
@@ -203,5 +208,95 @@ export class BackendQueryService {
         investigation.sourceEvidence(evidence),
       ),
     );
+  }
+
+  /**
+   * Loads one verified snapshot, executes both bounded graph-neighbors and
+   * supporting source-evidence in memory, and releases the heavy-query slot
+   * before any external AI provider call begins.
+   */
+  async aiProjection(
+    jobId: string,
+    projectId: string,
+    neighborsInput: unknown,
+  ) {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      const neighborsRequest =
+        graphNeighborsRequestSchema.parse(neighborsInput);
+      const snapshot = await withScanRead(this.db, jobId, async (db) => {
+        const expectedSnapshotId = await this.scans.publishedSnapshot(
+          jobId,
+          projectId,
+          db,
+        );
+        if (neighborsRequest.snapshotId !== expectedSnapshotId)
+          throw new ServiceError(
+            409,
+            'SNAPSHOT_MISMATCH',
+            'Query snapshot does not match the selected project.',
+          );
+        await protectSnapshotRead(db, expectedSnapshotId);
+        return loadSnapshotContentsInTransaction(db, expectedSnapshotId);
+      });
+      const { investigation } = snapshot;
+      let rawGraph;
+      try {
+        rawGraph = investigation.neighbors(neighborsRequest);
+      } catch (error) {
+        if (error instanceof TraceError) {
+          if (error.code === 'ENTITY_NOT_FOUND')
+            throw new ServiceError(
+              404,
+              'NOT_FOUND',
+              'Requested symbol was not found in the snapshot.',
+            );
+          if (error.code === 'RESOURCE_LIMIT')
+            throw new ServiceError(
+              413,
+              'RESPONSE_TOO_LARGE',
+              'Graph projection exceeded resource bounds.',
+            );
+          throw new ServiceError(
+            400,
+            'INVALID_REQUEST',
+            'Invalid graph projection request.',
+          );
+        }
+        throw error;
+      }
+      const graph = validateServerResult(() =>
+        parseGraphNeighborsResult(neighborsRequest, rawGraph),
+      );
+      const rootSymbol = graph.symbols.find(
+        (sym) => sym.id === graph.rootSymbolId,
+      );
+      const evidenceIds = [
+        ...new Set([
+          ...(rootSymbol ? [rootSymbol.declarationEvidenceId] : []),
+          ...graph.relations.flatMap((rel) => rel.resolution.evidenceIds),
+          ...graph.symbols.map((sym) => sym.declarationEvidenceId),
+        ]),
+      ].slice(0, 100);
+      const evidenceRequest = getSourceEvidenceRequestSchema.parse({
+        snapshotId: neighborsRequest.snapshotId,
+        evidenceIds,
+      });
+      const evidenceBatch = validateServerResult(() =>
+        parseGetSourceEvidenceResult(
+          evidenceRequest,
+          investigation.sourceEvidence(evidenceRequest),
+        ),
+      );
+      return { graph, evidenceBatch };
+    } finally {
+      this.activeHeavyQueries--;
+    }
   }
 }

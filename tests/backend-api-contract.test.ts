@@ -17,6 +17,8 @@ import { makeApi } from '../scripts/backend/http.ts';
 import { ScanService } from '../scripts/backend/service.ts';
 import { acquireWorkerLease } from '../scripts/backend/worker-lease.ts';
 import { PersistentViewerManager } from '../scripts/backend/viewer-adapter.ts';
+import { createMockProvider } from '../scripts/ai/index.ts';
+import type { AiContextPacket } from '@codethread/contracts';
 import type { BackendApiRoute } from '../scripts/backend/http-contracts.ts';
 import {
   backendContractSource,
@@ -218,7 +220,47 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
       consumerId: '',
       evidenceId: '',
     };
-    server = makeApi(apiDb, service, context.token, port, viewers);
+    server = makeApi(apiDb, service, context.token, port, viewers, {
+      config: {
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: null,
+        model: 'mock-contract-v1',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        timeoutMs: 5_000,
+        maxResponseBytes: 65_536,
+      },
+      provider: createMockProvider((input) => {
+        const packet = JSON.parse(
+          input.userPrompt.split('\n\n').at(-1)!,
+        ) as AiContextPacket;
+        const relation = packet.relations[0];
+        return {
+          summary: 'consumer has a static call relationship in this snapshot.',
+          claims: relation
+            ? [
+                {
+                  text: 'consumer statically calls getValue.',
+                  claimType: 'observed_fact',
+                  assertedRelation: 'exact_call',
+                  evidenceIds: [relation.siteEvidenceId],
+                  symbolIds: [
+                    relation.sourceSymbolId,
+                    ...(relation.targetSymbolId
+                      ? [relation.targetSymbolId]
+                      : []),
+                  ],
+                  relationIds: [relation.id],
+                  diagnosticIds: [],
+                },
+              ]
+            : [],
+          nextSteps: [],
+          uncertainties: [],
+        };
+      }, 'mock-contract-v1'),
+    });
     await new Promise<void>((resolve, reject) => {
       server!.once('error', reject);
       server!.listen(port, '127.0.0.1', resolve);

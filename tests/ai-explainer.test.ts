@@ -147,14 +147,35 @@ describe('CT-AI-001 config and disabled-by-default guardrails', () => {
       }),
     ).toThrow(AiError);
 
+    const defaultLocal = loadAiConfig({
+      CODETHREAD_AI_ENABLED: '1',
+    });
+    expect(defaultLocal).toMatchObject({
+      enabled: true,
+      provider: 'openai_compatible',
+      locality: 'local',
+      apiKey: null,
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    });
+
+    expect(() =>
+      loadAiConfig({
+        CODETHREAD_AI_ENABLED: '1',
+        CODETHREAD_AI_PROVIDER: 'gemini',
+        GEMINI_API_KEY: 'AIzaSyFakeKeyForUnitTestOnly123456',
+      }),
+    ).toThrow(/CODETHREAD_AI_ALLOW_REMOTE=1/);
+
     const gemini = loadAiConfig({
       CODETHREAD_AI_ENABLED: '1',
       CODETHREAD_AI_PROVIDER: 'gemini',
+      CODETHREAD_AI_ALLOW_REMOTE: '1',
       GEMINI_API_KEY: 'AIzaSyFakeKeyForUnitTestOnly123456',
     });
     expect(gemini).toMatchObject({
       enabled: true,
       provider: 'gemini',
+      locality: 'remote',
       model: 'gemini-2.5-flash',
     });
 
@@ -165,6 +186,7 @@ describe('CT-AI-001 config and disabled-by-default guardrails', () => {
     expect(ollama).toMatchObject({
       enabled: true,
       provider: 'openai_compatible',
+      locality: 'local',
       apiKey: null,
       baseUrl: 'http://127.0.0.1:11434/v1',
     });
@@ -174,6 +196,7 @@ describe('CT-AI-001 config and disabled-by-default guardrails', () => {
         CODETHREAD_AI_ENABLED: '1',
         CODETHREAD_AI_PROVIDER: 'openai_compatible',
         CODETHREAD_AI_BASE_URL: 'http://example.com/v1',
+        CODETHREAD_AI_ALLOW_REMOTE: '1',
         CODETHREAD_AI_API_KEY: 'sk-test-1234567890abcdef',
       }),
     ).toThrow(/https or loopback http/);
@@ -183,6 +206,7 @@ describe('CT-AI-001 config and disabled-by-default guardrails', () => {
         CODETHREAD_AI_ENABLED: '1',
         CODETHREAD_AI_PROVIDER: 'openai_compatible',
         CODETHREAD_AI_BASE_URL: 'https://api.example.com/v1',
+        CODETHREAD_AI_ALLOW_REMOTE: '1',
       }),
     ).toThrow(/CODETHREAD_AI_API_KEY is required/);
   });
@@ -263,6 +287,7 @@ describe('CT-AI-001 deterministic post-verifier (citation-or-silence)', () => {
       {
         enabled: true,
         provider: 'openai_compatible',
+        locality: 'local',
         apiKey: null,
         model: 'qwen2.5-coder:7b',
         baseUrl: 'http://127.0.0.1:11434/v1',
@@ -487,6 +512,7 @@ describe('CT-AI-001 offline provider adapters (Gemini & OpenAI-compatible/Ollama
       {
         enabled: true,
         provider: 'gemini',
+        locality: 'remote',
         apiKey: 'AIzaSyFakeKeyForUnitTestOnly123456',
         model: 'gemini-2.5-flash',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -530,6 +556,7 @@ describe('CT-AI-001 offline provider adapters (Gemini & OpenAI-compatible/Ollama
       {
         enabled: true,
         provider: 'openai_compatible',
+        locality: 'local',
         apiKey: null,
         model: 'qwen2.5-coder:7b',
         baseUrl: 'http://127.0.0.1:11434/v1',
@@ -553,6 +580,7 @@ describe('CT-AI-001 offline provider adapters (Gemini & OpenAI-compatible/Ollama
       {
         enabled: true,
         provider: 'gemini',
+        locality: 'remote',
         apiKey: 'AIzaSyFakeKeyForUnitTestOnly123456',
         model: 'gemini-2.5-flash',
         baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -571,6 +599,7 @@ describe('CT-AI-001 offline provider adapters (Gemini & OpenAI-compatible/Ollama
       {
         enabled: true,
         provider: 'openai_compatible',
+        locality: 'local',
         apiKey: null,
         model: 'qwen2.5-coder:7b',
         baseUrl: 'http://127.0.0.1:11434/v1',
@@ -592,6 +621,7 @@ describe('CT-AI-001 offline provider adapters (Gemini & OpenAI-compatible/Ollama
       {
         enabled: true,
         provider: 'openai_compatible',
+        locality: 'local',
         apiKey: null,
         model: 'qwen2.5-coder:7b',
         baseUrl: 'http://127.0.0.1:11434/v1',

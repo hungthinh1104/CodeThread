@@ -3,6 +3,7 @@ import { realpath } from 'node:fs/promises';
 import { relative, isAbsolute, sep } from 'node:path';
 import { z } from 'zod';
 import { analyzerBuildHash as currentAnalyzerBuildHash } from '@codethread/symbol-indexer';
+import { loadAiConfig } from '../ai/index.ts';
 
 export const uuid = z.uuid();
 export const hash = z.string().regex(/^[0-9a-f]{64}$/);
@@ -66,5 +67,6 @@ export function serviceConfig() {
   const port = Number(rawPort);
   if (port < 1 || port > 65535)
     throw new Error('CODETHREAD_API_PORT is outside the valid range');
-  return { url, secret, root, analyzerBuildHash, port };
+  const ai = loadAiConfig();
+  return { url, secret, root, analyzerBuildHash, port, ai };
 }

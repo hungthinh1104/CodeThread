@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  aiStatus,
   forwardViewerOperation,
   openWorkspace,
   parseRequestJson,
+  synthesizeWorkspaceAi,
   WorkspaceBffError,
   workspaceMetadata,
 } from '../packages/investigation-workspace/src/server/workspace-bff.ts';
@@ -413,5 +415,160 @@ describe('local Investigation Workspace BFF', () => {
       }
       clock.mockRestore();
     }
+  });
+
+  it('adapts optional AI status and scan-scoped AI synthesis with strict bounds and session checks', async () => {
+    const snapshotId = '00000000-0000-4000-8000-000000000601';
+    const symbolId = '00000000-0000-4000-8000-000000000602';
+    const validSynthesis = {
+      version: 1,
+      snapshotId,
+      rootSymbolId: symbolId,
+      task: 'explain_trace',
+      evidenceBasis: 'static_generated_unverified',
+      disclaimer:
+        'Generated static synthesis (unverified). Static relationships do not prove runtime execution.',
+      provenance: {
+        provider: 'openai_compatible',
+        model: 'qwen2.5-coder:7b',
+        packetHash: 'a'.repeat(64),
+        promptVersion: 'ct-ai-prompt-v2',
+      },
+      context: {
+        truncated: false,
+        truncationReasons: [],
+        omitted: { symbols: 0, relations: 0, excerpts: 0, diagnostics: 0 },
+        redactedExcerpts: 0,
+      },
+      summary: 'entry statically calls helper.',
+      claims: [],
+      nextSteps: [],
+      uncertainties: [],
+      verification: {
+        verifiedClaims: 0,
+        rejectedClaims: 0,
+        verifiedNextSteps: 0,
+        rejectedNextSteps: 0,
+        rejectedItems: [],
+      },
+    };
+
+    const { fetcher } = backendAndViewerFetch();
+    const baseImpl = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/v1/ai/status')) {
+        return json({ enabled: false });
+      }
+      if (url.endsWith('/ai/synthesize')) {
+        return json(validSynthesis);
+      }
+      return baseImpl(input, init);
+    });
+
+    await expect(aiStatus()).resolves.toEqual({ enabled: false });
+    const opened = await openWorkspace(scanId);
+
+    // Missing cookie -> 401; scan mismatch -> 409; invalid request -> 400.
+    await expect(
+      synthesizeWorkspaceAi(undefined, scanId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({ status: 401, code: 'WORKSPACE_SESSION_EXPIRED' });
+
+    await expect(
+      synthesizeWorkspaceAi(opened.sessionId, repositoryId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({ status: 409, code: 'WORKSPACE_SCAN_MISMATCH' });
+
+    await expect(
+      synthesizeWorkspaceAi(opened.sessionId, scanId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId, depth: 5 },
+        },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
+
+    // Valid synthesis succeeds and never exposes backend bearer token.
+    const ok = await synthesizeWorkspaceAi(opened.sessionId, scanId, {
+      projectId: 'root',
+      request: {
+        task: 'explain_trace',
+        neighbors: { snapshotId, symbolId },
+      },
+    });
+    expect(ok.summary).toBe('entry statically calls helper.');
+    expect(JSON.stringify(ok)).not.toContain(
+      process.env.CODETHREAD_API_TOKEN ?? 'backend-secret',
+    );
+
+    // Context mismatch from backend is rejected as 502 UPSTREAM_CONTRACT_MISMATCH.
+    fetcher.mockImplementationOnce(async () =>
+      json({ ...validSynthesis, task: 'explain_unknowns' }),
+    );
+    await expect(
+      synthesizeWorkspaceAi(opened.sessionId, scanId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
+
+    // Response > 64 KiB is rejected; timeout maps to 504 AI_PROVIDER_TIMEOUT.
+    const huge = JSON.stringify({
+      ...validSynthesis,
+      extra: 'x'.repeat(70 * 1024),
+    });
+    fetcher.mockImplementationOnce(
+      async () =>
+        new Response(huge, {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+            'content-length': String(huge.length),
+          },
+        }),
+    );
+    await expect(
+      synthesizeWorkspaceAi(opened.sessionId, scanId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_RESPONSE_TOO_LARGE',
+    });
+
+    fetcher.mockImplementationOnce(async () => {
+      throw new DOMException('Timed out', 'TimeoutError');
+    });
+    await expect(
+      synthesizeWorkspaceAi(opened.sessionId, scanId, {
+        projectId: 'root',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({ status: 504, code: 'AI_PROVIDER_TIMEOUT' });
   });
 });

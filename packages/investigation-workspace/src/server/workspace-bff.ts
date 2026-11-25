@@ -1,18 +1,31 @@
 import { randomBytes } from 'node:crypto';
 import {
+  aiStatusResponseSchema,
+  aiSynthesisResponseSchema,
+  aiSynthesizeApiRequestSchema,
   backendApiErrorResponseSchema,
   backendApiResponseSchemas,
   viewerApiRepositoryRequestSchemas,
   viewerApiResponseSchemas,
+} from '@codethread/contracts';
+import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
 } from '@codethread/contracts';
 import { z } from 'zod';
 
 const DEFAULT_BACKEND_ORIGIN = 'http://127.0.0.1:8765';
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_AI_RESPONSE_BYTES = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 5000;
+const AI_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_SESSIONS = 4;
 const SESSION_REUSE_MARGIN_MS = 5_000;
+const workspaceAiRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: aiSynthesizeApiRequestSchema,
+});
 
 function isTimeoutError(error: unknown): boolean {
   return (
@@ -200,7 +213,10 @@ export async function parseRequestJson(request: Request): Promise<unknown> {
   }
 }
 
-async function boundedJson(response: Response): Promise<unknown> {
+async function boundedJson(
+  response: Response,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<unknown> {
   const mediaType = response.headers
     .get('content-type')
     ?.split(';')[0]
@@ -215,7 +231,7 @@ async function boundedJson(response: Response): Promise<unknown> {
     );
   }
   const length = Number(response.headers.get('content-length') ?? 0);
-  if (length > MAX_RESPONSE_BYTES) {
+  if (length > maxBytes) {
     await response.body?.cancel();
     throw new WorkspaceBffError(
       502,
@@ -237,7 +253,7 @@ async function boundedJson(response: Response): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       used += value.byteLength;
-      if (used > MAX_RESPONSE_BYTES) {
+      if (used > maxBytes) {
         await reader.cancel();
         throw new WorkspaceBffError(
           502,
@@ -271,6 +287,12 @@ async function backendRequest(
   route: keyof typeof backendApiResponseSchemas,
   path: string,
   method: 'GET' | 'POST',
+  options?: {
+    body?: unknown;
+    timeoutMs?: number;
+    maxResponseBytes?: number;
+    timeoutCode?: string;
+  },
 ): Promise<unknown> {
   const token = process.env.CODETHREAD_API_TOKEN;
   if (!token)
@@ -280,19 +302,29 @@ async function backendRequest(
       'The local CodeThread backend is not configured.',
     );
   const origin = backendOrigin();
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    authorization: `Bearer ${token}`,
+  };
+  let serializedBody: string | undefined;
+  if (options?.body !== undefined) {
+    headers['content-type'] = 'application/json';
+    serializedBody = JSON.stringify(options.body);
+  }
   let response: Response;
   try {
     response = await fetch(`${origin}${path}`, {
       method,
-      headers: { accept: 'application/json', authorization: `Bearer ${token}` },
+      headers,
+      ...(serializedBody !== undefined ? { body: serializedBody } : {}),
       redirect: 'manual',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options?.timeoutMs ?? REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
     if (isTimeoutError(error))
       throw new WorkspaceBffError(
         504,
-        'BACKEND_TIMEOUT',
+        options?.timeoutCode ?? 'BACKEND_TIMEOUT',
         'The local CodeThread backend timed out.',
       );
     throw new WorkspaceBffError(
@@ -309,7 +341,7 @@ async function backendRequest(
       'The local backend returned an unexpected redirect.',
     );
   }
-  const value = await boundedJson(response);
+  const value = await boundedJson(response, options?.maxResponseBytes);
   if (!response.ok) {
     const error = backendApiErrorResponseSchema.safeParse(value);
     throw new WorkspaceBffError(
@@ -592,4 +624,52 @@ export async function forwardViewerOperation(
       'The local viewer response failed contract validation.',
     );
   }
+}
+
+export async function aiStatus(): Promise<AiStatusResponse> {
+  const value = await backendRequest(
+    'GET /v1/ai/status',
+    '/v1/ai/status',
+    'GET',
+  );
+  return aiStatusResponseSchema.parse(value);
+}
+
+export async function synthesizeWorkspaceAi(
+  sessionId: string | undefined,
+  scanId: string,
+  value: unknown,
+): Promise<AiSynthesisResponse> {
+  requireWorkspaceSession(sessionId, scanId);
+  const parsed = workspaceAiRequestSchema.safeParse(value);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'Workspace AI synthesis request failed contract validation.',
+    );
+  const rawResult = await backendRequest(
+    'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+    `/v1/scans/${scanId}/projects/${encodeURIComponent(parsed.data.projectId)}/ai/synthesize`,
+    'POST',
+    {
+      body: parsed.data.request,
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
+      maxResponseBytes: MAX_AI_RESPONSE_BYTES,
+      timeoutCode: 'AI_PROVIDER_TIMEOUT',
+    },
+  );
+  const result = aiSynthesisResponseSchema.parse(rawResult);
+  if (
+    result.snapshotId !== parsed.data.request.neighbors.snapshotId ||
+    result.rootSymbolId !== parsed.data.request.neighbors.symbolId ||
+    result.task !== parsed.data.request.task
+  ) {
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned AI notes for a different context.',
+    );
+  }
+  return result;
 }

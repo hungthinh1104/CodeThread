@@ -16,9 +16,10 @@ The repository supplies Foundation validation/tooling, the DB-01 logical design,
 a bounded in-memory TypeScript semantic proof, pinned Git adapters for selected
 files and whole-repository `.ts` scope, independent project-context analysis,
 and an opt-in local PostgreSQL backend candidate with a persisted viewer adapter
-and the bounded Investigation Workspace. A general persistent frontend and
-Gemini integration remain gated. See `product.yaml` and `docs/architecture.md`
-for scope, ownership and gates.
+and the bounded Investigation Workspace. Optional evidence-bound AI synthesis
+(`CT-AI-001`, `ADR-0010`, `ADR-0011`) is disabled by default; a general
+persistent frontend and production deployment remain gated. See `product.yaml`
+and `docs/architecture.md` for scope, ownership and gates.
 
 ## PostgreSQL backend candidate (DB-02)
 

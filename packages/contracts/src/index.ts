@@ -5,4 +5,5 @@ export * from './viewer-results.js';
 export * from './backend-results.js';
 export * from './ai-packet.js';
 export * from './ai-queries.js';
+export * from './ai-api.js';
 export * from './ai-results.js';

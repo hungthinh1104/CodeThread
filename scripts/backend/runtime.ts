@@ -3,11 +3,13 @@ import { makeApi } from './http.ts';
 import { ScanService, type BackendConfig } from './service.ts';
 import { PersistentViewerManager } from './viewer-adapter.ts';
 import { acquireWorkerLease, type WorkerLease } from './worker-lease.ts';
+import type { AiConfig } from '../ai/index.ts';
 
 export type RuntimeConfig = BackendConfig & {
   url: string;
   secret: string;
   port: number;
+  ai?: AiConfig;
 };
 
 export async function startBackend(config: RuntimeConfig) {
@@ -20,7 +22,14 @@ export async function startBackend(config: RuntimeConfig) {
     lease = await acquireWorkerLease(config.url);
     const service = new ScanService(db, config, lease);
     await service.recover();
-    server = makeApi(db, service, config.secret, config.port, viewers);
+    server = makeApi(
+      db,
+      service,
+      config.secret,
+      config.port,
+      viewers,
+      config.ai,
+    );
     await new Promise<void>((resolve, reject) => {
       server!.once('error', reject);
       server!.listen(config.port, '127.0.0.1', resolve);
@@ -47,11 +56,11 @@ export async function startBackend(config: RuntimeConfig) {
             await activeLease.close();
           }
           await Promise.all([worker, serverClosed]);
-          await viewers.closeAll();
+          await viewers.closeAll({ shutdown: true });
         } finally {
           clearTimeout(grace);
           activeServer.closeAllConnections();
-          await viewers.closeAll().catch(() => {});
+          await viewers.closeAll({ shutdown: true }).catch(() => {});
           await db.end({ timeout: 1 });
         }
       })();
@@ -59,7 +68,7 @@ export async function startBackend(config: RuntimeConfig) {
       const timeout = new Promise<never>((_, reject) => {
         deadline = setTimeout(() => {
           activeServer.closeAllConnections();
-          void viewers.closeAll().catch(() => {});
+          void viewers.closeAll({ shutdown: true }).catch(() => {});
           void activeLease.close();
           void db.end({ timeout: 0 });
           reject(new Error('Backend shutdown exceeded its deadline'));
@@ -78,7 +87,7 @@ export async function startBackend(config: RuntimeConfig) {
       await new Promise<void>((resolve) => server!.close(() => resolve()));
     }
     await lease?.close().catch(() => {});
-    await viewers.closeAll().catch(() => {});
+    await viewers.closeAll({ shutdown: true }).catch(() => {});
     await db.end({ timeout: 1 }).catch(() => {});
     throw error;
   }

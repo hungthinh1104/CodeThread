@@ -1,8 +1,10 @@
 # CT-WORKSPACE-001B Investigation Workspace
 
 Status: implementation candidate on top of PR #38. This document authorizes one
-bounded local workspace; it does not authorize a general frontend, repository
-administration, public service, AI feature, or deployment.
+bounded local workspace; optional evidence-bound AI notes remain disabled by
+default under [ADR-0010](../decisions/0010-evidence-bound-optional-ai.md) and
+[ADR-0011](../decisions/0011-optional-workspace-ai-wiring.md), and a general
+frontend, repository administration, public service, or deployment remain gated.
 
 ## User journey
 

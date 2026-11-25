@@ -10,6 +10,7 @@ export {
 } from './config.js';
 export type {
   AiConfig,
+  AiLocality,
   DisabledAiConfig,
   EnabledGeminiConfig,
   EnabledOpenAiCompatibleConfig,
