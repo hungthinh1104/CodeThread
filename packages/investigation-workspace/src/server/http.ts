@@ -21,7 +21,10 @@ export function trustedLocalRequest(
   const requestOrigin = request.headers.get('origin');
   if (requireOrigin && requestOrigin !== origin) return false;
   if (requestOrigin && requestOrigin !== origin) return false;
-  return request.headers.get('sec-fetch-site') !== 'cross-site';
+  const fetchSite = request.headers.get('sec-fetch-site');
+  return (
+    fetchSite === null || fetchSite === 'same-origin' || fetchSite === 'none'
+  );
 }
 
 export function sessionIdFromCookie(

@@ -655,8 +655,26 @@ export function createBackendApiContractCases(dependencies: Dependencies) {
         await failure('/v1/scans/not-a-uuid/cancel', 400, 'INVALID_REQUEST', {
           method: 'POST',
         });
+        let terminalScanId = cancelledScanId;
+        if (!terminalScanId) {
+          await dependencies.stopWorker();
+          const queued = await success(
+            'POST /v1/repositories/:id/scans',
+            `/v1/repositories/${ctx().repositoryId}/scans`,
+            {
+              method: 'POST',
+              body: scanRequest(`api-contract-cancel-neg-${randomUUID()}`),
+            },
+          );
+          terminalScanId = String(queued.id);
+          await success(
+            'POST /v1/scans/:id/cancel',
+            `/v1/scans/${terminalScanId}/cancel`,
+            { method: 'POST' },
+          );
+        }
         await failure(
-          `/v1/scans/${cancelledScanId}/cancel`,
+          `/v1/scans/${terminalScanId}/cancel`,
           409,
           'NOT_CANCELLABLE',
           {

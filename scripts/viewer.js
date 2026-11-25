@@ -42,6 +42,7 @@ let repositoryMode = false,
   followQuerySequence = 0;
 let symbolChoices = [],
   pendingContextChoices = [],
+  pendingProjectRetry = null,
   filePage = { offset: 0, nextOffset: null };
 let filePageSequence = 0;
 let symbolPage = { query: '', offset: 0, nextOffset: null, total: 0 };
@@ -159,8 +160,20 @@ function applyQueryState(
   byId('context-choices').hidden = true;
   renderHistoryButton();
   renderFilters();
+  syncSymbolListCurrent();
   void loadGraph(restore, focusRoot);
   return true;
+}
+
+function syncSymbolListCurrent() {
+  for (const button of byId('symbol-results').querySelectorAll(
+    'button.symbol-choice',
+  )) {
+    const sameSymbol = button.dataset.symbolId === state.rootSymbolId;
+    const sameProject =
+      !button.dataset.projectId || button.dataset.projectId === state.projectId;
+    button.setAttribute('aria-current', String(sameSymbol && sameProject));
+  }
 }
 
 function renderHistoryButton() {
@@ -217,12 +230,9 @@ async function loadSymbolPage(query = symbolPage.query, offset = 0) {
         },
       );
       button.className = 'symbol-choice';
-      button.setAttribute(
-        'aria-current',
-        String(state.rootSymbolId === symbol.id),
-      );
       list.append(row);
     }
+    syncSymbolListCurrent();
     byId('symbol-count').textContent =
       result.total === 0
         ? 'No matching declarations.'
@@ -761,10 +771,14 @@ document.addEventListener('click', (event) => {
 });
 
 byId('back').addEventListener('click', () => void restoreNavigation('back'));
-byId('retry-project').addEventListener(
-  'click',
-  () => void changeProject(state.projectId, { remember: false }),
-);
+byId('retry-project').addEventListener('click', () => {
+  const retry = pendingProjectRetry;
+  void changeProject(retry?.projectId ?? state.projectId, {
+    remember: false,
+    rootSymbolId: retry?.rootSymbolId ?? null,
+    restore: retry?.restore ?? null,
+  });
+});
 byId('forward').addEventListener(
   'click',
   () => void restoreNavigation('forward'),
@@ -898,9 +912,11 @@ async function changeProject(
       graphSeqAtStart !== graphQuerySequence
     )
       return;
+    pendingProjectRetry = null;
     void loadGraph(restore, Boolean(rootSymbolId));
   } catch (error) {
     if (sequence === projectQuerySequence) {
+      pendingProjectRetry = { projectId, rootSymbolId, restore };
       renderHistoryButton();
       byId('snapshot-summary').textContent =
         'Project context is unavailable. Select a context to retry.';

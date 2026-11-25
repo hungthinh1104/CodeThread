@@ -60,5 +60,11 @@ export function serviceConfig() {
     throw new Error(
       'Database URL, 32+ character API token, allowed repository root and matching analyzer build identity are required',
     );
-  return { url, secret, root, analyzerBuildHash, port: 8765 };
+  const rawPort = process.env.CODETHREAD_API_PORT ?? '8765';
+  if (!/^\d{1,5}$/.test(rawPort))
+    throw new Error('CODETHREAD_API_PORT must be a numeric port');
+  const port = Number(rawPort);
+  if (port < 1 || port > 65535)
+    throw new Error('CODETHREAD_API_PORT is outside the valid range');
+  return { url, secret, root, analyzerBuildHash, port };
 }

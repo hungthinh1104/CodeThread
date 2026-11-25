@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { access, readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { BackendQueryService } from './query-service.ts';
 import { connect, assertMigrations } from './database.ts';
 import { localPostgresConnection } from './local-postgres-url.ts';
@@ -7,6 +9,34 @@ import { runPgRestore } from './postgres-tools.ts';
 import { loadRepositorySession } from './session-persistence.ts';
 import { loadSnapshot } from './snapshot-persistence.ts';
 import { createInvestigation } from '@codethread/trace-engine';
+
+export interface RoleGrantAudit {
+  runtime_can_read: boolean;
+  runtime_can_delete: boolean;
+  runtime_can_create: boolean;
+  runtime_can_prune: boolean;
+  retention_can_prune: boolean;
+  public_can_use_schema: boolean;
+  public_can_create_schema: boolean;
+  public_can_prune: boolean;
+  runtime_can_write_migrations: boolean;
+}
+
+export function assertRoleGrants(grants: RoleGrantAudit | undefined): void {
+  if (
+    !grants ||
+    !grants.runtime_can_read ||
+    grants.runtime_can_delete ||
+    grants.runtime_can_create ||
+    grants.runtime_can_prune ||
+    !grants.retention_can_prune ||
+    grants.public_can_use_schema ||
+    grants.public_can_create_schema ||
+    grants.public_can_prune ||
+    grants.runtime_can_write_migrations
+  )
+    throw new Error('Restored runtime and retention role grants are unsafe');
+}
 
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -180,6 +210,27 @@ async function verifyDatabase(db: ReturnType<typeof connect>) {
       })),
     });
   }
+  const tableCountRows = await db`SELECT
+    (SELECT count(*)::integer FROM codethread.repository) AS repository,
+    (SELECT count(*)::integer FROM codethread.scan_job) AS scan_job,
+    (SELECT count(*)::integer FROM codethread.scan_input_file) AS scan_input_file,
+    (SELECT count(*)::integer FROM codethread.source_object) AS source_object,
+    (SELECT count(*)::integer FROM codethread.repository_snapshot) AS repository_snapshot,
+    (SELECT count(*)::integer FROM codethread.scan_project) AS scan_project,
+    (SELECT count(*)::integer FROM codethread.snapshot_file) AS snapshot_file,
+    (SELECT count(*)::integer FROM codethread.source_evidence) AS source_evidence,
+    (SELECT count(*)::integer FROM codethread.code_symbol) AS code_symbol,
+    (SELECT count(*)::integer FROM codethread.diagnostic) AS diagnostic,
+    (SELECT count(*)::integer FROM codethread.code_relation) AS code_relation,
+    (SELECT count(*)::integer FROM codethread.relation_evidence) AS relation_evidence,
+    (SELECT count(*)::integer FROM codethread.snapshot_capability) AS snapshot_capability`;
+  const [allRepos, allJobs, allSources] = await Promise.all([
+    db`SELECT id,local_locator,desired_generation,active_job_id
+      FROM codethread.repository ORDER BY id`,
+    db`SELECT id,repository_id,generation,state,attempt,git_commit_oid,activation_result,error_code
+      FROM codethread.scan_job ORDER BY id`,
+    db`SELECT sha256,byte_length FROM codethread.source_object ORDER BY sha256`,
+  ]);
   return {
     snapshots: snapshots.length,
     verifiedFiles,
@@ -187,83 +238,104 @@ async function verifyDatabase(db: ReturnType<typeof connect>) {
     verifiedEvidence,
     verifiedGraphs,
     activeInvestigations: activeRows.length,
+    tableCounts: tableCountRows[0] ?? {},
+    inventoryDigest: digest(
+      stableJson({ repos: allRepos, jobs: allJobs, sources: allSources }),
+    ),
     snapshotDigest: digest(stableJson(snapshotSummaries)),
     queryOutputDigest: digest(stableJson(queryOutputs)),
     activeSessionDigest: digest(stableJson(activeSessions)),
   };
 }
 
-const archive = process.env.CODETHREAD_BACKUP_FILE,
-  sourceUrl = process.env.CODETHREAD_BACKUP_DATABASE_URL,
-  targetUrl = process.env.CODETHREAD_RESTORE_TEST_DATABASE_URL;
-if (!archive || !sourceUrl || !targetUrl)
-  throw new Error(
-    'CODETHREAD_BACKUP_FILE, CODETHREAD_BACKUP_DATABASE_URL and CODETHREAD_RESTORE_TEST_DATABASE_URL are required',
-  );
-await access(archive);
-const source = localPostgresConnection(sourceUrl, 'Backup source'),
-  target = localPostgresConnection(targetUrl, 'Restore target'),
-  sourceDb = connect(source.url),
-  db = connect(target.url);
-try {
-  const existing = await db`SELECT to_regnamespace('codethread') AS schema`;
-  if (existing[0]?.schema)
-    throw new Error('Restore target already contains a CodeThread schema');
-  const sourceSummary = await verifyDatabase(sourceDb);
-  await runPgRestore(
-    process.env.CODETHREAD_PG_RESTORE_BIN ?? 'pg_restore',
-    [
-      '--exit-on-error',
-      '--no-owner',
-      '--no-privileges',
-      `--dbname=${target.env.PGDATABASE}`,
-    ],
-    archive,
-    target.env,
-  );
-  await assertMigrations(db);
-  await db.unsafe(
-    await readFile(new URL('../../db/roles.sql', import.meta.url), 'utf8'),
-  );
-  const roles = await db`SELECT
-    has_table_privilege('codethread_runtime','codethread.scan_job','SELECT') AS runtime_can_read,
-    has_table_privilege('codethread_runtime','codethread.scan_job','DELETE') AS runtime_can_delete,
-    has_schema_privilege('codethread_runtime','codethread','CREATE') AS runtime_can_create,
-    has_function_privilege('codethread_runtime',
-      'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
-      'EXECUTE') AS runtime_can_prune,
-    has_function_privilege('codethread_retention',
-      'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
-      'EXECUTE') AS retention_can_prune`;
-  if (
-    !roles[0]?.runtime_can_read ||
-    roles[0].runtime_can_delete ||
-    roles[0].runtime_can_create ||
-    roles[0].runtime_can_prune ||
-    !roles[0].retention_can_prune
-  )
-    throw new Error('Restored runtime and retention role grants are unsafe');
-  const restoredSummary = await verifyDatabase(db);
-  if (stableJson(sourceSummary) !== stableJson(restoredSummary))
+async function main() {
+  const archive = process.env.CODETHREAD_BACKUP_FILE,
+    sourceUrl = process.env.CODETHREAD_BACKUP_DATABASE_URL,
+    targetUrl = process.env.CODETHREAD_RESTORE_TEST_DATABASE_URL;
+  if (!archive || !sourceUrl || !targetUrl)
     throw new Error(
-      'Isolated restore differs from source snapshot/API/session evidence',
+      'CODETHREAD_BACKUP_FILE, CODETHREAD_BACKUP_DATABASE_URL and CODETHREAD_RESTORE_TEST_DATABASE_URL are required',
     );
-  const verificationDigest = digest(
-    stableJson({
-      sourceSummary,
-      restoredSummary,
-      runtimeRoles: roles[0],
-    }),
-  );
-  console.log(
-    JSON.stringify({
-      status: 'verified',
-      ...restoredSummary,
-      roles: roles[0],
-      verificationDigest,
-    }),
-  );
-} finally {
-  await sourceDb.end({ timeout: 5 });
-  await db.end({ timeout: 5 });
+  await access(archive);
+  const source = localPostgresConnection(sourceUrl, 'Backup source'),
+    target = localPostgresConnection(targetUrl, 'Restore target'),
+    sourceDb = connect(source.url),
+    db = connect(target.url);
+  try {
+    const existing = await db`SELECT to_regnamespace('codethread') AS schema`;
+    if (existing[0]?.schema)
+      throw new Error('Restore target already contains a CodeThread schema');
+    const sourceSummary = await verifyDatabase(sourceDb);
+    if (
+      sourceSummary.snapshots === 0 &&
+      process.env.CODETHREAD_RESTORE_ALLOW_EMPTY !== '1'
+    )
+      throw new Error(
+        'Backup source contains no published snapshots to verify; set CODETHREAD_RESTORE_ALLOW_EMPTY=1 to allow empty-schema verification',
+      );
+    await runPgRestore(
+      process.env.CODETHREAD_PG_RESTORE_BIN ?? 'pg_restore',
+      [
+        '--exit-on-error',
+        '--no-owner',
+        '--no-privileges',
+        `--dbname=${target.env.PGDATABASE}`,
+      ],
+      archive,
+      target.env,
+    );
+    await assertMigrations(db);
+    await db.unsafe(
+      await readFile(new URL('../../db/roles.sql', import.meta.url), 'utf8'),
+    );
+    const roles = await db<RoleGrantAudit[]>`SELECT
+      has_table_privilege('codethread_runtime','codethread.scan_job','SELECT') AS runtime_can_read,
+      has_table_privilege('codethread_runtime','codethread.scan_job','DELETE') AS runtime_can_delete,
+      has_schema_privilege('codethread_runtime','codethread','CREATE') AS runtime_can_create,
+      has_function_privilege('codethread_runtime',
+        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+        'EXECUTE') AS runtime_can_prune,
+      has_function_privilege('codethread_retention',
+        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+        'EXECUTE') AS retention_can_prune,
+      has_schema_privilege('PUBLIC','codethread','USAGE') AS public_can_use_schema,
+      has_schema_privilege('PUBLIC','codethread','CREATE') AS public_can_create_schema,
+      has_function_privilege('PUBLIC',
+        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+        'EXECUTE') AS public_can_prune,
+      (has_table_privilege('codethread_runtime','codethread.schema_migration','INSERT') OR
+       has_table_privilege('codethread_runtime','codethread.schema_migration','UPDATE') OR
+       has_table_privilege('codethread_runtime','codethread.schema_migration','DELETE')) AS runtime_can_write_migrations`;
+    assertRoleGrants(roles[0]);
+    const restoredSummary = await verifyDatabase(db);
+    if (stableJson(sourceSummary) !== stableJson(restoredSummary))
+      throw new Error(
+        'Isolated restore differs from source snapshot/API/session evidence',
+      );
+    const verificationDigest = digest(
+      stableJson({
+        sourceSummary,
+        restoredSummary,
+        runtimeRoles: roles[0],
+      }),
+    );
+    console.log(
+      JSON.stringify({
+        status: 'verified',
+        ...restoredSummary,
+        roles: roles[0],
+        verificationDigest,
+      }),
+    );
+  } finally {
+    await sourceDb.end({ timeout: 5 });
+    await db.end({ timeout: 5 });
+  }
+}
+
+if (
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  await main();
 }

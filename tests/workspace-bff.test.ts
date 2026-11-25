@@ -262,6 +262,25 @@ describe('local Investigation Workspace BFF', () => {
     expect(trustedLocalRequest(trusted, true)).toBe(true);
     expect(trustedLocalRequest(wrongHost, true)).toBe(false);
     expect(trustedLocalRequest(wrongOrigin, true)).toBe(false);
+    const sameSite = new Request('http://127.0.0.1:3000/api/repositories', {
+      method: 'GET',
+      headers: {
+        host: '127.0.0.1:3000',
+        'sec-fetch-site': 'same-site',
+      },
+    });
+    expect(trustedLocalRequest(sameSite, false)).toBe(false);
+    vi.stubEnv('CODETHREAD_WORKSPACE_PORT', '80');
+    const port80 = new Request('http://127.0.0.1/api/workspace/open', {
+      method: 'POST',
+      headers: {
+        host: '127.0.0.1',
+        origin: 'http://127.0.0.1',
+        'sec-fetch-site': 'same-origin',
+      },
+    });
+    expect(trustedLocalRequest(port80, true)).toBe(true);
+    vi.stubEnv('CODETHREAD_WORKSPACE_PORT', '3000');
     expect(
       sessionCookie(
         scanId,
