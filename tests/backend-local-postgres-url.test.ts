@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { localPostgresConnection } from '../scripts/backend/local-postgres-url.ts';
+import { containerEnvironment } from '../scripts/backend/postgres-tools.ts';
 
 describe('local PostgreSQL connection URLs', () => {
   it.each(['localhost', '127.0.0.1', '[::1]'])(
@@ -68,5 +69,14 @@ describe('local PostgreSQL connection URLs', () => {
     expect(() =>
       localPostgresConnection('postgres://localhost', 'Restore target'),
     ).toThrow('Restore target database name is missing');
+  });
+
+  it('falls back to postgres user in Docker mode when URL omits username', () => {
+    const connection = localPostgresConnection(
+      'postgres://127.0.0.1:5432/codethread',
+      'Backup source',
+    );
+    expect(connection.env.PGUSER).toBe('');
+    expect(containerEnvironment(connection.env)).toContain('PGUSER=postgres');
   });
 });

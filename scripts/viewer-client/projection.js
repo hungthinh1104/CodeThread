@@ -19,8 +19,27 @@ export function renderGraph(graph, state) {
   const positions = new Map();
   const cellWidth = 210;
   const rowHeight = 105;
-  const width = 660;
-  const height = Math.max(150, Math.ceil(symbols.length / 3) * rowHeight + 30);
+  const width = 700;
+  const exactRelations = graph.relations.filter(
+    (relation) => relation.resolution.status === 'exact',
+  );
+  const edgeTotals = new Map();
+  for (const relation of exactRelations) {
+    const key = `${relation.sourceSymbolId}:${relation.resolution.targetId}`;
+    edgeTotals.set(key, (edgeTotals.get(key) ?? 0) + 1);
+  }
+  const topRowSelfLoops = symbols.slice(0, 3).reduce((max, symbol) => {
+    const count = edgeTotals.get(`${symbol.id}:${symbol.id}`) ?? 0;
+    return Math.max(max, count);
+  }, 0);
+  const topY = Math.max(
+    48,
+    topRowSelfLoops > 0 ? 36 + topRowSelfLoops * 24 : 48,
+  );
+  const height = Math.max(
+    150,
+    topY + Math.max(0, Math.ceil(symbols.length / 3) - 1) * rowHeight + 87,
+  );
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
   const marker = document.createElementNS(
@@ -44,17 +63,9 @@ export function renderGraph(graph, state) {
   symbols.forEach((symbol, index) => {
     positions.set(symbol.id, {
       x: 100 + (index % 3) * cellWidth,
-      y: 48 + Math.floor(index / 3) * rowHeight,
+      y: topY + Math.floor(index / 3) * rowHeight,
     });
   });
-  const exactRelations = graph.relations.filter(
-    (relation) => relation.resolution.status === 'exact',
-  );
-  const edgeTotals = new Map();
-  for (const relation of exactRelations) {
-    const key = `${relation.sourceSymbolId}:${relation.resolution.targetId}`;
-    edgeTotals.set(key, (edgeTotals.get(key) ?? 0) + 1);
-  }
   const edgeSeen = new Map();
   for (const relation of exactRelations) {
     const source = positions.get(relation.sourceSymbolId);

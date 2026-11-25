@@ -32,7 +32,7 @@ export async function acquireWorkerLease(url: string): Promise<WorkerLease> {
   };
   try {
     const rows =
-      await db`SELECT pg_try_advisory_lock(1919606126, 2) AS acquired,
+      await db`SELECT pg_try_advisory_lock(1919606129, 2) AS acquired,
       pg_backend_pid() AS pid`;
     if (!rows[0]?.acquired)
       throw new Error(
@@ -56,7 +56,7 @@ export async function acquireWorkerLease(url: string): Promise<WorkerLease> {
           await control`SELECT pg_cancel_backend(l.pid) AS cancelled
           FROM pg_locks l WHERE l.pid=${pid} AND l.locktype='advisory'
             AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
-            AND l.classid=1919606126::oid AND l.objid=2::oid
+            AND l.classid=1919606129::oid AND l.objid=2::oid
             AND l.objsubid=2 AND l.granted`;
         if (!matches[0]?.cancelled)
           throw new Error('Could not cancel the database worker session');

@@ -12,7 +12,11 @@ import {
 } from './snapshot-integrity.ts';
 
 type Sql = Database;
-type Snapshot = { facts: AnalysisFacts; source: VerifiedSourceReader };
+type Snapshot = {
+  facts: AnalysisFacts;
+  source: VerifiedSourceReader;
+  investigation: ReturnType<typeof createInvestigation>;
+};
 
 export async function protectSnapshotRead(db: Sql, snapshotId: string) {
   await db`SELECT pg_advisory_xact_lock_shared(
@@ -114,6 +118,8 @@ export async function loadSnapshotContentsInTransaction(
       };
     },
   };
-  createInvestigation(facts, source, { resourceProfile: 'repository' });
-  return { facts, source };
+  const investigation = createInvestigation(facts, source, {
+    resourceProfile: 'repository',
+  });
+  return { facts, source, investigation };
 }

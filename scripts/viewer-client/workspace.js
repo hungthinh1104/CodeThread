@@ -153,4 +153,12 @@ export function installWorkspaceControls() {
   });
   updateInspector();
   selectTab(0);
+  return {
+    openCompactInspector() {
+      if (!compact.matches || open) return;
+      open = true;
+      updateInspector();
+      close.focus();
+    },
+  };
 }

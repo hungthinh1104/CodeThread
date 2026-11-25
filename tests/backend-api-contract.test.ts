@@ -515,7 +515,9 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
       ),
     );
   });
+});
 
+describe('backend API response contracts', () => {
   it('rejects malformed public responses in negative controls', () => {
     expect(
       backendApiResponseSchemas['GET /v1/health'].safeParse({

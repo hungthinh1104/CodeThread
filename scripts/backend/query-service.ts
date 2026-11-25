@@ -10,7 +10,6 @@ import {
   parseFindSymbolPathsResult,
   parseListSymbolsResult,
 } from '@codethread/contracts';
-import { createInvestigation } from '@codethread/trace-engine';
 import type { CoverageStatus } from '@codethread/code-model';
 import { withScanRead, type Database } from './database.ts';
 import {
@@ -181,9 +180,7 @@ export class BackendQueryService {
       await protectSnapshotRead(db, expectedSnapshotId);
       return loadSnapshotContentsInTransaction(db, expectedSnapshotId);
     });
-    const investigation = createInvestigation(snapshot.facts, snapshot.source, {
-      resourceProfile: 'repository',
-    });
+    const { investigation } = snapshot;
     if (kind === 'neighbors') {
       const neighbors = graphNeighborsRequestSchema.parse(input);
       return validateServerResult(() =>

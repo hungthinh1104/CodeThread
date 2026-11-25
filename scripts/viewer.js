@@ -1,4 +1,4 @@
-/* global document, Element, fetch, location */
+/* global document, Element, fetch, history, location */
 import {
   byId,
   visibleText,
@@ -21,7 +21,10 @@ import {
 } from './viewer-client/repository.js';
 import { renderEvidenceState } from './viewer-client/evidence.js';
 import { installWorkspaceControls } from './viewer-client/workspace.js';
+let workspaceControls = null;
 const token = location.hash.slice(1);
+if (location.hash)
+  history.replaceState(null, '', location.pathname + location.search);
 const state = {
   projectId: null,
   snapshotId: null,
@@ -291,8 +294,9 @@ async function loadGraph(restore = null, focusRoot = false) {
     byId('graph-symbol-selection').hidden = true;
     byId('relationships').replaceChildren();
     byId('unknowns').replaceChildren();
-    byId('evidence').textContent =
-      'Choose an evidence control to inspect retained source.';
+    clearEvidenceState(
+      'Select a symbol to load verified declaration evidence.',
+    );
     clearGraph();
     return;
   }
@@ -327,6 +331,8 @@ async function loadGraph(restore = null, focusRoot = false) {
     if (sequence !== graphQuerySequence) return;
     graphResult = null;
     status.textContent = 'The requested projection is unavailable.';
+    byId('source-evidence').textContent =
+      'Declaration evidence is unavailable while the projection cannot load.';
     showError(error instanceof Error ? error.message : 'Investigation failed.');
   }
 }
@@ -395,7 +401,7 @@ function renderGraphSymbolSelection() {
 
 function selectEvidence(
   evidenceId,
-  { relationId = null, symbolId = null } = {},
+  { relationId = null, symbolId = null, reveal = false } = {},
 ) {
   if (!graphResult) {
     showError('Evidence selection requires a current validated projection.');
@@ -443,11 +449,12 @@ function selectEvidence(
     evidenceId,
   });
   renderSelection();
+  if (reveal) workspaceControls?.openCompactInspector();
   void showEvidence(evidenceId);
   return true;
 }
 
-function selectRelation(relationId) {
+function selectRelation(relationId, reveal = false) {
   const relation = graphResult?.graph.relations.find(
     (item) => item.id === relationId,
   );
@@ -455,10 +462,10 @@ function selectRelation(relationId) {
     showError('The relationship is not in the current validated projection.');
     return false;
   }
-  return selectEvidence(relation.siteEvidenceId, { relationId });
+  return selectEvidence(relation.siteEvidenceId, { relationId, reveal });
 }
 
-function selectGraphSymbol(symbolId) {
+function selectGraphSymbol(symbolId, reveal = false) {
   const symbol = graphResult?.graph.symbols.find(
     (item) => item.id === symbolId,
   );
@@ -466,7 +473,7 @@ function selectGraphSymbol(symbolId) {
     showError('The symbol is not in the current validated projection.');
     return false;
   }
-  return selectEvidence(symbol.declarationEvidenceId, { symbolId });
+  return selectEvidence(symbol.declarationEvidenceId, { symbolId, reveal });
 }
 
 async function followGraphSymbol(symbolId) {
@@ -741,13 +748,14 @@ document.addEventListener('click', (event) => {
   } else if (action === 'select-relation') {
     const relationId = button.dataset.relationId;
     if (!relationId) return;
-    selectRelation(relationId);
+    selectRelation(relationId, true);
   } else if (action === 'evidence') {
     const evidenceId = button.dataset.evidenceId;
     if (!evidenceId) return;
     selectEvidence(evidenceId, {
       relationId: button.dataset.relationId ?? null,
       symbolId: button.dataset.symbolId ?? null,
+      reveal: true,
     });
   }
 });
@@ -880,11 +888,16 @@ async function changeProject(
     renderSession(session);
     renderFilters();
     renderHistoryButton();
+    const graphSeqAtStart = graphQuerySequence;
     await loadSymbolPage(
       restore?.symbolPage.query ?? symbolPage.query,
       restore?.symbolPage.offset ?? 0,
     );
-    if (sequence !== projectQuerySequence) return;
+    if (
+      sequence !== projectQuerySequence ||
+      graphSeqAtStart !== graphQuerySequence
+    )
+      return;
     void loadGraph(restore, Boolean(rootSymbolId));
   } catch (error) {
     if (sequence === projectQuerySequence) {
@@ -936,5 +949,5 @@ async function initialize() {
 
 renderFilters();
 renderHistoryButton();
-installWorkspaceControls();
+workspaceControls = installWorkspaceControls();
 void initialize();

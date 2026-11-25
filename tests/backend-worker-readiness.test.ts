@@ -135,7 +135,7 @@ describe.skipIf(!url)('worker readiness boundaries', () => {
         } else {
           const locks =
             await db`SELECT pid FROM pg_locks WHERE locktype='advisory'
-            AND classid=1919606126::oid AND objid=2::oid AND objsubid=2 AND granted`;
+            AND classid=1919606129::oid AND objid=2::oid AND objsubid=2 AND granted`;
           expect(locks).toHaveLength(1);
           await db`SELECT pg_terminate_backend(${locks[0]!.pid})`;
           const unavailable = await waitFor(

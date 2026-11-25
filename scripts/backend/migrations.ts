@@ -46,16 +46,16 @@ async function adoptLegacySchema(db: Database, firstChecksum: string) {
 
 export async function applyMigrations(db: Database): Promise<number[]> {
   const migrations = await readMigrations();
-  await db`CREATE SCHEMA IF NOT EXISTS codethread`;
-  await db`CREATE TABLE IF NOT EXISTS codethread.schema_migration (
-    version integer PRIMARY KEY CHECK(version > 0),
-    name text NOT NULL UNIQUE,
-    checksum char(64) NOT NULL CHECK(checksum ~ '^[0-9a-f]{64}$'),
-    applied_at timestamptz NOT NULL DEFAULT now()
-  )`;
   return db.begin(async (transaction) => {
     const tx = transaction as unknown as Database;
-    await tx`SELECT pg_advisory_xact_lock(1919606126, 3)`;
+    await tx`SELECT pg_advisory_xact_lock(1919606129, 3)`;
+    await tx`CREATE SCHEMA IF NOT EXISTS codethread`;
+    await tx`CREATE TABLE IF NOT EXISTS codethread.schema_migration (
+      version integer PRIMARY KEY CHECK(version > 0),
+      name text NOT NULL UNIQUE,
+      checksum char(64) NOT NULL CHECK(checksum ~ '^[0-9a-f]{64}$'),
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )`;
     let rows =
       await tx`SELECT version,name,checksum FROM codethread.schema_migration ORDER BY version`;
     if (!rows.length && (await adoptLegacySchema(tx, migrations[0]!.checksum)))

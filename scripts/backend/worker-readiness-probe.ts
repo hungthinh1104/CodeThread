@@ -71,8 +71,10 @@ export async function probeWorkerWrites(
       await db`INSERT INTO codethread.scan_project
         (repository_id,scan_job_id,project_id,project_label,project_json,status,snapshot_id,diagnostics)
         VALUES(${repositoryId},${jobId},'readiness-probe','readiness-probe','{}'::jsonb,'ready',${snapshotId},'[]'::jsonb)`;
-      await db`UPDATE codethread.scan_job SET state='succeeded',activation_result='activated' WHERE id=${jobId}`;
-      await db`UPDATE codethread.repository SET active_job_id=${jobId} WHERE id=${repositoryId}`;
+      await db`UPDATE codethread.scan_job SET state='succeeded',activation_result='activated',
+        session_json='{}'::jsonb,updated_at=now() WHERE id=${jobId}`;
+      await db`UPDATE codethread.repository SET active_job_id=${jobId},updated_at=now()
+        WHERE id=${repositoryId}`;
       await db`SET CONSTRAINTS ALL IMMEDIATE`;
       throw rollback;
     });
