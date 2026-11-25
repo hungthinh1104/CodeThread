@@ -6,6 +6,10 @@ import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join, resolve } from 'node:path';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
+import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+} from '@codethread/contracts';
 import type { RepositoryInvestigationSession } from '../../scripts/investigation/repository-session.ts';
 import {
   createRepositoryViewer,
@@ -66,6 +70,12 @@ function backendServer(
   viewer: ViewerHandle,
   holdScanRead: boolean,
   repositoryId: string,
+  aiOptions?: {
+    aiStatus?: AiStatusResponse;
+    onAiSynthesize?: (
+      body: unknown,
+    ) => Promise<AiSynthesisResponse> | AiSynthesisResponse;
+  },
 ) {
   const gate = deferred();
   const now = new Date().toISOString();
@@ -128,6 +138,27 @@ function backendServer(
           url: viewer.url,
           expiresAt: new Date(Date.now() + 20 * 60_000).toISOString(),
         });
+        return;
+      }
+      if (request.method === 'GET' && request.url === '/v1/ai/status') {
+        sendJson(response, aiOptions?.aiStatus ?? { enabled: false });
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        request.url?.startsWith(`/v1/scans/${activeScanId}/projects/`) &&
+        request.url.endsWith('/ai/synthesize') &&
+        aiOptions?.onAiSynthesize
+      ) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const parsed = JSON.parse(
+          Buffer.concat(chunks).toString('utf8'),
+        ) as unknown;
+        const synthesized = await aiOptions.onAiSynthesize(parsed);
+        sendJson(response, synthesized);
         return;
       }
       sendJson(
@@ -379,13 +410,20 @@ export async function startWorkspaceFrontend(
 
 export async function startWorkspaceApp(
   snapshot: AnalysisSnapshot,
-  options: { holdScanRead?: boolean } = {},
+  options: {
+    holdScanRead?: boolean;
+    aiStatus?: AiStatusResponse;
+    onAiSynthesize?: (
+      body: unknown,
+    ) => Promise<AiSynthesisResponse> | AiSynthesisResponse;
+  } = {},
 ): Promise<WorkspaceApp> {
   const viewer = await createRepositoryViewer(repositorySession(snapshot));
   const backend = backendServer(
     viewer,
     options.holdScanRead ?? false,
     snapshot.facts.identity.repositoryId,
+    options,
   );
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();

@@ -11,8 +11,10 @@ import {
 } from './api.ts';
 import { EvidenceInspector } from './EvidenceInspector.tsx';
 import { ExplorerRegion, type SearchItem } from './ExplorerRegion.tsx';
+import { GeneratedNotes } from './GeneratedNotes.tsx';
 import { MainRegion } from './MainRegion.tsx';
 import type {
+  AiStatusResponse,
   CatalogPage,
   CodeSymbol,
   EvidenceProjection,
@@ -25,6 +27,7 @@ import type {
   SymbolPage,
   WorkspaceMetadata,
 } from './types.ts';
+import { useAiNotes } from './useAiNotes.ts';
 import {
   useWorkspaceHistory,
   type NavigationEntry,
@@ -182,7 +185,14 @@ function emptySearchState(): SearchState {
   return { items: [], offset: 0, total: 0, nextOffset: null };
 }
 
-export function InvestigationWorkspace() {
+const DEFAULT_AI_STATUS: AiStatusResponse = { enabled: false };
+
+export function InvestigationWorkspace(
+  props: {
+    initialAiStatus?: AiStatusResponse;
+  } = {},
+) {
+  const aiStatus = props.initialAiStatus ?? DEFAULT_AI_STATUS;
   const [repositories, setRepositories] = useState<RepositoryItem[]>([]);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState('');
   const [workspace, setWorkspace] = useState<WorkspaceMetadata | null>(null);
@@ -1295,6 +1305,21 @@ export function InvestigationWorkspace() {
   }
 
   const inspectorModal = compactViewport && inspectorOpen;
+  const activeScope =
+    workspace && selectedProjectId && session
+      ? {
+          scanId: workspace.scanId,
+          projectId: selectedProjectId,
+          snapshotId: session.snapshotId,
+        }
+      : null;
+  const aiNotes = useAiNotes({
+    aiStatus,
+    scope: activeScope,
+    selected,
+    relationKinds,
+    direction,
+  });
   return (
     <div className="page-shell">
       <header className="page-header" inert={inspectorModal}>
@@ -1425,6 +1450,25 @@ export function InvestigationWorkspace() {
           open={inspectorOpen}
           onClose={closeInspector}
           closeButtonRef={inspectorCloseRef}
+          generatedNotes={
+            aiStatus.enabled ? (
+              <GeneratedNotes
+                aiStatus={aiStatus}
+                task={aiNotes.task}
+                onTaskChange={aiNotes.setTask}
+                canDraft={aiNotes.canDraft}
+                loading={aiNotes.loading}
+                notes={aiNotes.notes}
+                error={aiNotes.error}
+                onDraft={() => void aiNotes.draft()}
+                graph={graph}
+                onSelectEvidence={(id, trigger, relationId) =>
+                  void chooseEvidence(id, trigger, relationId ?? null)
+                }
+                onFollowSymbol={(symbol) => void followSymbol(symbol)}
+              />
+            ) : null
+          }
         />
       </div>
       <footer className="page-footer" inert={inspectorModal}>

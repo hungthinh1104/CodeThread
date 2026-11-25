@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, type ReactNode, type RefObject } from 'react';
 import type { EvidenceProjection } from './types.ts';
 
 type EvidenceItem = EvidenceProjection['items'][number];
@@ -12,6 +12,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
+  generatedNotes?: ReactNode;
 };
 
 export function EvidenceInspector(props: Props) {
@@ -133,6 +134,7 @@ export function EvidenceInspector(props: Props) {
             substituted.
           </p>
         ) : null}
+        {props.generatedNotes ?? null}
       </aside>
     </>
   );

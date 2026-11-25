@@ -1,4 +1,6 @@
 import type {
+  AiSynthesisResponse,
+  AiSynthesizeApiRequest,
   ApiErrorBody,
   RepositoryItem,
   WorkspaceMetadata,
@@ -105,4 +107,16 @@ export function readViewer<T>(
   body: unknown,
 ): Promise<T> {
   return post<T>(`/api/workspace/${operation}`, body, scanId);
+}
+
+export function synthesizeAiNotes(
+  scanId: string,
+  projectId: string,
+  request: AiSynthesizeApiRequest,
+): Promise<AiSynthesisResponse> {
+  return post<AiSynthesisResponse>(
+    '/api/workspace/ai',
+    { projectId, request },
+    scanId,
+  );
 }

@@ -1,5 +1,18 @@
 import type { infer as Infer } from 'zod';
-import type { viewerApiResponseSchemas } from '@codethread/contracts';
+import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+  AiSynthesizeApiRequest,
+  AiTaskKind,
+  viewerApiResponseSchemas,
+} from '@codethread/contracts';
+
+export type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+  AiSynthesizeApiRequest,
+  AiTaskKind,
+};
 
 type ProjectResult<T> = T extends { projectId: string; result: infer Result }
   ? Result
