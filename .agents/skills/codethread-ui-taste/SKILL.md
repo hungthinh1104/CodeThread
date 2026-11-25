@@ -33,6 +33,32 @@ requirement.
   Follow existing component boundaries and use local system fonts and
   fixture-only evidence.
 
+## Anti-AI-Slop & Editorial AI Guardrails
+
+When reviewing or adding any optional AI capability (see
+[ADR-0010](../../../docs/decisions/0010-evidence-bound-optional-ai.md) and
+[evidence-bound-ai](../evidence-bound-ai/SKILL.md)), preserve CodeThread's
+Technical Editorial / Warm Graphite identity:
+
+- **Forbidden AI UI tropes:** Never add chat sidebars, conversation bubbles,
+  floating assistant launchers, sparkle/magic icons, purple/neon/gradient AI
+  accents, fake streaming typewriter animations, generic summary cards, or
+  auto-invoked AI requests on symbol selection.
+- **Source and verified facts always come first:** `Verified Source Excerpt`,
+  exact `CALLS`/`REFERENCES`, coverage, truncation, and unknowns remain the
+  primary surface. Optional AI output lives only in an explicit, on-demand
+  disclosure or secondary editorial block and is hidden/disabled by default.
+- **Strict visual and textual separation:** Render AI output with existing Warm
+  Graphite tokens (`--ct-raised`, `--ct-border`, `--ct-ink`, `--ct-muted`)—never
+  a separate brand palette. Always label it in plain words as generated,
+  unverified static synthesis, display the model/snapshot provenance and
+  verified citation count (`Citations verified: X/Y`), and surface rejected or
+  ungrounded claims and typed failures explicitly.
+- **Anchored to inspectable evidence:** Every AI claim must cite monospace
+  evidence anchors (`path:line`) that jump directly to the corresponding
+  verified excerpt in the Evidence Inspector. Never present AI text as proof of
+  runtime execution or verified absence.
+
 The upstream references inform hierarchy, spacing, and progressive disclosure
 and the practice of checking rendered output. CodeThread defines the palette,
 layout, and data rules.

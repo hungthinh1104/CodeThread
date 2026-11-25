@@ -1,0 +1,77 @@
+id: CT-AI-001
+title: Evidence-bound optional AI synthesis and deterministic verification
+module: ai
+statement: >-
+  An optional, disabled-by-default AI synthesis layer shall generate bounded
+  static comprehension notes strictly from validated snapshot projections and
+  deterministically verify every cited symbol, relation, diagnostic, and source
+  evidence anchor before returning output.
+lifecycle: accepted
+priority: should
+acceptance:
+  - id: AC-01
+    given: Default runtime configuration with CODETHREAD_AI_ENABLED unset or off
+    then: >-
+      AI synthesis fails closed with a typed AI_DISABLED error, performs zero
+      outbound network calls, and leaves all default CLI, backend, viewer, and
+      workspace behaviors unchanged.
+  - id: AC-02
+    given: A validated snapshot-scoped AI context packet
+    then: >-
+      Only bounded symbols, relations, verified source excerpts, explicit
+      diagnostics, and coverage metadata from one snapshot are admitted;
+      oversized, cross-snapshot, or ungrounded inputs are rejected before any
+      provider call.
+  - id: AC-03
+    given:
+      A supported task (explain_trace, explain_unknowns, suggest_next_steps)
+    then: >-
+      The synthesizer requests structured JSON output and records deterministic
+      packet hash, task kind, provider/model identity, and static-only
+      disclaimer metadata on every response.
+  - id: AC-04
+    given: Model output containing hallucinated IDs or cross-snapshot citations
+    then: >-
+      The deterministic post-verifier rejects each ungrounded claim or
+      recommendation with a machine-readable reason code rather than passing
+      fabricated anchors to consumers.
+  - id: AC-05
+    given: >-
+      Model output that claims an exact call for a REFERENCES or non-exact
+      relation, or asserts runtime execution or passing tests
+    then: >-
+      The deterministic post-verifier rejects the overclaiming item while
+      preserving explicit counts of verified and rejected items.
+  - id: AC-06
+    given:
+      Explicit opt-in configuration for Gemini API or OpenAI-compatible/Ollama
+    then: >-
+      Server-side adapters enforce request timeouts, response size limits, HTTP
+      status checks, and safe error sanitization without exposing provider
+      credentials.
+  - id: AC-07
+    given: Automated repository test execution
+    then: >-
+      All AI contract, verifier, prompt-packet, and adapter checks run
+      deterministically offline using mock/replay providers with zero live
+      network dependency.
+  - id: AC-08
+    given: Future comprehension studies or Investigation Workspace integration
+    then: >-
+      AI remains strictly separate from CT-EVAL-001 visualization baselines and
+      constrained to non-chat, Warm Graphite editorial presentation that never
+      conflates generated synthesis with verified source evidence.
+depends_on:
+  - CT-CORE-004
+  - CT-EVAL-001
+  - CT-TRACE-001
+verification:
+  method: automated
+  description: >-
+    Verify AI request/response schemas, packet bounds, deterministic
+    post-verifier rejection of hallucinated IDs, relation-kind upgrades, and
+    runtime-execution overclaims, disabled-by-default guardrails, and offline
+    Gemini and OpenAI-compatible/Ollama HTTP adapter behavior.
+  test_ids:
+    - tests/ai-contracts.test.ts
+    - tests/ai-explainer.test.ts
