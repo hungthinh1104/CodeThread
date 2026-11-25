@@ -16,6 +16,7 @@ const source = Buffer.from(
     '  register(choice.execute);',
     '  exactTarget();',
     '}',
+    'export const topLevelUnowned = exactTarget();',
     '',
   ].join('\n'),
 );
@@ -42,8 +43,21 @@ describe('Investigation Workspace evidence integrity', () => {
         relation.sourceSymbolId === inspect?.id &&
         relation.resolution.status === 'ambiguous',
     );
+    const unownedObservation = snapshot.facts.observations.find(
+      (observation) =>
+        observation.ownerId === null && observation.relationId === null,
+    );
+    const unownedDiagnostic = unownedObservation?.diagnosticId
+      ? (snapshot.facts.diagnostics.find(
+          (diagnostic) => diagnostic.id === unownedObservation.diagnosticId,
+        ) ?? null)
+      : null;
     assert.ok(inspect, 'fixture must contain its inspect declaration');
     assert.ok(ambiguous, 'fixture must produce an ambiguous reference');
+    assert.ok(
+      unownedObservation,
+      'fixture must produce an unowned observation for unknowns inspection',
+    );
 
     const app = await startWorkspaceApp(snapshot);
     const browser = await chromium.launch({ headless: true });
@@ -66,6 +80,14 @@ describe('Investigation Workspace evidence integrity', () => {
                 resolution: { status: string; targetId: string | null };
               }[];
             };
+            unknowns: {
+              total: number;
+              items: {
+                evidenceId: string;
+                status: 'unresolved' | 'ambiguous' | 'unsupported';
+                diagnostic: typeof unownedDiagnostic;
+              }[];
+            };
           };
         };
         const symbolIds = new Set(
@@ -81,6 +103,17 @@ describe('Investigation Workspace evidence integrity', () => {
           )
           .map((relation) => relation.id)
           .sort();
+        payload.result.unknowns = {
+          total: 1,
+          items: [
+            {
+              evidenceId: unownedObservation.evidenceId,
+              status: unownedObservation.status as
+                'unresolved' | 'ambiguous' | 'unsupported',
+              diagnostic: unownedDiagnostic,
+            },
+          ],
+        };
         await route.fulfill({ response, body: JSON.stringify(payload) });
       });
       await page.route('**/api/workspace/evidence', async (route) => {
@@ -179,6 +212,48 @@ describe('Investigation Workspace evidence integrity', () => {
         await page.locator('#evidence-inspector .evidence-card').count(),
         0,
         'unavailable source bytes must not render as a verified excerpt',
+      );
+      assert.equal(
+        await ambiguousRow.getAttribute('aria-current'),
+        'true',
+        'selected relationship row must expose aria-current for non-color truth',
+      );
+
+      // UI-01: Inspecting evidence for an unowned/unsupported observation in unknowns must succeed.
+      const unknownInspect = page
+        .getByRole('region', {
+          name: 'Unresolved or unsupported observations',
+        })
+        .getByRole('button', { name: 'Inspect source evidence' })
+        .first();
+      await unknownInspect.click();
+      await page
+        .locator('#evidence-inspector .evidence-card')
+        .getByText('exactTarget()')
+        .waitFor();
+      assert.equal(
+        await page
+          .locator('.explorer [role="alert"]')
+          .getByText(/Evidence selection is not present/)
+          .count(),
+        0,
+      );
+
+      // UI-02: Clicking an analyzed file shows a non-error status notice instead of a red alert.
+      await page
+        .getByRole('region', { name: 'Source inventory' })
+        .getByRole('button', { name: /src\/relations\.ts/ })
+        .click();
+      await page
+        .locator('.explorer [role="status"]')
+        .getByText(/Full-file source is not available/)
+        .waitFor();
+      assert.equal(
+        await page
+          .locator('.explorer [role="alert"]')
+          .getByText(/Full-file source is not available/)
+          .count(),
+        0,
       );
     } finally {
       await context.close();

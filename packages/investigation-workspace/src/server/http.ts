@@ -9,7 +9,7 @@ export function workspaceOrigin(): string {
   const port = Number(rawPort);
   if (port < 1 || port > 65535)
     throw new Error('CODETHREAD_WORKSPACE_PORT is outside the valid range.');
-  return `http://127.0.0.1:${port}`;
+  return new URL(`http://127.0.0.1:${port}`).origin;
 }
 
 export function trustedLocalRequest(

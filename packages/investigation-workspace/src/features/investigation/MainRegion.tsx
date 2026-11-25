@@ -66,6 +66,9 @@ export function MainRegion(props: Props) {
   const symbolById = new Map(
     (graph?.symbols ?? []).map((symbol) => [symbol.id, symbol]),
   );
+  const evidenceById = new Map(
+    (graph?.evidenceRefs ?? []).map((ref) => [ref.id, ref]),
+  );
   return (
     <main
       className="region main-region"
@@ -250,7 +253,11 @@ export function MainRegion(props: Props) {
                     : props.relationKinds.filter((value) => value !== kind);
                   if (next.length) props.onRelationKindsChange(next);
                 }}
-                disabled={!root}
+                disabled={
+                  !root ||
+                  (props.relationKinds.length === 1 &&
+                    props.relationKinds.includes(kind))
+                }
               />
               {kind.toUpperCase()}
             </label>
@@ -288,14 +295,16 @@ export function MainRegion(props: Props) {
           </p>
         ) : null}
         {props.graph?.graph.meta ? (
-          <div className="coverage-summary" role="status">
-            <span>Evidence basis: static</span>
-            <span>Coverage: {props.graph.graph.meta.coverage}</span>
-            <span>
-              {props.graph.graph.meta.truncated
-                ? `Truncated: ${props.graph.graph.meta.truncationReasons.join(', ')}`
-                : 'Query not truncated'}
-            </span>
+          <div className="coverage-summary">
+            <div className="coverage-status" role="status">
+              <span>Evidence basis: static</span>
+              <span>Coverage: {props.graph.graph.meta.coverage}</span>
+              <span>
+                {props.graph.graph.meta.truncated
+                  ? `Truncated: ${props.graph.graph.meta.truncationReasons.join(', ')}`
+                  : 'Query not truncated'}
+              </span>
+            </div>
             <details>
               <summary>Applied query limits</summary>
               <pre>
@@ -311,16 +320,17 @@ export function MainRegion(props: Props) {
           <ol className="relationship-list">
             {graph.relations.map((relation) => {
               const source = symbolById.get(relation.sourceSymbolId);
+              const site = evidenceById.get(relation.siteEvidenceId);
               const target =
                 relation.resolution.status === 'exact'
                   ? symbolById.get(relation.resolution.targetId)
                   : undefined;
+              const isSelected = props.selectedRelationId === relation.id;
               return (
                 <li
                   key={relation.id}
-                  className={
-                    props.selectedRelationId === relation.id ? 'selected' : ''
-                  }
+                  className={isSelected ? 'selected' : ''}
+                  aria-current={isSelected ? 'true' : undefined}
                   data-relation-id={relation.id}
                 >
                   <div>
@@ -338,7 +348,8 @@ export function MainRegion(props: Props) {
                     </span>
                     {source ? (
                       <code>
-                        {source.filePath}:{source.range.start.line}
+                        {source.filePath}:
+                        {site?.range.start.line ?? source.range.start.line}
                       </code>
                     ) : null}
                   </div>

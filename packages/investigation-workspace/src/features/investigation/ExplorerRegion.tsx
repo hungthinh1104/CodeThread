@@ -42,6 +42,7 @@ type Props = {
   onRetryFiles: () => void;
   onFilesPage: (offset: number) => void;
   onChooseFile: (file: FilePage['items'][number]) => void;
+  notice?: string | null;
   error: string | null;
   errorRetryable: boolean;
   onRetryWorkspace: () => void;
@@ -229,7 +230,11 @@ export function ExplorerRegion(props: Props) {
         <div className="result-heading" aria-live="polite">
           {props.searchLoading
             ? 'Searching the pinned snapshot…'
-            : `${props.searchTotal} matching symbols`}
+            : props.searchError
+              ? 'Symbol search failed'
+              : !props.searchEnabled
+                ? 'Select a project context to search'
+                : `${props.searchTotal} matching symbols`}
         </div>
         {props.searchError ? (
           <p className="notice error" role="alert">
@@ -260,7 +265,9 @@ export function ExplorerRegion(props: Props) {
               </li>
             ))}
           </ul>
-        ) : props.workspace && !props.searchLoading ? (
+        ) : props.searchEnabled &&
+          !props.searchLoading &&
+          !props.searchError ? (
           <p className="muted small">No symbols on this page match.</p>
         ) : null}
         <nav className="pager" aria-label="Symbol search pages">
@@ -337,7 +344,11 @@ export function ExplorerRegion(props: Props) {
             >
               Previous
             </button>
-            <span>{props.files.total} inventory entries</span>
+            <span>
+              {props.files.total === 0
+                ? '0 inventory entries'
+                : `${props.files.offset + 1}–${Math.min(props.files.offset + props.files.items.length, props.files.total)} of ${props.files.total}`}
+            </span>
             <button
               type="button"
               onClick={() =>
@@ -356,6 +367,11 @@ export function ExplorerRegion(props: Props) {
           available in this API; select a symbol for verified excerpts.
         </p>
       </section>
+      {props.notice ? (
+        <p className="notice" role="status">
+          {props.notice}
+        </p>
+      ) : null}
       {props.error ? (
         <p className="notice error" role="alert">
           {props.error}{' '}

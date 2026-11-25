@@ -51,6 +51,8 @@ export function useWorkspaceHistory(
 ) {
   const entries = useRef<StoredEntry[]>([]);
   const cursor = useRef(-1);
+  const restoreSeq = useRef(0);
+  const restoring = useRef(false);
   const [controls, setControls] = useState({
     canBack: false,
     canForward: false,
@@ -58,9 +60,11 @@ export function useWorkspaceHistory(
 
   function updateControls() {
     setControls({
-      canBack: cursor.current > 0,
+      canBack: !restoring.current && cursor.current > 0,
       canForward:
-        cursor.current >= 0 && cursor.current < entries.current.length - 1,
+        !restoring.current &&
+        cursor.current >= 0 &&
+        cursor.current < entries.current.length - 1,
     });
   }
 
@@ -69,6 +73,8 @@ export function useWorkspaceHistory(
   }
 
   function reset(entry: NavigationEntry | null) {
+    ++restoreSeq.current;
+    restoring.current = false;
     const key = entry ? crypto.randomUUID() : null;
     entries.current =
       entry && key ? [{ key, entry, segment: Symbol(), offset: 0 }] : [];
@@ -78,8 +84,13 @@ export function useWorkspaceHistory(
   }
 
   function push(entry: NavigationEntry) {
+    ++restoreSeq.current;
+    restoring.current = false;
     const current = entries.current[cursor.current];
-    if (current && sameEntry(current.entry, entry)) return;
+    if (current && sameEntry(current.entry, entry)) {
+      updateControls();
+      return;
+    }
     const linked = current && browserEntry(window.history.state) === current;
     const item = {
       key: crypto.randomUUID(),
@@ -97,15 +108,24 @@ export function useWorkspaceHistory(
   }
 
   function restoreEntry(item: StoredEntry) {
+    const seq = ++restoreSeq.current;
+    restoring.current = true;
+    updateControls();
     void restore(item.entry, () => {
       const index = entries.current.indexOf(item);
       if (index < 0) return;
       cursor.current = index;
       updateControls();
+    }).finally(() => {
+      if (seq === restoreSeq.current) {
+        restoring.current = false;
+        updateControls();
+      }
     });
   }
 
   function move(step: -1 | 1) {
+    if (restoring.current) return;
     const target = entries.current[cursor.current + step];
     if (!target) return;
     const browser = browserEntry(window.history.state);
