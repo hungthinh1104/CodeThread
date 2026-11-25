@@ -38,6 +38,7 @@ function samplePacket(): AiContextPacket {
     },
     truncated: false,
     truncationReasons: [],
+    omitted: { symbols: 0, relations: 0, excerpts: 0, diagnostics: 0 },
     symbols: [
       {
         id: ROOT_ID,
@@ -86,6 +87,7 @@ function samplePacket(): AiContextPacket {
         startLine: 3,
         endLine: 6,
         text: 'export function handleRequest(x: string) { return validateInput(x); }',
+        redacted: false,
       },
       {
         evidenceId: EV_CALL_ID,
@@ -94,6 +96,7 @@ function samplePacket(): AiContextPacket {
         startLine: 4,
         endLine: 4,
         text: 'validateInput(x)',
+        redacted: false,
       },
       {
         evidenceId: EV_UNRESOLVED_ID,
@@ -102,6 +105,7 @@ function samplePacket(): AiContextPacket {
         startLine: 5,
         endLine: 5,
         text: 'dispatchDynamic(x)',
+        redacted: false,
       },
     ],
     diagnostics: [
@@ -137,7 +141,13 @@ function sampleResponse(): AiSynthesisResponse {
       provider: 'mock',
       model: 'mock-replay-v1',
       packetHash: HASH_B,
-      promptVersion: 'ct-ai-prompt-v1',
+      promptVersion: 'ct-ai-prompt-v2',
+    },
+    context: {
+      truncated: false,
+      truncationReasons: [],
+      omitted: { symbols: 0, relations: 0, excerpts: 0, diagnostics: 0 },
+      redactedExcerpts: 0,
     },
     summary:
       'handleRequest statically calls validateInput and contains one unresolved dynamic call.',
@@ -204,6 +214,7 @@ describe('CT-AI-001 AI contracts', () => {
       startLine: index + 1,
       endLine: index + 1,
       text: chunk,
+      redacted: false,
     }));
     expect(9 * 4000).toBeGreaterThan(AI_MAX_EXCERPT_UTF8_BYTES);
     expect(() => aiContextPacketSchema.parse(oversized)).toThrow();
@@ -253,5 +264,43 @@ describe('CT-AI-001 AI contracts', () => {
     });
     tooManyClaims.verification.verifiedClaims = 2;
     expect(() => parseAiSynthesisResult(tightRequest, tooManyClaims)).toThrow();
+  });
+
+  it('requires packet-level omission, redaction and truncation to be echoed truthfully', () => {
+    const request = sampleRequest();
+
+    const missingOmitted = samplePacket() as Record<string, unknown>;
+    delete missingOmitted['omitted'];
+    expect(() => aiContextPacketSchema.parse(missingOmitted)).toThrow();
+
+    const omittedRequest = aiSynthesizeRequestSchema.parse({
+      task: 'explain_trace',
+      packet: {
+        ...samplePacket(),
+        omitted: { symbols: 4, relations: 0, excerpts: 2, diagnostics: 0 },
+      },
+    });
+    // A response that hides the omission must be rejected.
+    expect(() =>
+      parseAiSynthesisResult(omittedRequest, sampleResponse()),
+    ).toThrow();
+    const honest = sampleResponse();
+    honest.context.omitted = {
+      symbols: 4,
+      relations: 0,
+      excerpts: 2,
+      diagnostics: 0,
+    };
+    expect(
+      parseAiSynthesisResult(omittedRequest, honest).context.omitted,
+    ).toEqual(honest.context.omitted);
+
+    const hiddenRedaction = sampleResponse();
+    hiddenRedaction.context.redactedExcerpts = 1;
+    expect(() => parseAiSynthesisResult(request, hiddenRedaction)).toThrow();
+
+    const badTruncation = sampleResponse();
+    badTruncation.context.truncated = true;
+    expect(() => aiSynthesisResponseSchema.parse(badTruncation)).toThrow();
   });
 });

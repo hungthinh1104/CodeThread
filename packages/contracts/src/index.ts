@@ -3,5 +3,6 @@ export * from './results.js';
 export * from './viewer-page.js';
 export * from './viewer-results.js';
 export * from './backend-results.js';
+export * from './ai-packet.js';
 export * from './ai-queries.js';
 export * from './ai-results.js';

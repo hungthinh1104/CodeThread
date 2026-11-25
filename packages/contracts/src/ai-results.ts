@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { responseContextFor } from './ai-packet.js';
 import {
   aiSynthesisResponseSchema,
   aiSynthesizeRequestSchema,
@@ -50,6 +51,15 @@ export function parseAiSynthesisResult(
           code: 'custom',
           path: ['rootSymbolId'],
           message: 'AI synthesis root symbol does not match request packet',
+        });
+      }
+      const expectedContext = responseContextFor(packet);
+      if (JSON.stringify(value.context) !== JSON.stringify(expectedContext)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['context'],
+          message:
+            'AI synthesis context limits do not match the request packet',
         });
       }
       if (value.task !== checkedRequest.task) {

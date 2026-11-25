@@ -21,6 +21,8 @@ export {
   hashAiContextPacket,
 } from './packet.js';
 export type { BuiltAiPrompt } from './packet.js';
+export { redactSecrets } from './redact.js';
+export type { RedactionResult } from './redact.js';
 export {
   STATIC_AI_DISCLAIMER,
   hasRuntimeExecutionOverclaim,
