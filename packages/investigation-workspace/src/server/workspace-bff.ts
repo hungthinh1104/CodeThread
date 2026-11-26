@@ -5,67 +5,51 @@ import {
   aiSynthesizeApiRequestSchema,
   backendApiErrorResponseSchema,
   backendApiResponseSchemas,
+  findSymbolPathsRequestSchema,
+  parseFindSymbolPathsResult,
   viewerApiRepositoryRequestSchemas,
   viewerApiResponseSchemas,
 } from '@codethread/contracts';
 import type {
   AiStatusResponse,
   AiSynthesisResponse,
+  FindSymbolPathsResponse,
 } from '@codethread/contracts';
 import { z } from 'zod';
+import {
+  AI_REQUEST_TIMEOUT_MS,
+  isStaleViewerError,
+  isTimeoutError,
+  MAX_AI_RESPONSE_BYTES,
+  MAX_SESSIONS,
+  REQUEST_TIMEOUT_MS,
+  SESSION_REUSE_MARGIN_MS,
+  WorkspaceBffError,
+  workspaceScanIdSchema,
+} from './bff-types.ts';
+import type { WorkspaceMetadata, WorkspaceSession } from './bff-types.ts';
+import {
+  backendRequest,
+  boundedJson,
+  parseRequestJson,
+  parseViewerAddress,
+} from './upstream.ts';
 
-const DEFAULT_BACKEND_ORIGIN = 'http://127.0.0.1:8765';
-const MAX_REQUEST_BYTES = 64 * 1024;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
-const MAX_AI_RESPONSE_BYTES = 64 * 1024;
-const REQUEST_TIMEOUT_MS = 5000;
-const AI_REQUEST_TIMEOUT_MS = 30_000;
-const MAX_SESSIONS = 4;
-const SESSION_REUSE_MARGIN_MS = 5_000;
-const workspaceAiRequestSchema = z.strictObject({
-  projectId: z.string().min(1).max(256),
-  request: aiSynthesizeApiRequestSchema,
-});
+export { parseRequestJson, WorkspaceBffError, workspaceScanIdSchema };
+export type { WorkspaceMetadata };
 
-function isTimeoutError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error.name === 'TimeoutError' || error.name === 'AbortError')
-  );
-}
-
-function isStaleViewerError(error: unknown): boolean {
-  if (!(error instanceof WorkspaceBffError)) return false;
-  return (
-    error.code === 'VIEWER_UNAVAILABLE' ||
-    error.code === 'UPSTREAM_INVALID_RESPONSE' ||
-    error.status === 401 ||
-    error.status === 403 ||
-    error.status === 404
-  );
-}
-export const workspaceScanIdSchema = z
-  .uuid()
-  .transform((id) => id.toLowerCase());
 const openWorkspaceRequestSchema = z.strictObject({
   scanId: workspaceScanIdSchema,
 });
 const sessionIdSchema = z.string().regex(/^[a-f0-9]{64}$/);
-
-type WorkspaceSession = {
-  viewerOrigin: string;
-  viewerToken: string;
-  expiresAt: number;
-  metadata: WorkspaceMetadata;
-};
-
-export type WorkspaceMetadata = {
-  repositoryId: string;
-  scanId: string;
-  commitId: string;
-  revision: string;
-  expiresAt: string;
-};
+const workspaceAiRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: aiSynthesizeApiRequestSchema,
+});
+const workspacePathsRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: findSymbolPathsRequestSchema,
+});
 
 type SessionRegistry = Map<string, WorkspaceSession>;
 type ServerGlobal = typeof globalThis & {
@@ -79,48 +63,9 @@ const pendingOpens = (serverGlobal.codethreadWorkspacePendingOpens ??= {
   count: 0,
 });
 
-export class WorkspaceBffError extends Error {
-  readonly status: number;
-  readonly code: string;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.status = status;
-    this.code = code;
-  }
-}
-
-function backendOrigin(): string {
-  let origin: URL;
-  try {
-    origin = new URL(
-      process.env.CODETHREAD_API_ORIGIN ?? DEFAULT_BACKEND_ORIGIN,
-    );
-  } catch {
-    throw new WorkspaceBffError(
-      503,
-      'BACKEND_NOT_CONFIGURED',
-      'The local CodeThread backend address is invalid.',
-    );
-  }
-  if (
-    origin.protocol !== 'http:' ||
-    origin.hostname !== '127.0.0.1' ||
-    !/^\d{1,5}$/.test(origin.port) ||
-    Number(origin.port) < 1 ||
-    Number(origin.port) > 65535 ||
-    origin.pathname !== '/' ||
-    origin.search !== '' ||
-    origin.hash !== '' ||
-    origin.username !== '' ||
-    origin.password !== ''
-  )
-    throw new WorkspaceBffError(
-      503,
-      'BACKEND_NOT_CONFIGURED',
-      'The local CodeThread backend address must use IPv4 loopback.',
-    );
-  return origin.origin;
+function cleanupSessions(now = Date.now()): void {
+  for (const [id, session] of sessions)
+    if (session.expiresAt <= now) sessions.delete(id);
 }
 
 export async function listRepositories() {
@@ -136,7 +81,7 @@ export async function listRepositories() {
           .split(/[\\/]/)
           .filter(Boolean)
           .at(-1)
-          ?.replace(/[\p{Cc}\p{Cf}]/gu, '�')
+          ?.replace(/[\p{Cc}\p{Cf}]/gu, '\uFFFD')
           .slice(0, 120) || 'Local repository';
       return {
         id: repository.id,
@@ -148,265 +93,6 @@ export async function listRepositories() {
   };
 }
 
-export async function parseRequestJson(request: Request): Promise<unknown> {
-  const contentType = request.headers
-    .get('content-type')
-    ?.split(';')[0]
-    ?.trim()
-    .toLowerCase();
-  if (contentType !== 'application/json')
-    throw new WorkspaceBffError(
-      415,
-      'INVALID_MEDIA_TYPE',
-      'JSON request body required.',
-    );
-  const length = Number(request.headers.get('content-length') ?? 0);
-  if (length > MAX_REQUEST_BYTES)
-    throw new WorkspaceBffError(
-      413,
-      'REQUEST_TOO_LARGE',
-      'Request exceeds the local workspace limit.',
-    );
-  const reader = request.body?.getReader();
-  if (!reader)
-    throw new WorkspaceBffError(
-      400,
-      'INVALID_REQUEST',
-      'JSON request body required.',
-    );
-  const chunks: Uint8Array[] = [];
-  let used = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      used += value.byteLength;
-      if (used > MAX_REQUEST_BYTES) {
-        await reader.cancel();
-        throw new WorkspaceBffError(
-          413,
-          'REQUEST_TOO_LARGE',
-          'Request exceeds the local workspace limit.',
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  if (used === 0)
-    throw new WorkspaceBffError(
-      400,
-      'INVALID_REQUEST',
-      'JSON request body required.',
-    );
-  const bytes = new Uint8Array(used);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  } catch {
-    throw new WorkspaceBffError(400, 'INVALID_JSON', 'Malformed JSON body.');
-  }
-}
-
-async function boundedJson(
-  response: Response,
-  maxBytes = MAX_RESPONSE_BYTES,
-): Promise<unknown> {
-  const mediaType = response.headers
-    .get('content-type')
-    ?.split(';')[0]
-    ?.trim()
-    .toLowerCase();
-  if (mediaType !== 'application/json') {
-    await response.body?.cancel();
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_INVALID_RESPONSE',
-      'Local service returned an invalid response.',
-    );
-  }
-  const length = Number(response.headers.get('content-length') ?? 0);
-  if (length > maxBytes) {
-    await response.body?.cancel();
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_RESPONSE_TOO_LARGE',
-      'Local service response exceeds the workspace limit.',
-    );
-  }
-  const reader = response.body?.getReader();
-  if (!reader)
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_INVALID_RESPONSE',
-      'Local service returned an empty response.',
-    );
-  const chunks: Uint8Array[] = [];
-  let used = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      used += value.byteLength;
-      if (used > maxBytes) {
-        await reader.cancel();
-        throw new WorkspaceBffError(
-          502,
-          'UPSTREAM_RESPONSE_TOO_LARGE',
-          'Local service response exceeds the workspace limit.',
-        );
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(used);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  } catch {
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_INVALID_RESPONSE',
-      'Local service returned malformed data.',
-    );
-  }
-}
-
-async function backendRequest(
-  route: keyof typeof backendApiResponseSchemas,
-  path: string,
-  method: 'GET' | 'POST',
-  options?: {
-    body?: unknown;
-    timeoutMs?: number;
-    maxResponseBytes?: number;
-    timeoutCode?: string;
-  },
-): Promise<unknown> {
-  const token = process.env.CODETHREAD_API_TOKEN;
-  if (!token)
-    throw new WorkspaceBffError(
-      503,
-      'BACKEND_NOT_CONFIGURED',
-      'The local CodeThread backend is not configured.',
-    );
-  const origin = backendOrigin();
-  const headers: Record<string, string> = {
-    accept: 'application/json',
-    authorization: `Bearer ${token}`,
-  };
-  let serializedBody: string | undefined;
-  if (options?.body !== undefined) {
-    headers['content-type'] = 'application/json';
-    serializedBody = JSON.stringify(options.body);
-  }
-  let response: Response;
-  try {
-    response = await fetch(`${origin}${path}`, {
-      method,
-      headers,
-      ...(serializedBody !== undefined ? { body: serializedBody } : {}),
-      redirect: 'manual',
-      signal: AbortSignal.timeout(options?.timeoutMs ?? REQUEST_TIMEOUT_MS),
-    });
-  } catch (error) {
-    if (isTimeoutError(error))
-      throw new WorkspaceBffError(
-        504,
-        options?.timeoutCode ?? 'BACKEND_TIMEOUT',
-        'The local CodeThread backend timed out.',
-      );
-    throw new WorkspaceBffError(
-      503,
-      'BACKEND_UNAVAILABLE',
-      'The local CodeThread backend is unavailable.',
-    );
-  }
-  if (response.status >= 300 && response.status < 400) {
-    await response.body?.cancel();
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_REDIRECT_REJECTED',
-      'The local backend returned an unexpected redirect.',
-    );
-  }
-  const value = await boundedJson(response, options?.maxResponseBytes);
-  if (!response.ok) {
-    const error = backendApiErrorResponseSchema.safeParse(value);
-    throw new WorkspaceBffError(
-      response.status,
-      error.success ? error.data.error.code : 'BACKEND_REQUEST_FAILED',
-      'The local backend could not complete this request.',
-    );
-  }
-  try {
-    return backendApiResponseSchemas[route].parse(value);
-  } catch {
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_CONTRACT_MISMATCH',
-      'The local backend response failed contract validation.',
-    );
-  }
-}
-
-function parseViewerAddress(urlValue: string, expiresAt: string) {
-  let url: URL;
-  try {
-    url = new URL(urlValue);
-  } catch {
-    throw new WorkspaceBffError(
-      502,
-      'VIEWER_ADDRESS_REJECTED',
-      'The local viewer returned an invalid address.',
-    );
-  }
-  const token = url.hash.slice(1);
-  if (
-    url.protocol !== 'http:' ||
-    url.hostname !== '127.0.0.1' ||
-    !/^\d{1,5}$/.test(url.port) ||
-    Number(url.port) < 1 ||
-    Number(url.port) > 65535 ||
-    url.pathname !== '/' ||
-    url.search !== '' ||
-    !/^[a-f0-9]{64}$/.test(token) ||
-    url.username !== '' ||
-    url.password !== ''
-  )
-    throw new WorkspaceBffError(
-      502,
-      'VIEWER_ADDRESS_REJECTED',
-      'The local viewer returned an unsafe address.',
-    );
-  const expiry = Date.parse(expiresAt);
-  const now = Date.now();
-  if (!Number.isFinite(expiry) || expiry <= now || expiry > now + 31 * 60_000)
-    throw new WorkspaceBffError(
-      502,
-      'VIEWER_EXPIRY_REJECTED',
-      'The local viewer returned an invalid expiry.',
-    );
-  url.hash = '';
-  return { viewerOrigin: url.origin, viewerToken: token, expiresAt: expiry };
-}
-
-function cleanupSessions(now = Date.now()): void {
-  for (const [id, session] of sessions)
-    if (session.expiresAt <= now) sessions.delete(id);
-}
-
 export function parseOpenWorkspaceScan(value: unknown): string {
   const parsed = openWorkspaceRequestSchema.safeParse(value);
   if (!parsed.success)
@@ -416,6 +102,44 @@ export function parseOpenWorkspaceScan(value: unknown): string {
       'Choose a valid scan to open.',
     );
   return parsed.data.scanId;
+}
+
+async function createWorkspaceSession(scanId: string) {
+  const scan = (await backendRequest(
+    'GET /v1/scans/:id',
+    `/v1/scans/${scanId}`,
+    'GET',
+  )) as z.infer<(typeof backendApiResponseSchemas)['GET /v1/scans/:id']>;
+  if (scan.id !== scanId)
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned a different scan.',
+    );
+  if (scan.state !== 'succeeded' || !scan.git_commit_oid)
+    throw new WorkspaceBffError(
+      409,
+      'SCAN_NOT_READY',
+      'Choose a scan with a published snapshot.',
+    );
+  const viewer = (await backendRequest(
+    'POST /v1/scans/:id/viewer',
+    `/v1/scans/${scanId}/viewer`,
+    'POST',
+  )) as z.infer<
+    (typeof backendApiResponseSchemas)['POST /v1/scans/:id/viewer']
+  >;
+  const address = parseViewerAddress(viewer.url, viewer.expiresAt);
+  const sessionId = randomBytes(32).toString('hex');
+  const metadata: WorkspaceMetadata = {
+    repositoryId: scan.repository_id,
+    scanId: scan.id,
+    commitId: scan.git_commit_oid,
+    revision: scan.revision_selector,
+    expiresAt: viewer.expiresAt,
+  };
+  sessions.set(sessionId, { ...address, metadata });
+  return { sessionId, metadata };
 }
 
 export async function openWorkspace(
@@ -456,44 +180,6 @@ export async function openWorkspace(
   } finally {
     pendingOpens.count--;
   }
-}
-
-async function createWorkspaceSession(scanId: string) {
-  const scan = (await backendRequest(
-    'GET /v1/scans/:id',
-    `/v1/scans/${scanId}`,
-    'GET',
-  )) as z.infer<(typeof backendApiResponseSchemas)['GET /v1/scans/:id']>;
-  if (scan.id !== scanId)
-    throw new WorkspaceBffError(
-      502,
-      'UPSTREAM_CONTRACT_MISMATCH',
-      'The local backend returned a different scan.',
-    );
-  if (scan.state !== 'succeeded' || !scan.git_commit_oid)
-    throw new WorkspaceBffError(
-      409,
-      'SCAN_NOT_READY',
-      'Choose a scan with a published snapshot.',
-    );
-  const viewer = (await backendRequest(
-    'POST /v1/scans/:id/viewer',
-    `/v1/scans/${scanId}/viewer`,
-    'POST',
-  )) as z.infer<
-    (typeof backendApiResponseSchemas)['POST /v1/scans/:id/viewer']
-  >;
-  const address = parseViewerAddress(viewer.url, viewer.expiresAt);
-  const sessionId = randomBytes(32).toString('hex');
-  const metadata: WorkspaceMetadata = {
-    repositoryId: scan.repository_id,
-    scanId: scan.id,
-    commitId: scan.git_commit_oid,
-    revision: scan.revision_selector,
-    expiresAt: viewer.expiresAt,
-  };
-  sessions.set(sessionId, { ...address, metadata });
-  return { sessionId, metadata };
 }
 
 function requireWorkspaceSession(
@@ -622,6 +308,37 @@ export async function forwardViewerOperation(
       502,
       'UPSTREAM_CONTRACT_MISMATCH',
       'The local viewer response failed contract validation.',
+    );
+  }
+}
+
+export async function queryWorkspacePaths(
+  sessionId: string | undefined,
+  scanId: string,
+  value: unknown,
+): Promise<{ projectId: string; result: FindSymbolPathsResponse }> {
+  requireWorkspaceSession(sessionId, scanId);
+  const parsed = workspacePathsRequestSchema.safeParse(value);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'Workspace symbol-path request failed contract validation.',
+    );
+  const rawResult = await backendRequest(
+    'POST /v1/scans/:id/projects/:projectId/paths',
+    `/v1/scans/${scanId}/projects/${encodeURIComponent(parsed.data.projectId)}/paths`,
+    'POST',
+    { body: parsed.data.request },
+  );
+  try {
+    const result = parseFindSymbolPathsResult(parsed.data.request, rawResult);
+    return { projectId: parsed.data.projectId, result };
+  } catch {
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned an invalid symbol-path projection.',
     );
   }
 }

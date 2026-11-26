@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   aiStatus,
   forwardViewerOperation,
+  listRepositories,
   openWorkspace,
   parseRequestJson,
+  queryWorkspacePaths,
   synthesizeWorkspaceAi,
   WorkspaceBffError,
   workspaceMetadata,
@@ -13,6 +15,7 @@ import {
   trustedLocalRequest,
 } from '../packages/investigation-workspace/src/server/http.ts';
 import { POST as workspaceOperation } from '../packages/investigation-workspace/src/app/api/workspace/[...path]/route.ts';
+import { graphFixture, id as fixtureId } from './fixtures/trace.ts';
 
 const scanId = '11111111-1111-4111-8111-111111111111';
 const repositoryId = '22222222-2222-4222-8222-222222222222';
@@ -570,5 +573,106 @@ describe('local Investigation Workspace BFF', () => {
         },
       }),
     ).rejects.toMatchObject({ status: 504, code: 'AI_PROVIDER_TIMEOUT' });
+  });
+
+  it('adapts scan-scoped symbol-path queries and sanitizes repository labels', async () => {
+    const graph = graphFixture();
+    const snapshotId = graph.meta.snapshotId;
+    const fromSymbolId = fixtureId(7);
+    const toSymbolId = fixtureId(8);
+    const validPaths = {
+      ...graph,
+      fromSymbolId,
+      toSymbolId,
+      paths: [
+        {
+          symbolIds: [fromSymbolId, toSymbolId],
+          relationIds: [fixtureId(9)],
+        },
+      ],
+    };
+
+    const { fetcher } = backendAndViewerFetch();
+    const baseImpl = fetcher.getMockImplementation()!;
+    fetcher.mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.endsWith('/v1/repositories')) {
+        return json([
+          {
+            id: repositoryId,
+            locator: 'C:/repos/clean\u0007name',
+            desired_generation: '1',
+            active_job_id: scanId,
+          },
+        ]);
+      }
+      if (url.endsWith('/paths')) return json(validPaths);
+      return baseImpl(input, init);
+    });
+
+    const repos = await listRepositories();
+    expect(repos.items[0]?.label).toBe('clean\uFFFDname');
+
+    const opened = await openWorkspace(scanId);
+    const requestPayload = {
+      projectId: 'root',
+      request: {
+        snapshotId,
+        fromSymbolId,
+        toSymbolId,
+        relationKinds: ['calls'],
+        depth: 2,
+        nodeLimit: 200,
+        pathLimit: 20,
+      },
+    };
+
+    await expect(
+      queryWorkspacePaths(undefined, scanId, requestPayload),
+    ).rejects.toMatchObject({ status: 401, code: 'WORKSPACE_SESSION_EXPIRED' });
+
+    await expect(
+      queryWorkspacePaths(opened.sessionId, repositoryId, requestPayload),
+    ).rejects.toMatchObject({ status: 409, code: 'WORKSPACE_SCAN_MISMATCH' });
+
+    await expect(
+      queryWorkspacePaths(opened.sessionId, scanId, {
+        projectId: 'root',
+        request: { ...requestPayload.request, depth: 9 },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
+
+    const routeRes = await workspaceOperation(
+      new Request('http://127.0.0.1:3000/api/workspace/paths', {
+        method: 'POST',
+        headers: {
+          host: '127.0.0.1:3000',
+          origin: 'http://127.0.0.1:3000',
+          'sec-fetch-site': 'same-origin',
+          'content-type': 'application/json',
+          'x-codethread-scan-id': scanId,
+          cookie: `ct_workspace_session_${scanId}=${opened.sessionId}`,
+        },
+        body: JSON.stringify(requestPayload),
+      }),
+      { params: Promise.resolve({ path: ['paths'] }) },
+    );
+    expect(routeRes.status).toBe(200);
+    const body = (await routeRes.json()) as {
+      projectId: string;
+      result: typeof validPaths;
+    };
+    expect(body.projectId).toBe('root');
+    expect(body.result.paths).toHaveLength(1);
+
+    fetcher.mockImplementationOnce(async () =>
+      json({ ...validPaths, fromSymbolId: toSymbolId }),
+    );
+    await expect(
+      queryWorkspacePaths(opened.sessionId, scanId, requestPayload),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
   });
 });

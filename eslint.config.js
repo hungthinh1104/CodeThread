@@ -15,7 +15,10 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['packages/{contracts,trace-engine}/src/**/*.ts'],
+    files: [
+      'packages/{contracts,trace-engine}/src/**/*.ts',
+      'packages/investigation-workspace/src/**/*.{ts,tsx}',
+    ],
     rules: {
       'max-lines': ['error', { max: 500 }],
       'max-lines-per-function': ['error', { max: 150, IIFEs: true }],

@@ -1,1328 +1,63 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMemo, useRef, type ReactNode, type RefObject } from 'react';
+import { EvidenceInspector } from './components/EvidenceInspector.tsx';
+import { ExplorerRegion } from './components/ExplorerRegion.tsx';
+import { GeneratedNotes } from './components/GeneratedNotes.tsx';
+import { MainRegion } from './components/MainRegion.tsx';
+import { useAiNotes } from './hooks/useAiNotes.ts';
+import { useFileInventory } from './hooks/useFileInventory.ts';
+import { useInspectorDrawer } from './hooks/useInspectorDrawer.ts';
+import { useInvestigationActions } from './hooks/useInvestigationActions.ts';
+import { useProjectionState } from './hooks/useProjectionState.ts';
+import { useSymbolPaths } from './hooks/useSymbolPaths.ts';
+import { useSymbolSearch } from './hooks/useSymbolSearch.ts';
+import { useWorkspaceHistory } from './hooks/useWorkspaceHistory.ts';
 import {
-  ApiFailure,
-  openScan,
-  readRepositories,
-  readViewer,
-  readWorkspaceMetadata,
-  rememberWorkspaceScan,
-} from './api.ts';
-import { EvidenceInspector } from './EvidenceInspector.tsx';
-import { ExplorerRegion, type SearchItem } from './ExplorerRegion.tsx';
-import { GeneratedNotes } from './GeneratedNotes.tsx';
-import { MainRegion } from './MainRegion.tsx';
-import type {
-  AiStatusResponse,
-  CatalogPage,
-  CodeSymbol,
-  EvidenceProjection,
-  FilePage,
-  FollowContextProjection,
-  GraphProjection,
-  ProjectContexts,
-  RepositoryItem,
-  SessionProjection,
-  SymbolPage,
-  WorkspaceMetadata,
-} from './types.ts';
-import { useAiNotes } from './useAiNotes.ts';
-import {
-  useWorkspaceHistory,
-  type NavigationEntry,
-} from './useWorkspaceHistory.ts';
-
-type Scope = { scanId: string; projectId: string; snapshotId: string };
-type SearchState = {
-  items: SearchItem[];
-  offset: number;
-  total: number;
-  nextOffset: number | null;
-};
-type ApiResponse<T> = T | { projectId: string; result: T };
-
-function scopedSnapshotId(value: unknown): string | null {
-  if (typeof value !== 'object' || value === null) return null;
-  if ('snapshotId' in value && typeof value.snapshotId === 'string')
-    return value.snapshotId;
-  if (
-    'meta' in value &&
-    typeof value.meta === 'object' &&
-    value.meta !== null
-  ) {
-    const meta = value.meta;
-    return 'snapshotId' in meta && typeof meta.snapshotId === 'string'
-      ? meta.snapshotId
-      : null;
-  }
-  if (
-    'graph' in value &&
-    typeof value.graph === 'object' &&
-    value.graph !== null
-  )
-    return scopedSnapshotId(value.graph);
-  return null;
-}
-
-function unwrapScoped<T>(value: ApiResponse<T>, scope: Scope): T {
-  let result: T;
-  if (typeof value === 'object' && value !== null && 'result' in value) {
-    if (value.projectId !== scope.projectId)
-      throw new ApiFailure(502, {
-        error: {
-          code: 'WORKSPACE_CONTEXT_MISMATCH',
-          message: 'The local snapshot response belongs to another project.',
-        },
-      });
-    result = value.result as T;
-  } else if (
-    typeof value === 'object' &&
-    value !== null &&
-    'projectId' in value &&
-    value.projectId === scope.projectId
-  ) {
-    result = value as T;
-  } else {
-    throw new ApiFailure(502, {
-      error: {
-        code: 'WORKSPACE_SCOPE_MISSING',
-        message: 'The local snapshot response omitted project identity.',
-      },
-    });
-  }
-  if (scopedSnapshotId(result) !== scope.snapshotId)
-    throw new ApiFailure(502, {
-      error: {
-        code: 'WORKSPACE_SNAPSHOT_MISMATCH',
-        message:
-          'The local snapshot response did not match the active snapshot.',
-      },
-    });
-  return result;
-}
-
-async function readSession(scope: Scope): Promise<SessionProjection> {
-  return unwrapScoped(
-    await readViewer<ApiResponse<SessionProjection>>(scope.scanId, 'session', {
-      projectId: scope.projectId,
-      request: {},
-    }),
-    scope,
-  );
-}
-
-async function readGraph(
-  symbolId: string,
-  scope: Scope,
-  kinds: NavigationEntry['relationKinds'],
-  direction: NavigationEntry['direction'],
-): Promise<GraphProjection> {
-  return unwrapScoped(
-    await readViewer<ApiResponse<GraphProjection>>(scope.scanId, 'neighbors', {
-      projectId: scope.projectId,
-      request: {
-        snapshotId: scope.snapshotId,
-        symbolId,
-        direction,
-        relationKinds: kinds,
-        depth: 2,
-        nodeLimit: 50,
-      },
-    }),
-    scope,
-  );
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof ApiFailure) return `${error.code}: ${error.message}`;
-  return 'The local Investigation Workspace request failed.';
-}
-
-function evidenceId(item: EvidenceProjection['items'][number]): string {
-  return item.status === 'available' ? item.evidence.id : item.evidenceId;
-}
-
-async function readEvidence(id: string, scope: Scope) {
-  const response = await readViewer<ApiResponse<EvidenceProjection>>(
-    scope.scanId,
-    'evidence',
-    {
-      projectId: scope.projectId,
-      request: { snapshotId: scope.snapshotId, evidenceIds: [id] },
-    },
-  );
-  const item = unwrapScoped(response, scope).items.find(
-    (candidate) => evidenceId(candidate) === id,
-  );
-  if (!item)
-    throw new ApiFailure(502, {
-      error: {
-        code: 'WORKSPACE_EVIDENCE_MISSING',
-        message:
-          'The validated evidence response omitted the requested identity.',
-      },
-    });
-  return item;
-}
-
-function projectScope(
-  projectId: string,
-  workspace: WorkspaceMetadata | null,
-  projects: ProjectContexts | null,
-): Scope | null {
-  const project = projects?.items.find((item) => item.id === projectId);
-  if (!workspace || project?.status !== 'ready' || !project.snapshotId)
-    return null;
-  return {
-    scanId: workspace.scanId,
-    projectId,
-    snapshotId: project.snapshotId,
-  };
-}
-
-function emptySearchState(): SearchState {
-  return { items: [], offset: 0, total: 0, nextOffset: null };
-}
+  useWorkspaceSession,
+  type WorkspaceSessionRefs,
+} from './hooks/useWorkspaceSession.ts';
+import type { AiStatusResponse, NavigationEntry, Scope } from './types.ts';
 
 const DEFAULT_AI_STATUS: AiStatusResponse = { enabled: false };
 
-export function InvestigationWorkspace(
-  props: {
-    initialAiStatus?: AiStatusResponse;
-  } = {},
-) {
-  const aiStatus = props.initialAiStatus ?? DEFAULT_AI_STATUS;
-  const [repositories, setRepositories] = useState<RepositoryItem[]>([]);
-  const [selectedRepositoryId, setSelectedRepositoryId] = useState('');
-  const [workspace, setWorkspace] = useState<WorkspaceMetadata | null>(null);
-  const [projects, setProjects] = useState<ProjectContexts | null>(null);
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [session, setSession] = useState<SessionProjection | null>(null);
-  const [searchMode, setSearchMode] = useState<'project' | 'repository'>(
-    'project',
-  );
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchOffset, setSearchOffset] = useState(0);
-  const [search, setSearch] = useState<SearchState>(emptySearchState);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [files, setFiles] = useState<FilePage | null>(null);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [filesError, setFilesError] = useState<{
-    offset: number;
-    message: string;
-  } | null>(null);
-  const [selected, setSelected] = useState<CodeSymbol | null>(null);
-  const [graph, setGraph] = useState<GraphProjection | null>(null);
-  const [graphLoading, setGraphLoading] = useState(false);
-  const [evidence, setEvidence] = useState<
-    EvidenceProjection['items'][number] | null
-  >(null);
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const [relationKinds, setRelationKinds] = useState<
-    ('calls' | 'references')[]
-  >(['calls']);
-  const [direction, setDirection] = useState<'outgoing' | 'incoming' | 'both'>(
-    'both',
-  );
-  const [selectedRelationId, setSelectedRelationId] = useState<string | null>(
-    null,
-  );
-  const [contextCandidates, setContextCandidates] = useState<
-    FollowContextProjection['candidates']
-  >([]);
-  const [contextSearchLoading, setContextSearchLoading] = useState(false);
-  const [contextSearchMessage, setContextSearchMessage] = useState<
-    string | null
-  >(null);
-  const [activeView, setActiveView] = useState<'source' | 'trace'>('source');
-  const [compactViewport, setCompactViewport] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
-  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
-  const [workspaceRetryable, setWorkspaceRetryable] = useState(false);
-  const [initializationRetryVersion, setInitializationRetryVersion] =
-    useState(0);
-  const [searchError, setSearchError] = useState<string | null>(null);
-  const [searchRetryVersion, setSearchRetryVersion] = useState(0);
-  const [graphError, setGraphError] = useState<string | null>(null);
-  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+function useSessionRefs(): WorkspaceSessionRefs & {
+  restoreHandlerRef: RefObject<
+    (entry: NavigationEntry, accept: () => void) => Promise<void>
+  >;
+} {
   const scopeRef = useRef<Scope | null>(null);
-  const retryTargetRef = useRef<
-    | {
-        kind: 'project';
-        projectId: string;
-        metadata: WorkspaceMetadata;
-        contexts: ProjectContexts;
-      }
-    | { kind: 'contexts'; metadata: WorkspaceMetadata }
-    | null
-  >(null);
   const workspaceGeneration = useRef(0);
   const contextGeneration = useRef(0);
-  const searchGeneration = useRef(0);
-  const fileGeneration = useRef(0);
-  const graphGeneration = useRef(0);
-  const evidenceGeneration = useRef(0);
-  const contextSearchGeneration = useRef(0);
-  const navigationRestoreGeneration = useRef(0);
   const selectionGeneration = useRef(0);
-  const requestedEvidenceId = useRef<string | null>(null);
-  const workspaceHeadingRef = useRef<HTMLHeadingElement>(null);
-  const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
-  const inspectorOpenerRef = useRef<HTMLButtonElement>(null);
-  const inspectorCloseRef = useRef<HTMLButtonElement>(null);
-  const history = useWorkspaceHistory(restoreNavigation);
+  const navigationRestoreGeneration = useRef(0);
+  const restoreHandlerRef = useRef<
+    (entry: NavigationEntry, accept: () => void) => Promise<void>
+  >(async () => {});
+  return {
+    scopeRef,
+    workspaceGeneration,
+    contextGeneration,
+    selectionGeneration,
+    navigationRestoreGeneration,
+    restoreHandlerRef,
+  };
+}
 
-  function openInspector(trigger: HTMLButtonElement) {
-    inspectorOpenerRef.current = trigger;
-    setInspectorOpen(true);
-  }
-
-  const closeInspector = useCallback(() => {
-    setInspectorOpen(false);
-    window.requestAnimationFrame(() => {
-      const opener = inspectorOpenerRef.current;
-      const target =
-        opener && !opener.isConnected && opener.id
-          ? document.getElementById(opener.id)
-          : opener;
-      if (target?.isConnected && !target.closest('[hidden]')) target.focus();
-      else if (opener?.id === 'inspect-declaration-evidence')
-        workspaceHeadingRef.current?.focus();
-      else inspectorTriggerRef.current?.focus();
-    });
-  }, []);
-
-  function reportWorkspaceError(message: string | null, retryable = false) {
-    setWorkspaceError(message);
-    setWorkspaceRetryable(message !== null && retryable);
-  }
-
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 900px)');
-    const update = () => {
-      setCompactViewport(media.matches);
-      if (!media.matches) setInspectorOpen(false);
-    };
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, []);
-
-  function currentNavigationEntry(): NavigationEntry | null {
-    const scope = scopeRef.current;
-    if (!scope) return null;
-    return {
-      scanId: scope.scanId,
-      projectId: scope.projectId,
-      snapshotId: scope.snapshotId,
-      root: selected,
-      relationKinds,
-      direction,
-      selectedRelationId,
-      selectedEvidenceId: evidence ? evidenceId(evidence) : null,
-      view: activeView,
-    };
-  }
-
-  function resetNavigation(entry: NavigationEntry | null) {
-    ++navigationRestoreGeneration.current;
-    history.reset(entry);
-  }
-
-  function pushNavigation(entry: NavigationEntry) {
-    ++navigationRestoreGeneration.current;
-    history.push(entry);
-  }
-
-  function invalidateProjectionReads() {
-    ++graphGeneration.current;
-    ++evidenceGeneration.current;
-    ++contextSearchGeneration.current;
-    setGraphLoading(false);
-    setEvidenceLoading(false);
-    setContextSearchLoading(false);
-  }
-
-  function clearSelection() {
-    invalidateProjectionReads();
-    requestedEvidenceId.current = null;
-    setSelected(null);
-    setGraph(null);
-    setGraphError(null);
-    setEvidence(null);
-    setEvidenceError(null);
-    setSelectedRelationId(null);
-    setContextCandidates([]);
-    setContextSearchMessage(null);
-    setInspectorOpen(false);
-    setActiveView('source');
-  }
-
-  function clearSearchResults() {
-    ++searchGeneration.current;
-    setSearch(emptySearchState());
-    setSearchError(null);
-    setSearchLoading(false);
-  }
-
-  function resetProject(projectId: string, clearCatalog = false) {
-    const generation = ++contextGeneration.current;
-    scopeRef.current = null;
-    setSelectedProjectId(projectId);
-    setSession(null);
-    clearSelection();
-    if (clearCatalog || searchMode === 'project') {
-      clearSearchResults();
-      setSearchOffset(0);
-    }
-    reportWorkspaceError(null);
-    setWorkspaceNotice(null);
-    return generation;
-  }
-
-  function resetWorkspace() {
-    const generation = ++workspaceGeneration.current;
-    ++selectionGeneration.current;
-    ++fileGeneration.current;
-    retryTargetRef.current = null;
-    resetProject('', true);
-    setWorkspace(null);
-    setProjects(null);
-    setSearchQuery('');
-    setSearchOffset(0);
-    setFiles(null);
-    setFilesLoading(false);
-    setFilesError(null);
-    resetNavigation(null);
-    return generation;
-  }
-
-  async function loadProjectContexts(
-    metadata: WorkspaceMetadata,
-    generation: number,
-  ) {
-    try {
-      const result = await readViewer<ProjectContexts>(
-        metadata.scanId,
-        'projects',
-        {},
-      );
-      if (generation !== workspaceGeneration.current) return;
-      if (
-        result.repositoryId !== metadata.repositoryId ||
-        result.commitId !== metadata.commitId
-      )
-        throw new ApiFailure(502, {
-          error: {
-            code: 'WORKSPACE_SCAN_MISMATCH',
-            message:
-              'The project contexts do not belong to the opened repository revision.',
-          },
-        });
-      rememberWorkspaceScan(metadata.scanId);
-      retryTargetRef.current = null;
-      setWorkspace(metadata);
-      setProjects(result);
-      const ready = result.items.filter(
-        (item) => item.status === 'ready' && item.snapshotId !== null,
-      );
-      const initial =
-        ready.find((item) => item.id === result.initialProjectId) ?? ready[0];
-      if (!initial) {
-        reportWorkspaceError(
-          'This scan has no ready project context. Failed and unsupported contexts remain listed with their diagnostics.',
-        );
-        return;
-      }
-      await selectProject(initial.id, metadata, result, 'replace');
-    } catch (error) {
-      if (generation === workspaceGeneration.current) {
-        retryTargetRef.current = { kind: 'contexts', metadata };
-        reportWorkspaceError(errorMessage(error), true);
-      }
-    }
-  }
-
-  async function selectProject(
-    projectId: string,
-    metadata = workspace,
-    contexts = projects,
-    historyMode: 'push' | 'replace' = 'push',
-  ): Promise<Scope | null> {
-    if (!metadata || !contexts) return null;
-    const scope = projectScope(projectId, metadata, contexts);
-    if (!scope) {
-      reportWorkspaceError(
-        'Only a ready project context with a published snapshot can be selected.',
-      );
-      return null;
-    }
-    ++navigationRestoreGeneration.current;
-    const selection = selectionGeneration.current;
-    const contextAtStart = contextGeneration.current;
-    const isCurrent = () =>
-      selection === selectionGeneration.current &&
-      contextAtStart === contextGeneration.current;
-    reportWorkspaceError(null);
-    setWorkspaceNotice(null);
-    try {
-      const projection = await readSession(scope);
-      if (!isCurrent()) return null;
-      retryTargetRef.current = null;
-      resetProject(projectId);
-      scopeRef.current = scope;
-      setSession(projection);
-      const entry: NavigationEntry = {
-        ...scope,
-        root: null,
-        relationKinds,
-        direction,
-        selectedRelationId: null,
-        selectedEvidenceId: null,
-        view: 'source',
-      };
-      if (historyMode === 'replace') resetNavigation(entry);
-      else pushNavigation(entry);
-      return scope;
-    } catch (error) {
-      if (isCurrent()) {
-        if (!scopeRef.current)
-          retryTargetRef.current = {
-            kind: 'project',
-            projectId,
-            metadata,
-            contexts,
-          };
-        reportWorkspaceError(errorMessage(error), !scopeRef.current);
-      }
-      return null;
-    }
-  }
-
-  async function loadGraph(
-    root: CodeSymbol | string,
-    scope: Scope,
-    kinds: ('calls' | 'references')[],
-    requestedDirection: 'outgoing' | 'incoming' | 'both',
-  ): Promise<GraphProjection | null> {
-    const generation = ++graphGeneration.current;
-    const rootSymbolId = typeof root === 'string' ? root : root.id;
-    ++evidenceGeneration.current;
-    requestedEvidenceId.current = null;
-    setGraphLoading(true);
-    setGraphError(null);
-    setGraph(null);
-    setSelectedRelationId(null);
-    setEvidence(null);
-    setEvidenceLoading(false);
-    setEvidenceError(null);
-    try {
-      const projection = await readGraph(
-        rootSymbolId,
-        scope,
-        kinds,
-        requestedDirection,
-      );
-      if (
-        generation !== graphGeneration.current ||
-        scopeRef.current?.projectId !== scope.projectId ||
-        scopeRef.current?.snapshotId !== scope.snapshotId
-      )
-        return null;
-      setGraph(projection);
-      return projection;
-    } catch (error) {
-      if (generation === graphGeneration.current)
-        setGraphError(errorMessage(error));
-      return null;
-    } finally {
-      if (generation === graphGeneration.current) setGraphLoading(false);
-    }
-  }
-
-  async function loadEvidence(
-    id: string,
-    scope: Scope,
-    relationId: string | null = null,
-  ) {
-    const generation = ++evidenceGeneration.current;
-    requestedEvidenceId.current = id;
-    setEvidenceLoading(true);
-    setEvidenceError(null);
-    setSelectedRelationId(relationId);
-    setEvidence(null);
-    try {
-      const item = await readEvidence(id, scope);
-      if (
-        generation !== evidenceGeneration.current ||
-        scopeRef.current?.projectId !== scope.projectId ||
-        scopeRef.current?.snapshotId !== scope.snapshotId
-      )
-        return;
-      setEvidence(item);
-    } catch (error) {
-      if (generation === evidenceGeneration.current)
-        setEvidenceError(errorMessage(error));
-    } finally {
-      if (generation === evidenceGeneration.current) setEvidenceLoading(false);
-    }
-  }
-
-  async function openScopedDeclaration(
-    scope: Scope,
-    symbolId: string,
-    generation: number,
-    reportError: (message: string | null) => void,
-  ): Promise<boolean> {
-    const contextAtStart = contextGeneration.current;
-    const isCurrent = () =>
-      generation === selectionGeneration.current &&
-      contextAtStart === contextGeneration.current;
-    const current = scopeRef.current;
-    const changesProject =
-      scope.scanId !== current?.scanId ||
-      scope.projectId !== current.projectId ||
-      scope.snapshotId !== current.snapshotId;
-    reportError(null);
-    try {
-      const destination = changesProject ? await readSession(scope) : session;
-      if (!destination || !isCurrent()) return false;
-      const projection = await readGraph(
-        symbolId,
-        scope,
-        relationKinds,
-        direction,
-      );
-      if (!isCurrent()) return false;
-      const root = projection.graph.symbols.find(
-        (symbol) =>
-          symbol.id === symbolId && symbol.snapshotId === scope.snapshotId,
-      );
-      if (!root || projection.graph.rootSymbolId !== symbolId) {
-        reportError(
-          'The destination query did not return the verified declaration.',
-        );
-        return false;
-      }
-      const declaration = await readEvidence(root.declarationEvidenceId, scope);
-      if (!isCurrent()) return false;
-      if (changesProject) {
-        resetProject(scope.projectId);
-        scopeRef.current = scope;
-        setSession(destination);
-      } else {
-        clearSelection();
-      }
-      setSelected(root);
-      setGraph(projection);
-      setEvidence(declaration);
-      requestedEvidenceId.current = root.declarationEvidenceId;
-      pushNavigation({
-        ...scope,
-        root,
-        relationKinds,
-        direction,
-        selectedRelationId: null,
-        selectedEvidenceId: root.declarationEvidenceId,
-        view: 'source',
-      });
-      return true;
-    } catch (error) {
-      if (isCurrent()) reportError(errorMessage(error));
-      return false;
-    }
-  }
-
-  function focusSelectedDeclaration(generation: number) {
-    if (window.matchMedia('(max-width: 760px)').matches) {
-      window.requestAnimationFrame(() => {
-        if (generation !== selectionGeneration.current) return;
-        const heading = workspaceHeadingRef.current;
-        heading?.focus({ preventScroll: true });
-        heading?.closest('main')?.scrollIntoView({ block: 'start' });
-      });
-    }
-  }
-
-  async function chooseSymbol(item: SearchItem) {
-    const generation = ++selectionGeneration.current;
-    const active = scopeRef.current;
-    const scope =
-      active?.projectId === item.projectId
-        ? active
-        : projectScope(item.projectId, workspace, projects);
-    if (
-      !scope ||
-      scope.projectId !== item.projectId ||
-      scope.snapshotId !== item.snapshotId ||
-      item.symbol.snapshotId !== item.snapshotId
-    ) {
-      reportWorkspaceError(
-        'The selected symbol does not match the active snapshot identity.',
-      );
-      return;
-    }
-    if (scope !== active) {
-      if (
-        await openScopedDeclaration(
-          scope,
-          item.symbol.id,
-          generation,
-          reportWorkspaceError,
-        )
-      )
-        focusSelectedDeclaration(generation);
-      return;
-    }
-    setSelected(item.symbol);
-    setContextCandidates([]);
-    setContextSearchMessage(null);
-    setContextSearchLoading(false);
-    ++contextSearchGeneration.current;
-    setActiveView('source');
-    const entry: NavigationEntry = {
-      ...scope,
-      root: item.symbol,
-      relationKinds,
-      direction,
-      selectedRelationId: null,
-      selectedEvidenceId: item.symbol.declarationEvidenceId,
-      view: 'source',
-    };
-    pushNavigation(entry);
-    reportWorkspaceError(null);
-    setWorkspaceNotice(null);
-    void loadGraph(item.symbol, scope, relationKinds, direction);
-    void loadEvidence(item.symbol.declarationEvidenceId, scope);
-    focusSelectedDeclaration(generation);
-  }
-
-  async function chooseFile(file: FilePage['items'][number]) {
-    const generation = ++selectionGeneration.current;
-    setWorkspaceNotice(null);
-    if (file.status !== 'analyzed') {
-      reportWorkspaceError(
-        file.analysisReason
-          ? `${file.status}: ${file.analysisReason}`
-          : `This file is ${file.status}; no source excerpt is available.`,
-      );
-      return;
-    }
-    const isReady = (id: string) =>
-      projects?.items.some(
-        (item) => item.id === id && item.status === 'ready' && item.snapshotId,
-      ) ?? false;
-    const activeProjectId = scopeRef.current?.projectId;
-    const contextId =
-      activeProjectId &&
-      file.projectIds.includes(activeProjectId) &&
-      isReady(activeProjectId)
-        ? activeProjectId
-        : file.projectIds.find(isReady);
-    if (!contextId) {
-      reportWorkspaceError(
-        'No ready project context contains this analyzed file.',
-      );
-      return;
-    }
-    if (contextId !== scopeRef.current?.projectId) {
-      const scope = await selectProject(contextId);
-      if (!scope || generation !== selectionGeneration.current) return;
-      const context = projects?.items.find((item) => item.id === contextId);
-      if (
-        !scope ||
-        scope.projectId !== contextId ||
-        scope.snapshotId !== context?.snapshotId
-      )
-        return;
-    }
-    setSearchMode('project');
-    setSearchOffset(0);
-    setSearchQuery(file.path.length > 256 ? file.path.slice(-256) : file.path);
-    reportWorkspaceError(null);
-    setWorkspaceNotice(
-      'Full-file source is not available; matching declarations are shown from verified snapshot evidence.',
-    );
-  }
-
-  async function followSymbol(symbol: CodeSymbol) {
-    ++selectionGeneration.current;
-    const scope = scopeRef.current;
-    if (!scope || symbol.snapshotId !== scope.snapshotId) {
-      reportWorkspaceError(
-        'The target is not part of the active immutable snapshot.',
-      );
-      return;
-    }
-    reportWorkspaceError(null);
-    setWorkspaceNotice(null);
-    setSelected(symbol);
-    setContextCandidates([]);
-    setContextSearchMessage(null);
-    setContextSearchLoading(false);
-    ++contextSearchGeneration.current;
-    setActiveView('source');
-    pushNavigation({
-      ...scope,
-      root: symbol,
-      relationKinds,
-      direction,
-      selectedRelationId: null,
-      selectedEvidenceId: symbol.declarationEvidenceId,
-      view: 'source',
-    });
-    void loadGraph(symbol, scope, relationKinds, direction);
-    void loadEvidence(symbol.declarationEvidenceId, scope);
-  }
-
-  async function chooseEvidence(
-    id: string,
-    trigger: HTMLButtonElement,
-    relationId: string | null = null,
-  ) {
-    const scope = scopeRef.current;
-    if (
-      !scope ||
-      (!graph?.graph.evidenceRefs.some((item) => item.id === id) &&
-        !graph?.unknowns.items.some((item) => item.evidenceId === id) &&
-        selected?.declarationEvidenceId !== id)
-    ) {
-      reportWorkspaceError(
-        'Evidence selection is not present in the current validated projection.',
-      );
-      return;
-    }
-    ++selectionGeneration.current;
-    if (compactViewport) openInspector(trigger);
-    const entry = currentNavigationEntry();
-    if (entry) {
-      pushNavigation({
-        ...entry,
-        selectedRelationId: relationId,
-        selectedEvidenceId: id,
-      });
-    }
-    await loadEvidence(id, scope, relationId);
-  }
-
-  async function findMatchingContexts() {
-    const scope = scopeRef.current;
-    if (!scope || !selected) return;
-    const symbolId = selected.id;
-    const selection = selectionGeneration.current;
-    const generation = ++contextSearchGeneration.current;
-    setContextSearchLoading(true);
-    setContextSearchMessage(null);
-    setContextCandidates([]);
-    try {
-      const response = await readViewer<ApiResponse<FollowContextProjection>>(
-        scope.scanId,
-        'follow-context',
-        {
-          projectId: scope.projectId,
-          request: { snapshotId: scope.snapshotId, symbolId },
-        },
-      );
-      const result = unwrapScoped(response, scope);
-      if (
-        generation !== contextSearchGeneration.current ||
-        selection !== selectionGeneration.current ||
-        selected?.id !== symbolId ||
-        scopeRef.current?.projectId !== scope.projectId ||
-        scopeRef.current?.snapshotId !== scope.snapshotId
-      )
-        return;
-      for (const candidate of result.candidates) {
-        const context = projects?.items.find(
-          (item) => item.id === candidate.projectId,
-        );
-        if (
-          !context ||
-          context.status !== 'ready' ||
-          context.snapshotId !== candidate.snapshotId
-        )
-          throw new ApiFailure(502, {
-            error: {
-              code: 'WORKSPACE_CONTEXT_MISMATCH',
-              message:
-                'A declaration context does not match the loaded project snapshots.',
-            },
-          });
-      }
-      setContextCandidates(result.candidates);
-      if (
-        result.candidates.length === 1 &&
-        result.candidates[0]?.projectId === scope.projectId
-      )
-        setContextSearchMessage(
-          'This declaration is present only in the active project context.',
-        );
-      else if (result.candidates.length > 1)
-        setContextSearchMessage(
-          'The same declaration anchor appears in multiple snapshots. Choose the destination context.',
-        );
-    } catch (error) {
-      if (
-        generation === contextSearchGeneration.current &&
-        selection === selectionGeneration.current &&
-        selected?.id === symbolId &&
-        scopeRef.current?.projectId === scope.projectId &&
-        scopeRef.current?.snapshotId === scope.snapshotId
-      )
-        setContextSearchMessage(errorMessage(error));
-    } finally {
-      if (generation === contextSearchGeneration.current)
-        setContextSearchLoading(false);
-    }
-  }
-
-  async function chooseContextCandidate(
-    candidate: FollowContextProjection['candidates'][number],
-  ) {
-    const generation = ++selectionGeneration.current;
-    const scope = projectScope(candidate.projectId, workspace, projects);
-    if (!scope || scope.snapshotId !== candidate.snapshotId) {
-      setContextSearchMessage(
-        'The destination context is no longer ready or its snapshot identity changed.',
-      );
-      return;
-    }
-    await openScopedDeclaration(
-      scope,
-      candidate.symbolId,
-      generation,
-      setContextSearchMessage,
-    );
-  }
-
-  async function changeFilters(
-    kinds: ('calls' | 'references')[],
-    newDirection = direction,
-  ) {
-    if (!kinds.length) return;
-    ++selectionGeneration.current;
-    setRelationKinds(kinds);
-    setDirection(newDirection);
-    const scope = scopeRef.current;
-    const root = selected;
-    if (!scope || !root) return;
-    setActiveView('trace');
-    pushNavigation({
-      ...scope,
-      root,
-      relationKinds: kinds,
-      direction: newDirection,
-      selectedRelationId: null,
-      selectedEvidenceId: null,
-      view: 'trace',
-    });
-    void loadGraph(root, scope, kinds, newDirection);
-  }
-
-  async function restoreNavigation(entry: NavigationEntry, accept: () => void) {
-    const selection = ++selectionGeneration.current;
-    const generation = ++navigationRestoreGeneration.current;
-    const isCurrent = () =>
-      generation === navigationRestoreGeneration.current &&
-      selection === selectionGeneration.current;
-    const project = projects?.items.find((item) => item.id === entry.projectId);
-    if (
-      workspace?.scanId !== entry.scanId ||
-      project?.status !== 'ready' ||
-      project.snapshotId !== entry.snapshotId ||
-      (entry.root && entry.root.snapshotId !== entry.snapshotId)
-    ) {
-      reportWorkspaceError(
-        'History snapshot identity no longer matches this project context.',
-      );
-      return;
-    }
-    const scope = {
-      scanId: entry.scanId,
-      projectId: entry.projectId,
-      snapshotId: entry.snapshotId,
-    };
-    const active = scopeRef.current;
-    const changesProject =
-      !active ||
-      active.scanId !== scope.scanId ||
-      active.projectId !== scope.projectId ||
-      active.snapshotId !== scope.snapshotId;
-    invalidateProjectionReads();
-    reportWorkspaceError(null);
-    try {
-      // Keep the displayed context until the destination projections are verified.
-      const destination = changesProject ? await readSession(scope) : session;
-      if (!destination || !isCurrent()) return;
-      const projection = entry.root
-        ? await readGraph(
-            entry.root.id,
-            scope,
-            entry.relationKinds,
-            entry.direction,
-          )
-        : null;
-      if (!isCurrent()) return;
-      const root =
-        projection?.graph.symbols.find(
-          (symbol) => symbol.id === entry.root?.id,
-        ) ?? null;
-      if (entry.root && !root) {
-        reportWorkspaceError(
-          'The restored snapshot did not return the saved declaration.',
-        );
-        return;
-      }
-      if (changesProject) {
-        resetProject(scope.projectId);
-        scopeRef.current = scope;
-        setSession(destination);
-      } else {
-        clearSelection();
-      }
-      setRelationKinds(entry.relationKinds);
-      setDirection(entry.direction);
-      setSelected(root);
-      setActiveView(entry.view);
-      setGraph(projection);
-      accept();
-
-      const relationId =
-        projection?.graph.relations.find(
-          (relation) => relation.id === entry.selectedRelationId,
-        )?.id ?? null;
-      const id = entry.selectedEvidenceId;
-      if (
-        id &&
-        (root?.declarationEvidenceId === id ||
-          projection?.graph.evidenceRefs.some((item) => item.id === id) ||
-          projection?.unknowns.items.some((item) => item.evidenceId === id))
-      ) {
-        void loadEvidence(id, scope, relationId);
-      } else if (id) {
-        reportWorkspaceError(
-          'The saved evidence is no longer in the restored projection.',
-        );
-      }
-    } catch (error) {
-      if (isCurrent()) reportWorkspaceError(errorMessage(error));
-    }
-  }
-
-  useEffect(() => {
-    let mounted = true;
-    const generation = workspaceGeneration.current;
-    const isCurrent = () =>
-      mounted && generation === workspaceGeneration.current;
-    reportWorkspaceError(null);
-    void (async () => {
-      try {
-        const repositoryResult = await readRepositories();
-        if (!isCurrent()) return;
-        setRepositories(repositoryResult.items);
-        try {
-          const recovered = await readWorkspaceMetadata();
-          if (!recovered || !isCurrent()) return;
-          setSelectedRepositoryId(recovered.workspace.repositoryId);
-          await loadProjectContexts(recovered.workspace, resetWorkspace());
-        } catch (error) {
-          if (
-            isCurrent() &&
-            !(
-              error instanceof ApiFailure &&
-              error.code === 'WORKSPACE_SESSION_EXPIRED'
-            )
-          )
-            reportWorkspaceError(errorMessage(error), true);
-        }
-      } catch (error) {
-        if (isCurrent()) reportWorkspaceError(errorMessage(error), true);
-      }
-    })();
-    return () => {
-      mounted = false;
-      ++workspaceGeneration.current;
-      ++contextGeneration.current;
-      ++searchGeneration.current;
-      ++fileGeneration.current;
-      ++graphGeneration.current;
-      ++evidenceGeneration.current;
-      ++contextSearchGeneration.current;
-      ++navigationRestoreGeneration.current;
-      ++selectionGeneration.current;
-    };
-  }, [initializationRetryVersion]);
-
-  useEffect(() => {
-    if (!workspace) return;
-    const generation = ++fileGeneration.current;
-    const workspaceId = workspace.scanId;
-    setFilesLoading(true);
-    setFilesError(null);
-    void readViewer<FilePage>(workspaceId, 'files', { offset: 0 })
-      .then((page) => {
-        if (
-          generation === fileGeneration.current &&
-          workspaceId === workspace.scanId
-        )
-          setFiles(page);
-      })
-      .catch((error: unknown) => {
-        if (generation === fileGeneration.current)
-          setFilesError({ offset: 0, message: errorMessage(error) });
-      })
-      .finally(() => {
-        if (generation === fileGeneration.current) setFilesLoading(false);
-      });
-  }, [workspace?.scanId]);
-
-  useEffect(() => {
-    if (!workspace || !projects) return;
-    const scope = scopeRef.current;
-    if (searchMode === 'project' && (!scope || !session)) return;
-    const generation = ++searchGeneration.current;
-    const contextGenerationAtStart = contextGeneration.current;
-    const timer = setTimeout(() => {
-      if (generation !== searchGeneration.current) return;
-      setSearchLoading(true);
-      setSearchError(null);
-      const read =
-        searchMode === 'repository'
-          ? readViewer<CatalogPage>(workspace.scanId, 'catalog', {
-              query: searchQuery,
-              offset: searchOffset,
-            })
-          : readViewer<ApiResponse<SymbolPage>>(workspace.scanId, 'symbols', {
-              projectId: scope!.projectId,
-              request: { query: searchQuery, offset: searchOffset },
-            });
-      void read
-        .then((response) => {
-          if (
-            generation !== searchGeneration.current ||
-            contextGenerationAtStart !== contextGeneration.current
-          )
-            return;
-          if (searchMode === 'repository') {
-            const page = response as CatalogPage;
-            const items = page.items.map((item) => {
-              const context = projects.items.find(
-                (candidate) => candidate.id === item.projectId,
-              );
-              if (
-                !context ||
-                context.status !== 'ready' ||
-                context.snapshotId !== item.snapshotId ||
-                item.symbol.snapshotId !== item.snapshotId
-              )
-                throw new ApiFailure(502, {
-                  error: {
-                    code: 'WORKSPACE_CONTEXT_MISMATCH',
-                    message:
-                      'A catalog result does not match a loaded project snapshot.',
-                  },
-                });
-              return {
-                projectId: context.id,
-                projectLabel: context.label,
-                snapshotId: item.snapshotId,
-                symbol: item.symbol,
-              };
-            });
-            setSearch({
-              items,
-              offset: page.offset,
-              total: page.total,
-              nextOffset: page.nextOffset,
-            });
-          } else {
-            const page = unwrapScoped(
-              response as ApiResponse<SymbolPage>,
-              scope!,
-            );
-            const context = projects.items.find(
-              (item) => item.id === scope!.projectId,
-            );
-            setSearch({
-              items: page.items.map((symbol) => ({
-                projectId: scope!.projectId,
-                projectLabel: context?.label ?? scope!.projectId,
-                snapshotId: page.snapshotId,
-                symbol,
-              })),
-              offset: page.offset,
-              total: page.total,
-              nextOffset: page.nextOffset,
-            });
-          }
-        })
-        .catch((error: unknown) => {
-          if (
-            generation === searchGeneration.current &&
-            contextGenerationAtStart === contextGeneration.current
-          )
-            setSearchError(errorMessage(error));
-        })
-        .finally(() => {
-          if (generation === searchGeneration.current) setSearchLoading(false);
-        });
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [
-    workspace?.scanId,
-    projects,
-    session?.snapshotId,
-    selectedProjectId,
-    searchMode,
-    searchQuery,
-    searchOffset,
-    searchRetryVersion,
-  ]);
-
-  async function chooseRepository(id: string) {
-    const generation = resetWorkspace();
-    rememberWorkspaceScan(null);
-    setSelectedRepositoryId(id);
-    const repository = repositories.find((item) => item.id === id);
-    if (!repository) return;
-    if (!repository.activeScanId) {
-      reportWorkspaceError(
-        'This repository has no active scan. Start or select a scan through the existing backend workflow.',
-      );
-      return;
-    }
-    try {
-      const opened = await openScan(repository.activeScanId);
-      if (generation !== workspaceGeneration.current) return;
-      if (
-        opened.workspace.repositoryId !== id ||
-        opened.workspace.scanId !== repository.activeScanId
-      )
-        throw new ApiFailure(502, {
-          error: {
-            code: 'WORKSPACE_SCAN_MISMATCH',
-            message:
-              'The opened scan does not match the selected repository and scan.',
-          },
-        });
-      await loadProjectContexts(opened.workspace, generation);
-    } catch (error) {
-      if (generation === workspaceGeneration.current)
-        reportWorkspaceError(errorMessage(error), true);
-    }
-  }
-
-  async function chooseSearchPage(offset: number) {
-    if (offset === searchOffset) {
-      setSearchRetryVersion((version) => version + 1);
-      return;
-    }
-    setSearchOffset(offset);
-  }
-
-  async function chooseFilesPage(offset: number) {
-    if (!workspace) return;
-    const generation = ++fileGeneration.current;
-    setFilesLoading(true);
-    setFilesError(null);
-    try {
-      const page = await readViewer<FilePage>(workspace.scanId, 'files', {
-        offset,
-      });
-      if (generation === fileGeneration.current) {
-        setFiles(page);
-        setFilesError(null);
-      }
-    } catch (error) {
-      if (generation === fileGeneration.current)
-        setFilesError({ offset, message: errorMessage(error) });
-    } finally {
-      if (generation === fileGeneration.current) setFilesLoading(false);
-    }
-  }
-
-  async function retryWorkspace() {
-    const target = retryTargetRef.current;
-    if (target?.kind === 'project') {
-      await selectProject(
-        target.projectId,
-        target.metadata,
-        target.contexts,
-        'replace',
-      );
-      return;
-    }
-    if (target?.kind === 'contexts') {
-      await loadProjectContexts(target.metadata, workspaceGeneration.current);
-      return;
-    }
-    if (workspace && projects && selectedProjectId) {
-      await selectProject(selectedProjectId);
-      return;
-    }
-    if (selectedRepositoryId) {
-      await chooseRepository(selectedRepositoryId);
-      return;
-    }
-    setInitializationRetryVersion((version) => version + 1);
-  }
-
-  function retryFiles() {
-    if (filesError) void chooseFilesPage(filesError.offset);
-  }
-
-  function retrySearch() {
-    setSearchRetryVersion((version) => version + 1);
-  }
-
-  function retryGraph() {
-    const scope = scopeRef.current;
-    if (scope && selected)
-      void loadGraph(selected, scope, relationKinds, direction);
-  }
-
-  function retryEvidence() {
-    const scope = scopeRef.current;
-    const id = requestedEvidenceId.current;
-    if (scope && id) void loadEvidence(id, scope, selectedRelationId);
-  }
-
-  function readDeclarationEvidence() {
-    const scope = scopeRef.current;
-    if (scope && selected?.snapshotId === scope.snapshotId)
-      void loadEvidence(selected.declarationEvidenceId, scope);
-  }
-
-  function chooseView(view: NavigationEntry['view']) {
-    setActiveView(view);
-    if (
-      view === 'source' &&
-      requestedEvidenceId.current !== selected?.declarationEvidenceId
-    )
-      readDeclarationEvidence();
-  }
-
-  const inspectorModal = compactViewport && inspectorOpen;
-  const activeScope =
-    workspace && selectedProjectId && session
-      ? {
-          scanId: workspace.scanId,
-          projectId: selectedProjectId,
-          snapshotId: session.snapshotId,
-        }
-      : null;
-  const aiNotes = useAiNotes({
-    aiStatus,
-    scope: activeScope,
-    selected,
-    relationKinds,
-    direction,
-  });
+function WorkspaceChrome(props: {
+  inspectorModal: boolean;
+  canBack: boolean;
+  canForward: boolean;
+  onMoveHistory: (step: -1 | 1) => void;
+  compactViewport: boolean;
+  inspectorTriggerRef: RefObject<HTMLButtonElement | null>;
+  onOpenInspector: (trigger: HTMLButtonElement) => void;
+  expiresAt: string | null;
+  children: ReactNode;
+}) {
   return (
     <div className="page-shell">
-      <header className="page-header" inert={inspectorModal}>
+      <header className="page-header" inert={props.inspectorModal}>
         <div>
           <p className="eyebrow">CODETHREAD / LOCAL ANALYSIS</p>
           <h1>Investigation Workspace</h1>
@@ -1331,154 +66,338 @@ export function InvestigationWorkspace(
         <nav className="history-controls" aria-label="Investigation history">
           <button
             type="button"
-            onClick={() => history.move(-1)}
-            disabled={!history.canBack}
+            onClick={() => props.onMoveHistory(-1)}
+            disabled={!props.canBack}
           >
             Back
           </button>
           <button
             type="button"
-            onClick={() => history.move(1)}
-            disabled={!history.canForward}
+            onClick={() => props.onMoveHistory(1)}
+            disabled={!props.canForward}
           >
             Forward
           </button>
         </nav>
         <button
           id="inspector-toggle"
-          ref={inspectorTriggerRef}
+          ref={props.inspectorTriggerRef}
           type="button"
-          hidden={!compactViewport}
-          aria-expanded={inspectorModal}
+          hidden={!props.compactViewport}
+          aria-expanded={props.inspectorModal}
           aria-controls="evidence-inspector"
           aria-haspopup="dialog"
-          onClick={(event) => openInspector(event.currentTarget)}
+          onClick={(event) => props.onOpenInspector(event.currentTarget)}
         >
           Evidence
         </button>
       </header>
-      <p className="scope-note" inert={inspectorModal}>
+      <p className="scope-note" inert={props.inspectorModal}>
         Local snapshot only · no source execution · unsupported relationships
         and incomplete coverage stay visible.
       </p>
-      <div className="workspace-grid">
-        <ExplorerRegion
-          inert={inspectorModal}
-          repositories={repositories}
-          selectedRepositoryId={selectedRepositoryId}
-          onRepositoryChange={(id) => void chooseRepository(id)}
-          workspace={workspace}
-          projects={projects}
-          selectedProjectId={selectedProjectId}
-          onProjectChange={(id) => {
-            ++selectionGeneration.current;
-            void selectProject(id);
-          }}
-          searchQuery={searchQuery}
-          onSearchQueryChange={(value) => {
-            setSearchQuery(value);
-            setSearchOffset(0);
-            clearSearchResults();
-          }}
-          searchMode={searchMode}
-          searchEnabled={Boolean(workspace && session)}
-          onSearchModeChange={(value) => {
-            setSearchMode(value);
-            setSearchOffset(0);
-            clearSearchResults();
-          }}
-          searchItems={search.items}
-          searchOffset={search.offset}
-          searchTotal={search.total}
-          searchNextOffset={search.nextOffset}
-          searchLoading={searchLoading}
-          searchError={searchError}
-          onRetrySearch={retrySearch}
-          onSearchPage={(offset) => void chooseSearchPage(offset)}
-          onChooseSymbol={(item) => void chooseSymbol(item)}
-          files={files}
-          filesLoading={filesLoading}
-          filesError={filesError?.message ?? null}
-          onRetryFiles={retryFiles}
-          onFilesPage={(offset) => void chooseFilesPage(offset)}
-          onChooseFile={(file) => void chooseFile(file)}
-          notice={workspaceNotice}
-          error={workspaceError}
-          errorRetryable={workspaceRetryable}
-          onRetryWorkspace={() => void retryWorkspace()}
-        />
-        <MainRegion
-          inert={inspectorModal}
-          headingRef={workspaceHeadingRef}
-          selected={selected}
-          evidence={evidence}
-          evidenceLoading={evidenceLoading}
-          graph={graph}
-          graphLoading={graphLoading}
-          graphError={graphError}
-          evidenceError={evidenceError}
-          onRetryGraph={retryGraph}
-          onRetryEvidence={readDeclarationEvidence}
-          session={session}
-          activeView={activeView}
-          onViewChange={chooseView}
-          relationKinds={relationKinds}
-          onRelationKindsChange={(value) => void changeFilters(value)}
-          direction={direction}
-          onDirectionChange={(value) =>
-            void changeFilters(relationKinds, value)
-          }
-          selectedRelationId={selectedRelationId}
-          onSelectEvidence={(id, trigger, relationId) =>
-            void chooseEvidence(id, trigger, relationId ?? null)
-          }
-          onFollowSymbol={(symbol) => void followSymbol(symbol)}
-          contextCandidates={contextCandidates}
-          contextSearchLoading={contextSearchLoading}
-          contextSearchMessage={contextSearchMessage}
-          onFindContexts={() => void findMatchingContexts()}
-          onChooseContext={(candidate) =>
-            void chooseContextCandidate(candidate)
-          }
-        />
-        <EvidenceInspector
-          item={evidence}
-          loading={evidenceLoading}
-          error={evidenceError}
-          onRetry={retryEvidence}
-          compact={compactViewport}
-          open={inspectorOpen}
-          onClose={closeInspector}
-          closeButtonRef={inspectorCloseRef}
-          generatedNotes={
-            aiStatus.enabled ? (
-              <GeneratedNotes
-                aiStatus={aiStatus}
-                task={aiNotes.task}
-                onTaskChange={aiNotes.setTask}
-                canDraft={aiNotes.canDraft}
-                loading={aiNotes.loading}
-                notes={aiNotes.notes}
-                error={aiNotes.error}
-                onDraft={() => void aiNotes.draft()}
-                graph={graph}
-                onSelectEvidence={(id, trigger, relationId) =>
-                  void chooseEvidence(id, trigger, relationId ?? null)
-                }
-                onFollowSymbol={(symbol) => void followSymbol(symbol)}
-              />
-            ) : null
-          }
-        />
-      </div>
-      <footer className="page-footer" inert={inspectorModal}>
+      <div className="workspace-grid">{props.children}</div>
+      <footer className="page-footer" inert={props.inspectorModal}>
         <span>Static source evidence · validated API projections</span>
-        {workspace ? (
+        {props.expiresAt ? (
           <span>
-            Viewer expires {new Date(workspace.expiresAt).toLocaleTimeString()}
+            Viewer expires {new Date(props.expiresAt).toLocaleTimeString()}
           </span>
         ) : null}
       </footer>
     </div>
+  );
+}
+
+function useInvestigationController(aiStatus: AiStatusResponse) {
+  const refs = useSessionRefs();
+  const drawer = useInspectorDrawer(refs.selectionGeneration);
+  const history = useWorkspaceHistory((entry, accept) =>
+    refs.restoreHandlerRef.current(entry, accept),
+  );
+  const projection = useProjectionState(
+    refs.scopeRef,
+    refs.selectionGeneration,
+    () => drawer.setInspectorOpen(false),
+  );
+  const resetCallbacksRef = useRef<{
+    project: (clearCatalog: boolean) => void;
+    workspace: () => void;
+  }>({ project: () => {}, workspace: () => {} });
+
+  const sessionState = useWorkspaceSession({
+    refs,
+    relationKinds: projection.relationKinds,
+    direction: projection.direction,
+    clearSelection: projection.clearSelection,
+    onProjectReset: (clearCatalog) =>
+      resetCallbacksRef.current.project(clearCatalog),
+    onWorkspaceReset: () => resetCallbacksRef.current.workspace(),
+    resetHistory: history.reset,
+    pushHistory: history.push,
+  });
+  const fileInventory = useFileInventory(sessionState.workspace);
+  const searchState = useSymbolSearch({
+    workspace: sessionState.workspace,
+    projects: sessionState.projects,
+    session: sessionState.session,
+    selectedProjectId: sessionState.selectedProjectId,
+    scopeRef: refs.scopeRef,
+    contextGenerationRef: refs.contextGeneration,
+  });
+  resetCallbacksRef.current = {
+    project: searchState.resetSearchForProject,
+    workspace: () => {
+      searchState.resetSearchForWorkspace();
+      fileInventory.resetFiles();
+    },
+  };
+
+  const activeScope: Scope | null =
+    sessionState.workspace &&
+    sessionState.selectedProjectId &&
+    sessionState.session
+      ? {
+          scanId: sessionState.workspace.scanId,
+          projectId: sessionState.selectedProjectId,
+          snapshotId: sessionState.session.snapshotId,
+        }
+      : null;
+
+  const knownProjectSymbols = useMemo(() => {
+    const fromSearch = searchState.search.items
+      .filter((item) => item.projectId === activeScope?.projectId)
+      .map((item) => item.symbol);
+    return [...(projection.graph?.graph.symbols ?? []), ...fromSearch];
+  }, [
+    activeScope?.projectId,
+    projection.graph?.graph.symbols,
+    searchState.search.items,
+  ]);
+
+  const symbolPaths = useSymbolPaths({
+    scope: activeScope,
+    root: projection.selected,
+    relationKinds: projection.relationKinds,
+    knownSymbols: knownProjectSymbols,
+  });
+  const aiNotes = useAiNotes({
+    aiStatus,
+    scope: activeScope,
+    selected: projection.selected,
+    relationKinds: projection.relationKinds,
+    direction: projection.direction,
+  });
+  const actions = useInvestigationActions({
+    refs,
+    workspace: sessionState.workspace,
+    projects: sessionState.projects,
+    session: sessionState.session,
+    setSession: sessionState.setSession,
+    resetProject: sessionState.resetProject,
+    selectProject: sessionState.selectProject,
+    reportWorkspaceError: sessionState.reportWorkspaceError,
+    setWorkspaceNotice: sessionState.setWorkspaceNotice,
+    selected: projection.selected,
+    setSelected: projection.setSelected,
+    graph: projection.graph,
+    setGraph: projection.setGraph,
+    evidence: projection.evidence,
+    setEvidence: projection.setEvidence,
+    relationKinds: projection.relationKinds,
+    setRelationKinds: projection.setRelationKinds,
+    direction: projection.direction,
+    setDirection: projection.setDirection,
+    selectedRelationId: projection.selectedRelationId,
+    activeView: projection.activeView,
+    setActiveView: projection.setActiveView,
+    requestedEvidenceId: projection.requestedEvidenceId,
+    invalidateProjectionReads: projection.invalidateProjectionReads,
+    resetContextFollow: projection.resetContextFollow,
+    clearSelection: projection.clearSelection,
+    loadGraph: projection.loadGraph,
+    loadEvidence: projection.loadEvidence,
+    setContextSearchMessage: projection.setContextSearchMessage,
+    pathsResult: symbolPaths.pathsResult,
+    setSearchMode: searchState.setSearchMode,
+    setSearchOffset: searchState.setSearchOffset,
+    setSearchQuery: searchState.setSearchQuery,
+    compactViewport: drawer.compactViewport,
+    openInspector: drawer.openInspector,
+    focusSelectedDeclaration: drawer.focusSelectedDeclaration,
+    pushHistory: history.push,
+  });
+  refs.restoreHandlerRef.current = actions.restoreNavigation;
+
+  return {
+    refs,
+    drawer,
+    history,
+    projection,
+    sessionState,
+    fileInventory,
+    searchState,
+    symbolPaths,
+    aiNotes,
+    actions,
+  };
+}
+
+function renderOptionalNotes(
+  aiStatus: AiStatusResponse,
+  c: ReturnType<typeof useInvestigationController>,
+): ReactNode {
+  if (!aiStatus.enabled) return null;
+  return (
+    <GeneratedNotes
+      aiStatus={aiStatus}
+      task={c.aiNotes.task}
+      onTaskChange={c.aiNotes.setTask}
+      canDraft={c.aiNotes.canDraft}
+      loading={c.aiNotes.loading}
+      notes={c.aiNotes.notes}
+      error={c.aiNotes.error}
+      onDraft={() => void c.aiNotes.draft()}
+      graph={c.projection.graph}
+      onSelectEvidence={(id, trigger, relationId) =>
+        void c.actions.chooseEvidence(id, trigger, relationId ?? null)
+      }
+      onFollowSymbol={(symbol) => void c.actions.followSymbol(symbol)}
+    />
+  );
+}
+
+export function InvestigationWorkspace(
+  props: { initialAiStatus?: AiStatusResponse } = {},
+) {
+  const aiStatus = props.initialAiStatus ?? DEFAULT_AI_STATUS;
+  const c = useInvestigationController(aiStatus);
+  const inspectorModal = c.drawer.compactViewport && c.drawer.inspectorOpen;
+
+  return (
+    <WorkspaceChrome
+      inspectorModal={inspectorModal}
+      canBack={c.history.canBack}
+      canForward={c.history.canForward}
+      onMoveHistory={c.history.move}
+      compactViewport={c.drawer.compactViewport}
+      inspectorTriggerRef={c.drawer.inspectorTriggerRef}
+      onOpenInspector={c.drawer.openInspector}
+      expiresAt={c.sessionState.workspace?.expiresAt ?? null}
+    >
+      <ExplorerRegion
+        inert={inspectorModal}
+        repositories={c.sessionState.repositories}
+        selectedRepositoryId={c.sessionState.selectedRepositoryId}
+        onRepositoryChange={(id) => void c.sessionState.chooseRepository(id)}
+        workspace={c.sessionState.workspace}
+        projects={c.sessionState.projects}
+        selectedProjectId={c.sessionState.selectedProjectId}
+        onProjectChange={(id) => {
+          ++c.refs.selectionGeneration.current;
+          void c.sessionState.selectProject(id);
+        }}
+        searchQuery={c.searchState.searchQuery}
+        onSearchQueryChange={(value) => {
+          c.searchState.setSearchQuery(value);
+          c.searchState.setSearchOffset(0);
+          c.searchState.clearSearchResults();
+        }}
+        searchMode={c.searchState.searchMode}
+        searchEnabled={Boolean(
+          c.sessionState.workspace && c.sessionState.session,
+        )}
+        onSearchModeChange={(value) => {
+          c.searchState.setSearchMode(value);
+          c.searchState.setSearchOffset(0);
+          c.searchState.clearSearchResults();
+        }}
+        searchItems={c.searchState.search.items}
+        searchOffset={c.searchState.search.offset}
+        searchTotal={c.searchState.search.total}
+        searchNextOffset={c.searchState.search.nextOffset}
+        searchLoading={c.searchState.searchLoading}
+        searchError={c.searchState.searchError}
+        onRetrySearch={c.searchState.retrySearch}
+        onSearchPage={(offset) => void c.searchState.chooseSearchPage(offset)}
+        onChooseSymbol={(item) => void c.actions.chooseSymbol(item)}
+        files={c.fileInventory.files}
+        filesLoading={c.fileInventory.filesLoading}
+        filesError={c.fileInventory.filesError?.message ?? null}
+        onRetryFiles={c.fileInventory.retryFiles}
+        onFilesPage={(offset) => void c.fileInventory.chooseFilesPage(offset)}
+        onChooseFile={(file) => void c.actions.chooseFile(file)}
+        notice={c.sessionState.workspaceNotice}
+        error={c.sessionState.workspaceError}
+        errorRetryable={c.sessionState.workspaceRetryable}
+        onRetryWorkspace={() => void c.sessionState.retryWorkspace()}
+      />
+      <MainRegion
+        inert={inspectorModal}
+        headingRef={c.drawer.workspaceHeadingRef}
+        selected={c.projection.selected}
+        evidence={c.projection.evidence}
+        evidenceLoading={c.projection.evidenceLoading}
+        graph={c.projection.graph}
+        graphLoading={c.projection.graphLoading}
+        graphError={c.projection.graphError}
+        evidenceError={c.projection.evidenceError}
+        onRetryGraph={() => {
+          const scope = c.refs.scopeRef.current;
+          if (scope && c.projection.selected)
+            void c.projection.loadGraph(
+              c.projection.selected,
+              scope,
+              c.projection.relationKinds,
+              c.projection.direction,
+            );
+        }}
+        onRetryEvidence={c.actions.readDeclarationEvidence}
+        session={c.sessionState.session}
+        activeView={c.projection.activeView}
+        onViewChange={c.actions.chooseView}
+        relationKinds={c.projection.relationKinds}
+        onRelationKindsChange={(value) => void c.actions.changeFilters(value)}
+        direction={c.projection.direction}
+        onDirectionChange={(value) =>
+          void c.actions.changeFilters(c.projection.relationKinds, value)
+        }
+        selectedRelationId={c.projection.selectedRelationId}
+        onSelectEvidence={(id, trigger, relationId) =>
+          void c.actions.chooseEvidence(id, trigger, relationId ?? null)
+        }
+        onFollowSymbol={(symbol) => void c.actions.followSymbol(symbol)}
+        contextCandidates={c.projection.contextCandidates}
+        contextSearchLoading={c.projection.contextSearchLoading}
+        contextSearchMessage={c.projection.contextSearchMessage}
+        onFindContexts={() =>
+          void c.projection.findMatchingContexts(c.sessionState.projects)
+        }
+        onChooseContext={(candidate) =>
+          void c.actions.chooseContextCandidate(candidate)
+        }
+        symbolPaths={c.symbolPaths}
+      />
+      <EvidenceInspector
+        item={c.projection.evidence}
+        loading={c.projection.evidenceLoading}
+        error={c.projection.evidenceError}
+        onRetry={() => {
+          const scope = c.refs.scopeRef.current;
+          const id = c.projection.requestedEvidenceId.current;
+          if (scope && id)
+            void c.projection.loadEvidence(
+              id,
+              scope,
+              c.projection.selectedRelationId,
+            );
+        }}
+        compact={c.drawer.compactViewport}
+        open={c.drawer.inspectorOpen}
+        onClose={c.drawer.closeInspector}
+        closeButtonRef={c.drawer.inspectorCloseRef}
+        generatedNotes={renderOptionalNotes(aiStatus, c)}
+      />
+    </WorkspaceChrome>
   );
 }

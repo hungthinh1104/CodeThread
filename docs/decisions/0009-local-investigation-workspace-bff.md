@@ -25,11 +25,14 @@ provenance in their existing owners. Display verified evidence excerpts and
 state explicitly that full-file source is unavailable.
 
 The BFF owns only local session adaptation, allowlisting, transport limits,
-origin checks, CSP, and response contract enforcement. It is not a general API,
-does not read PostgreSQL, and cannot proxy arbitrary URLs. A scan-scoped
-HttpOnly cookie selects the server-side session for the tab's expected scan ID.
-Session credentials are process-local and expire no later than the existing
-ephemeral viewer.
+origin checks, CSP, and response contract enforcement (including forwarding
+allowlisted viewer `/api/*` operations and scan-scoped backend symbol-path
+queries via `POST /api/workspace/paths` validated with
+`parseFindSymbolPathsResult`, plus opt-in AI routes governed by ADR-0011). It is
+not a general API, does not read PostgreSQL, and cannot proxy arbitrary URLs. A
+scan-scoped HttpOnly cookie selects the server-side session for the tab's
+expected scan ID. Session credentials are process-local and expire no later than
+the existing ephemeral viewer.
 
 ## Consequences
 

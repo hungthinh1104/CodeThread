@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { GraphProjection } from './types.ts';
+import type { GraphProjection } from '../types.ts';
 
 type Props = { graph: GraphProjection['graph'] };
 

@@ -1,17 +1,10 @@
 import type {
-  CatalogPage,
   FilePage,
   ProjectContexts,
   RepositoryItem,
+  SearchItem,
   WorkspaceMetadata,
-} from './types.ts';
-
-export type SearchItem = {
-  projectId: string;
-  projectLabel: string;
-  snapshotId: string;
-  symbol: CatalogPage['items'][number]['symbol'];
-};
+} from '../types.ts';
 
 type Props = {
   inert: boolean;
@@ -48,7 +41,7 @@ type Props = {
   onRetryWorkspace: () => void;
 };
 
-export function ExplorerRegion(props: Props) {
+function ExplorerContextSection(props: Props) {
   const project = props.projects?.items.find(
     (item) => item.id === props.selectedProjectId,
   );
@@ -57,15 +50,7 @@ export function ExplorerRegion(props: Props) {
       (item) => item.status !== 'ready' || item.snapshotId === null,
     ) ?? [];
   return (
-    <aside
-      className="region explorer"
-      aria-labelledby="explorer-heading"
-      inert={props.inert}
-    >
-      <div className="region-title">
-        <p className="step-label">01 / Explorer</p>
-        <h2 id="explorer-heading">Pinned context</h2>
-      </div>
+    <>
       <label className="field-label" htmlFor="repository-select">
         Repository and scan
       </label>
@@ -195,178 +180,198 @@ export function ExplorerRegion(props: Props) {
           </ul>
         </details>
       ) : null}
+    </>
+  );
+}
 
-      <section className="explorer-section" aria-labelledby="search-heading">
-        <h3 id="search-heading">Find a symbol</h3>
-        <label className="field-label" htmlFor="search-mode">
-          Search scope
-        </label>
-        <select
-          id="search-mode"
-          value={props.searchMode}
-          onChange={(event) =>
-            props.onSearchModeChange(
-              event.currentTarget.value as 'project' | 'repository',
-            )
+function SymbolSearchSection(props: Props) {
+  return (
+    <section className="explorer-section" aria-labelledby="search-heading">
+      <h3 id="search-heading">Find a symbol</h3>
+      <label className="field-label" htmlFor="search-mode">
+        Search scope
+      </label>
+      <select
+        id="search-mode"
+        value={props.searchMode}
+        onChange={(event) =>
+          props.onSearchModeChange(
+            event.currentTarget.value as 'project' | 'repository',
+          )
+        }
+        disabled={!props.searchEnabled}
+      >
+        <option value="project">Selected project</option>
+        <option value="repository">Repository catalog</option>
+      </select>
+      <label className="field-label" htmlFor="symbol-query">
+        Name or source path
+      </label>
+      <input
+        id="symbol-query"
+        value={props.searchQuery}
+        onChange={(event) =>
+          props.onSearchQueryChange(event.currentTarget.value)
+        }
+        maxLength={256}
+        autoComplete="off"
+        disabled={!props.searchEnabled}
+      />
+      <div className="result-heading" aria-live="polite">
+        {props.searchLoading
+          ? 'Searching the pinned snapshot…'
+          : props.searchError
+            ? 'Symbol search failed'
+            : !props.searchEnabled
+              ? 'Select a project context to search'
+              : `${props.searchTotal} matching symbols`}
+      </div>
+      {props.searchError ? (
+        <p className="notice error" role="alert">
+          {props.searchError}{' '}
+          <button type="button" onClick={props.onRetrySearch}>
+            Retry symbol search
+          </button>
+        </p>
+      ) : null}
+      {props.searchItems.length ? (
+        <ul className="result-list">
+          {props.searchItems.map((item) => (
+            <li key={`${item.projectId}:${item.symbol.id}`}>
+              <button
+                className="symbol-result"
+                type="button"
+                onClick={() => props.onChooseSymbol(item)}
+              >
+                <strong>{item.symbol.name}</strong>
+                <span>
+                  {item.symbol.kind} · {item.projectLabel}
+                </span>
+                <code>
+                  {item.symbol.filePath}:{item.symbol.range.start.line}:
+                  {item.symbol.range.start.column}
+                </code>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : props.searchEnabled && !props.searchLoading && !props.searchError ? (
+        <p className="muted small">No symbols on this page match.</p>
+      ) : null}
+      <nav className="pager" aria-label="Symbol search pages">
+        <button
+          type="button"
+          onClick={() =>
+            props.onSearchPage(Math.max(0, props.searchOffset - 50))
           }
-          disabled={!props.searchEnabled}
+          disabled={props.searchOffset === 0 || props.searchLoading}
         >
-          <option value="project">Selected project</option>
-          <option value="repository">Repository catalog</option>
-        </select>
-        <label className="field-label" htmlFor="symbol-query">
-          Name or source path
-        </label>
-        <input
-          id="symbol-query"
-          value={props.searchQuery}
-          onChange={(event) =>
-            props.onSearchQueryChange(event.currentTarget.value)
+          Previous
+        </button>
+        <span>
+          {props.searchTotal === 0
+            ? '0 results'
+            : `${props.searchOffset + 1}–${Math.min(props.searchOffset + props.searchItems.length, props.searchTotal)} of ${props.searchTotal}`}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            props.onSearchPage(props.searchNextOffset ?? props.searchOffset)
           }
-          maxLength={256}
-          autoComplete="off"
-          disabled={!props.searchEnabled}
-        />
-        <div className="result-heading" aria-live="polite">
-          {props.searchLoading
-            ? 'Searching the pinned snapshot…'
-            : props.searchError
-              ? 'Symbol search failed'
-              : !props.searchEnabled
-                ? 'Select a project context to search'
-                : `${props.searchTotal} matching symbols`}
-        </div>
-        {props.searchError ? (
-          <p className="notice error" role="alert">
-            {props.searchError}{' '}
-            <button type="button" onClick={props.onRetrySearch}>
-              Retry symbol search
-            </button>
-          </p>
-        ) : null}
-        {props.searchItems.length ? (
-          <ul className="result-list">
-            {props.searchItems.map((item) => (
-              <li key={`${item.projectId}:${item.symbol.id}`}>
-                <button
-                  className="symbol-result"
-                  type="button"
-                  onClick={() => props.onChooseSymbol(item)}
-                >
-                  <strong>{item.symbol.name}</strong>
-                  <span>
-                    {item.symbol.kind} · {item.projectLabel}
-                  </span>
-                  <code>
-                    {item.symbol.filePath}:{item.symbol.range.start.line}:
-                    {item.symbol.range.start.column}
-                  </code>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : props.searchEnabled &&
-          !props.searchLoading &&
-          !props.searchError ? (
-          <p className="muted small">No symbols on this page match.</p>
-        ) : null}
-        <nav className="pager" aria-label="Symbol search pages">
+          disabled={props.searchNextOffset === null || props.searchLoading}
+        >
+          Next
+        </button>
+      </nav>
+    </section>
+  );
+}
+
+function FileInventorySection(props: Props) {
+  return (
+    <section className="explorer-section" aria-labelledby="files-heading">
+      <div className="section-heading-row">
+        <h3 id="files-heading">Source inventory</h3>
+        {props.files ? <span>{props.files.total} files</span> : null}
+      </div>
+      {props.filesLoading ? <p role="status">Loading file inventory…</p> : null}
+      {props.filesError ? (
+        <p className="notice error" role="alert">
+          {props.filesError}{' '}
+          {props.files ? 'Showing the previously loaded page. ' : null}
+          <button type="button" onClick={props.onRetryFiles}>
+            Retry file inventory
+          </button>
+        </p>
+      ) : null}
+      {props.files?.items.length ? (
+        <ul className="file-list">
+          {props.files.items.map((file) => (
+            <li key={file.path}>
+              <button type="button" onClick={() => props.onChooseFile(file)}>
+                <code>{file.path}</code>
+                <span className={`status-text status-${file.status}`}>
+                  {file.status.replace('_', ' ')}
+                </span>
+                {file.analysisReason ? (
+                  <span>{file.analysisReason}</span>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : props.files && !props.files.items.length ? (
+        <p className="muted small">No files are present in this inventory.</p>
+      ) : null}
+      {props.files ? (
+        <nav className="pager" aria-label="Source inventory pages">
           <button
             type="button"
             onClick={() =>
-              props.onSearchPage(Math.max(0, props.searchOffset - 50))
+              props.onFilesPage(Math.max(0, props.files!.offset - 50))
             }
-            disabled={props.searchOffset === 0 || props.searchLoading}
+            disabled={props.files.offset === 0 || props.filesLoading}
           >
             Previous
           </button>
           <span>
-            {props.searchTotal === 0
-              ? '0 results'
-              : `${props.searchOffset + 1}–${Math.min(props.searchOffset + props.searchItems.length, props.searchTotal)} of ${props.searchTotal}`}
+            {props.files.total === 0
+              ? '0 inventory entries'
+              : `${props.files.offset + 1}–${Math.min(props.files.offset + props.files.items.length, props.files.total)} of ${props.files.total}`}
           </span>
           <button
             type="button"
             onClick={() =>
-              props.onSearchPage(props.searchNextOffset ?? props.searchOffset)
+              props.onFilesPage(props.files!.nextOffset ?? props.files!.offset)
             }
-            disabled={props.searchNextOffset === null || props.searchLoading}
+            disabled={props.files.nextOffset === null || props.filesLoading}
           >
             Next
           </button>
         </nav>
-      </section>
+      ) : null}
+      <p className="muted small">
+        The inventory lists source status and hashes. Full-file content is not
+        available in this API; select a symbol for verified excerpts.
+      </p>
+    </section>
+  );
+}
 
-      <section className="explorer-section" aria-labelledby="files-heading">
-        <div className="section-heading-row">
-          <h3 id="files-heading">Source inventory</h3>
-          {props.files ? <span>{props.files.total} files</span> : null}
-        </div>
-        {props.filesLoading ? (
-          <p role="status">Loading file inventory…</p>
-        ) : null}
-        {props.filesError ? (
-          <p className="notice error" role="alert">
-            {props.filesError}{' '}
-            {props.files ? 'Showing the previously loaded page. ' : null}
-            <button type="button" onClick={props.onRetryFiles}>
-              Retry file inventory
-            </button>
-          </p>
-        ) : null}
-        {props.files?.items.length ? (
-          <ul className="file-list">
-            {props.files.items.map((file) => (
-              <li key={file.path}>
-                <button type="button" onClick={() => props.onChooseFile(file)}>
-                  <code>{file.path}</code>
-                  <span className={`status-text status-${file.status}`}>
-                    {file.status.replace('_', ' ')}
-                  </span>
-                  {file.analysisReason ? (
-                    <span>{file.analysisReason}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : props.files && !props.files.items.length ? (
-          <p className="muted small">No files are present in this inventory.</p>
-        ) : null}
-        {props.files ? (
-          <nav className="pager" aria-label="Source inventory pages">
-            <button
-              type="button"
-              onClick={() =>
-                props.onFilesPage(Math.max(0, props.files!.offset - 50))
-              }
-              disabled={props.files.offset === 0 || props.filesLoading}
-            >
-              Previous
-            </button>
-            <span>
-              {props.files.total === 0
-                ? '0 inventory entries'
-                : `${props.files.offset + 1}–${Math.min(props.files.offset + props.files.items.length, props.files.total)} of ${props.files.total}`}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                props.onFilesPage(
-                  props.files!.nextOffset ?? props.files!.offset,
-                )
-              }
-              disabled={props.files.nextOffset === null || props.filesLoading}
-            >
-              Next
-            </button>
-          </nav>
-        ) : null}
-        <p className="muted small">
-          The inventory lists source status and hashes. Full-file content is not
-          available in this API; select a symbol for verified excerpts.
-        </p>
-      </section>
+export function ExplorerRegion(props: Props) {
+  return (
+    <aside
+      className="region explorer"
+      aria-labelledby="explorer-heading"
+      inert={props.inert}
+    >
+      <div className="region-title">
+        <p className="step-label">01 / Explorer</p>
+        <h2 id="explorer-heading">Pinned context</h2>
+      </div>
+      <ExplorerContextSection {...props} />
+      <SymbolSearchSection {...props} />
+      <FileInventorySection {...props} />
       {props.notice ? (
         <p className="notice" role="status">
           {props.notice}

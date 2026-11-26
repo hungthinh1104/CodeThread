@@ -2,6 +2,8 @@ import type {
   AiSynthesisResponse,
   AiSynthesizeApiRequest,
   ApiErrorBody,
+  FindSymbolPathsRequest,
+  FindSymbolPathsResponse,
   RepositoryItem,
   WorkspaceMetadata,
 } from './types.ts';
@@ -107,6 +109,18 @@ export function readViewer<T>(
   body: unknown,
 ): Promise<T> {
   return post<T>(`/api/workspace/${operation}`, body, scanId);
+}
+
+export function findWorkspacePaths(
+  scanId: string,
+  projectId: string,
+  request: FindSymbolPathsRequest,
+): Promise<{ projectId: string; result: FindSymbolPathsResponse }> {
+  return post<{ projectId: string; result: FindSymbolPathsResponse }>(
+    '/api/workspace/paths',
+    { projectId, request },
+    scanId,
+  );
 }
 
 export function synthesizeAiNotes(

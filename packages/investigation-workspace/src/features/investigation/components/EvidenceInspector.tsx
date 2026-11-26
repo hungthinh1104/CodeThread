@@ -1,7 +1,5 @@
 import { useEffect, type ReactNode, type RefObject } from 'react';
-import type { EvidenceProjection } from './types.ts';
-
-type EvidenceItem = EvidenceProjection['items'][number];
+import type { EvidenceItem } from '../types.ts';
 
 type Props = {
   item: EvidenceItem | null;

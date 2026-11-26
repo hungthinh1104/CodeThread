@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiFailure, synthesizeAiNotes } from './api.ts';
+import { ApiFailure, synthesizeAiNotes } from '../api.ts';
 import type {
   AiStatusResponse,
   AiSynthesisResponse,
   AiTaskKind,
   CodeSymbol,
-} from './types.ts';
-
-type Scope = { scanId: string; projectId: string; snapshotId: string };
+  RelationKindFilter,
+  Scope,
+  TraceDirection,
+} from '../types.ts';
 
 export type AiNotesError = {
   readonly code: string;
@@ -18,8 +19,8 @@ export interface UseAiNotesInput {
   readonly aiStatus: AiStatusResponse;
   readonly scope: Scope | null;
   readonly selected: CodeSymbol | null;
-  readonly relationKinds: ('calls' | 'references')[];
-  readonly direction: 'outgoing' | 'incoming' | 'both';
+  readonly relationKinds: RelationKindFilter[];
+  readonly direction: TraceDirection;
 }
 
 export interface UseAiNotesState {
@@ -30,6 +31,16 @@ export interface UseAiNotesState {
   readonly canDraft: boolean;
   setTask(next: AiTaskKind): void;
   draft(): Promise<void>;
+}
+
+function mapAiNotesFailure(caught: unknown): AiNotesError {
+  if (caught instanceof ApiFailure) {
+    return { code: caught.code, message: caught.message };
+  }
+  return {
+    code: 'WORKSPACE_UNAVAILABLE',
+    message: 'Generated notes request failed.',
+  };
 }
 
 /**
@@ -142,14 +153,7 @@ export function useAiNotes(input: UseAiNotesInput): UseAiNotesState {
         return;
       }
       setNotes(null);
-      if (caught instanceof ApiFailure) {
-        setError({ code: caught.code, message: caught.message });
-      } else {
-        setError({
-          code: 'WORKSPACE_UNAVAILABLE',
-          message: 'Generated notes request failed.',
-        });
-      }
+      setError(mapAiNotesFailure(caught));
     } finally {
       if (
         generation === requestGeneration.current &&

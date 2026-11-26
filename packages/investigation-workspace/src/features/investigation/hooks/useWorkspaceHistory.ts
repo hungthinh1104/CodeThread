@@ -1,17 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import type { CodeSymbol } from './types.ts';
+import type { NavigationEntry } from '../types.ts';
 
-export type NavigationEntry = {
-  scanId: string;
-  projectId: string;
-  snapshotId: string;
-  root: CodeSymbol | null;
-  relationKinds: ('calls' | 'references')[];
-  direction: 'outgoing' | 'incoming' | 'both';
-  selectedRelationId: string | null;
-  selectedEvidenceId: string | null;
-  view: 'source' | 'trace';
-};
+export type { NavigationEntry };
 
 type StoredEntry = {
   key: string;
@@ -136,8 +126,6 @@ export function useWorkspaceHistory(
     ) {
       window.history.go(target.offset - browser.offset);
     } else {
-      // A failed restore can leave the browser at the target. An evicted slot
-      // can also be current after native Back. The workspace still has its own cursor.
       restoreEntry(target);
     }
   }

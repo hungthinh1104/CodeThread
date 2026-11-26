@@ -1,4 +1,4 @@
-import { WorkspaceBffError } from './workspace-bff.ts';
+import { WorkspaceBffError } from './bff-types.ts';
 
 const COOKIE_NAME = 'ct_workspace_session';
 

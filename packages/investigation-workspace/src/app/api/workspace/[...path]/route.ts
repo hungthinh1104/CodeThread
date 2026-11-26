@@ -9,6 +9,7 @@ import {
 import {
   forwardViewerOperation,
   parseRequestJson,
+  queryWorkspacePaths,
   synthesizeWorkspaceAi,
   WorkspaceBffError,
   workspaceMetadata,
@@ -72,6 +73,11 @@ export async function POST(
     if (path[0] === 'ai') {
       return jsonResponse(
         await synthesizeWorkspaceAi(sessionId, scan.data, payload),
+      );
+    }
+    if (path[0] === 'paths') {
+      return jsonResponse(
+        await queryWorkspacePaths(sessionId, scan.data, payload),
       );
     }
     return jsonResponse(

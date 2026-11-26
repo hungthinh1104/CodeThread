@@ -6,10 +6,13 @@ import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join, resolve } from 'node:path';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
-import type {
-  AiStatusResponse,
-  AiSynthesisResponse,
+import {
+  findSymbolPathsRequestSchema,
+  parseFindSymbolPathsResult,
+  type AiStatusResponse,
+  type AiSynthesisResponse,
 } from '@codethread/contracts';
+import { createInvestigation, TraceError } from '@codethread/trace-engine';
 import type { RepositoryInvestigationSession } from '../../scripts/investigation/repository-session.ts';
 import {
   createRepositoryViewer,
@@ -68,6 +71,7 @@ function sendJson(
 
 function backendServer(
   viewer: ViewerHandle,
+  snapshot: AnalysisSnapshot,
   holdScanRead: boolean,
   repositoryId: string,
   aiOptions?: {
@@ -77,6 +81,7 @@ function backendServer(
     ) => Promise<AiSynthesisResponse> | AiSynthesisResponse;
   },
 ) {
+  const investigation = createInvestigation(snapshot.facts, snapshot.source);
   const gate = deferred();
   const now = new Date().toISOString();
   const commitId = 'a'.repeat(40);
@@ -142,6 +147,67 @@ function backendServer(
       }
       if (request.method === 'GET' && request.url === '/v1/ai/status') {
         sendJson(response, aiOptions?.aiStatus ?? { enabled: false });
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        request.url?.startsWith(`/v1/scans/${activeScanId}/projects/`) &&
+        request.url.endsWith('/paths')
+      ) {
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const raw = JSON.parse(
+          Buffer.concat(chunks).toString('utf8'),
+        ) as unknown;
+        const parsed = findSymbolPathsRequestSchema.safeParse(raw);
+        if (!parsed.success) {
+          sendJson(
+            response,
+            {
+              error: {
+                code: 'INVALID_REQUEST',
+                message: 'Invalid path query payload.',
+              },
+            },
+            400,
+          );
+          return;
+        }
+        if (parsed.data.snapshotId !== snapshot.facts.snapshotId) {
+          sendJson(
+            response,
+            {
+              error: {
+                code: 'SNAPSHOT_MISMATCH',
+                message: 'Query snapshot does not match the selected project.',
+              },
+            },
+            409,
+          );
+          return;
+        }
+        try {
+          const result = parseFindSymbolPathsResult(
+            parsed.data,
+            investigation.paths(parsed.data),
+          );
+          sendJson(response, result);
+        } catch (error) {
+          if (
+            error instanceof TraceError &&
+            error.code === 'ENTITY_NOT_FOUND'
+          ) {
+            sendJson(
+              response,
+              { error: { code: 'NOT_FOUND', message: 'Symbol not found.' } },
+              404,
+            );
+            return;
+          }
+          throw error;
+        }
         return;
       }
       if (
@@ -421,6 +487,7 @@ export async function startWorkspaceApp(
   const viewer = await createRepositoryViewer(repositorySession(snapshot));
   const backend = backendServer(
     viewer,
+    snapshot,
     options.holdScanRead ?? false,
     snapshot.facts.identity.repositoryId,
     options,

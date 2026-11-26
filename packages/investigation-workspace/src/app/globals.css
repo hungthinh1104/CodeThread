@@ -506,6 +506,65 @@ pre {
   border-top: 1px solid var(--ct-border);
   font-size: 0.8rem;
 }
+.path-finder {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ct-border);
+}
+.path-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.path-controls-row select {
+  width: auto;
+}
+.path-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding-left: 22px;
+}
+.path-list > li {
+  padding: 10px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-raised);
+}
+.path-chain {
+  display: grid;
+  gap: 3px;
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.path-hop-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+.path-hop-list li {
+  padding: 8px 10px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-sm);
+  background: var(--ct-surface);
+}
+.path-hop-list li.selected {
+  outline: 2px solid var(--ct-focus);
+  outline-offset: 1px;
+}
+.path-hop-list li > div:first-child {
+  display: grid;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+.path-hop-list code {
+  color: var(--ct-muted);
+  font-size: 0.75rem;
+}
 .session-coverage ul {
   padding-left: 18px;
 }
@@ -683,6 +742,13 @@ pre {
     flex-direction: column;
   }
   .filters select {
+    width: 100%;
+  }
+  .path-controls-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .path-controls-row select {
     width: 100%;
   }
   .relationship-list {
