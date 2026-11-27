@@ -5,19 +5,28 @@ import { EvidenceInspector } from './components/EvidenceInspector.tsx';
 import { ExplorerRegion } from './components/ExplorerRegion.tsx';
 import { GeneratedNotes } from './components/GeneratedNotes.tsx';
 import { MainRegion } from './components/MainRegion.tsx';
+import { SystemStatusBar } from './components/SystemStatusBar.tsx';
+import { WorkspaceChrome } from './components/WorkspaceChrome.tsx';
 import { useAiNotes } from './hooks/useAiNotes.ts';
 import { useFileInventory } from './hooks/useFileInventory.ts';
 import { useInspectorDrawer } from './hooks/useInspectorDrawer.ts';
 import { useInvestigationActions } from './hooks/useInvestigationActions.ts';
 import { useProjectionState } from './hooks/useProjectionState.ts';
+import { useScanLifecycle } from './hooks/useScanLifecycle.ts';
 import { useSymbolPaths } from './hooks/useSymbolPaths.ts';
 import { useSymbolSearch } from './hooks/useSymbolSearch.ts';
+import { useSystemStatus } from './hooks/useSystemStatus.ts';
 import { useWorkspaceHistory } from './hooks/useWorkspaceHistory.ts';
 import {
   useWorkspaceSession,
   type WorkspaceSessionRefs,
 } from './hooks/useWorkspaceSession.ts';
-import type { AiStatusResponse, NavigationEntry, Scope } from './types.ts';
+import type {
+  AiStatusResponse,
+  BackendHealth,
+  NavigationEntry,
+  Scope,
+} from './types.ts';
 
 const DEFAULT_AI_STATUS: AiStatusResponse = { enabled: false };
 
@@ -44,72 +53,7 @@ function useSessionRefs(): WorkspaceSessionRefs & {
   };
 }
 
-function WorkspaceChrome(props: {
-  inspectorModal: boolean;
-  canBack: boolean;
-  canForward: boolean;
-  onMoveHistory: (step: -1 | 1) => void;
-  compactViewport: boolean;
-  inspectorTriggerRef: RefObject<HTMLButtonElement | null>;
-  onOpenInspector: (trigger: HTMLButtonElement) => void;
-  expiresAt: string | null;
-  children: ReactNode;
-}) {
-  return (
-    <div className="page-shell">
-      <header className="page-header" inert={props.inspectorModal}>
-        <div>
-          <p className="eyebrow">CODETHREAD / LOCAL ANALYSIS</p>
-          <h1>Investigation Workspace</h1>
-          <p>Trace source-backed relationships in a pinned snapshot.</p>
-        </div>
-        <nav className="history-controls" aria-label="Investigation history">
-          <button
-            type="button"
-            onClick={() => props.onMoveHistory(-1)}
-            disabled={!props.canBack}
-          >
-            Back
-          </button>
-          <button
-            type="button"
-            onClick={() => props.onMoveHistory(1)}
-            disabled={!props.canForward}
-          >
-            Forward
-          </button>
-        </nav>
-        <button
-          id="inspector-toggle"
-          ref={props.inspectorTriggerRef}
-          type="button"
-          hidden={!props.compactViewport}
-          aria-expanded={props.inspectorModal}
-          aria-controls="evidence-inspector"
-          aria-haspopup="dialog"
-          onClick={(event) => props.onOpenInspector(event.currentTarget)}
-        >
-          Evidence
-        </button>
-      </header>
-      <p className="scope-note" inert={props.inspectorModal}>
-        Local snapshot only · no source execution · unsupported relationships
-        and incomplete coverage stay visible.
-      </p>
-      <div className="workspace-grid">{props.children}</div>
-      <footer className="page-footer" inert={props.inspectorModal}>
-        <span>Static source evidence · validated API projections</span>
-        {props.expiresAt ? (
-          <span>
-            Viewer expires {new Date(props.expiresAt).toLocaleTimeString()}
-          </span>
-        ) : null}
-      </footer>
-    </div>
-  );
-}
-
-function useInvestigationController(aiStatus: AiStatusResponse) {
+function useCoreWorkspaceState() {
   const refs = useSessionRefs();
   const drawer = useInspectorDrawer(refs.selectionGeneration);
   const history = useWorkspaceHistory((entry, accept) =>
@@ -153,6 +97,40 @@ function useInvestigationController(aiStatus: AiStatusResponse) {
     },
   };
 
+  return {
+    refs,
+    drawer,
+    history,
+    projection,
+    sessionState,
+    fileInventory,
+    searchState,
+  };
+}
+
+function useInvestigationController(
+  initialAiStatus: AiStatusResponse,
+  initialHealth: BackendHealth | null,
+) {
+  const system = useSystemStatus({ initialHealth, initialAiStatus });
+  const core = useCoreWorkspaceState();
+  const {
+    refs,
+    drawer,
+    history,
+    projection,
+    sessionState,
+    fileInventory,
+    searchState,
+  } = core;
+
+  const scanLifecycle = useScanLifecycle({
+    selectedRepositoryId: sessionState.selectedRepositoryId,
+    onRepositoryUpsert: sessionState.upsertRepository,
+    onRepositoryAdded: sessionState.selectRegisteredRepository,
+    onOpenSucceededScan: sessionState.openSpecificScan,
+  });
+
   const activeScope: Scope | null =
     sessionState.workspace &&
     sessionState.selectedProjectId &&
@@ -182,7 +160,7 @@ function useInvestigationController(aiStatus: AiStatusResponse) {
     knownSymbols: knownProjectSymbols,
   });
   const aiNotes = useAiNotes({
-    aiStatus,
+    aiStatus: system.aiStatus,
     scope: activeScope,
     selected: projection.selected,
     relationKinds: projection.relationKinds,
@@ -208,6 +186,10 @@ function useInvestigationController(aiStatus: AiStatusResponse) {
     setRelationKinds: projection.setRelationKinds,
     direction: projection.direction,
     setDirection: projection.setDirection,
+    traceDepth: projection.traceDepth,
+    setTraceDepth: projection.setTraceDepth,
+    traceNodeLimit: projection.traceNodeLimit,
+    setTraceNodeLimit: projection.setTraceNodeLimit,
     selectedRelationId: projection.selectedRelationId,
     activeView: projection.activeView,
     setActiveView: projection.setActiveView,
@@ -230,11 +212,13 @@ function useInvestigationController(aiStatus: AiStatusResponse) {
   refs.restoreHandlerRef.current = actions.restoreNavigation;
 
   return {
+    system,
     refs,
     drawer,
     history,
     projection,
     sessionState,
+    scanLifecycle,
     fileInventory,
     searchState,
     symbolPaths,
@@ -243,9 +227,11 @@ function useInvestigationController(aiStatus: AiStatusResponse) {
   };
 }
 
+type Controller = ReturnType<typeof useInvestigationController>;
+
 function renderOptionalNotes(
   aiStatus: AiStatusResponse,
-  c: ReturnType<typeof useInvestigationController>,
+  c: Controller,
 ): ReactNode {
   if (!aiStatus.enabled) return null;
   return (
@@ -267,71 +253,13 @@ function renderOptionalNotes(
   );
 }
 
-export function InvestigationWorkspace(
-  props: { initialAiStatus?: AiStatusResponse } = {},
-) {
-  const aiStatus = props.initialAiStatus ?? DEFAULT_AI_STATUS;
-  const c = useInvestigationController(aiStatus);
-  const inspectorModal = c.drawer.compactViewport && c.drawer.inspectorOpen;
-
+function WorkspaceMainAndInspector(props: {
+  c: Controller;
+  inspectorModal: boolean;
+}) {
+  const { c, inspectorModal } = props;
   return (
-    <WorkspaceChrome
-      inspectorModal={inspectorModal}
-      canBack={c.history.canBack}
-      canForward={c.history.canForward}
-      onMoveHistory={c.history.move}
-      compactViewport={c.drawer.compactViewport}
-      inspectorTriggerRef={c.drawer.inspectorTriggerRef}
-      onOpenInspector={c.drawer.openInspector}
-      expiresAt={c.sessionState.workspace?.expiresAt ?? null}
-    >
-      <ExplorerRegion
-        inert={inspectorModal}
-        repositories={c.sessionState.repositories}
-        selectedRepositoryId={c.sessionState.selectedRepositoryId}
-        onRepositoryChange={(id) => void c.sessionState.chooseRepository(id)}
-        workspace={c.sessionState.workspace}
-        projects={c.sessionState.projects}
-        selectedProjectId={c.sessionState.selectedProjectId}
-        onProjectChange={(id) => {
-          ++c.refs.selectionGeneration.current;
-          void c.sessionState.selectProject(id);
-        }}
-        searchQuery={c.searchState.searchQuery}
-        onSearchQueryChange={(value) => {
-          c.searchState.setSearchQuery(value);
-          c.searchState.setSearchOffset(0);
-          c.searchState.clearSearchResults();
-        }}
-        searchMode={c.searchState.searchMode}
-        searchEnabled={Boolean(
-          c.sessionState.workspace && c.sessionState.session,
-        )}
-        onSearchModeChange={(value) => {
-          c.searchState.setSearchMode(value);
-          c.searchState.setSearchOffset(0);
-          c.searchState.clearSearchResults();
-        }}
-        searchItems={c.searchState.search.items}
-        searchOffset={c.searchState.search.offset}
-        searchTotal={c.searchState.search.total}
-        searchNextOffset={c.searchState.search.nextOffset}
-        searchLoading={c.searchState.searchLoading}
-        searchError={c.searchState.searchError}
-        onRetrySearch={c.searchState.retrySearch}
-        onSearchPage={(offset) => void c.searchState.chooseSearchPage(offset)}
-        onChooseSymbol={(item) => void c.actions.chooseSymbol(item)}
-        files={c.fileInventory.files}
-        filesLoading={c.fileInventory.filesLoading}
-        filesError={c.fileInventory.filesError?.message ?? null}
-        onRetryFiles={c.fileInventory.retryFiles}
-        onFilesPage={(offset) => void c.fileInventory.chooseFilesPage(offset)}
-        onChooseFile={(file) => void c.actions.chooseFile(file)}
-        notice={c.sessionState.workspaceNotice}
-        error={c.sessionState.workspaceError}
-        errorRetryable={c.sessionState.workspaceRetryable}
-        onRetryWorkspace={() => void c.sessionState.retryWorkspace()}
-      />
+    <>
       <MainRegion
         inert={inspectorModal}
         headingRef={c.drawer.workspaceHeadingRef}
@@ -350,6 +278,8 @@ export function InvestigationWorkspace(
               scope,
               c.projection.relationKinds,
               c.projection.direction,
+              c.projection.traceDepth,
+              c.projection.traceNodeLimit,
             );
         }}
         onRetryEvidence={c.actions.readDeclarationEvidence}
@@ -361,6 +291,23 @@ export function InvestigationWorkspace(
         direction={c.projection.direction}
         onDirectionChange={(value) =>
           void c.actions.changeFilters(c.projection.relationKinds, value)
+        }
+        traceDepth={c.projection.traceDepth}
+        onTraceDepthChange={(value) =>
+          void c.actions.changeFilters(
+            c.projection.relationKinds,
+            c.projection.direction,
+            value,
+          )
+        }
+        traceNodeLimit={c.projection.traceNodeLimit}
+        onTraceNodeLimitChange={(value) =>
+          void c.actions.changeFilters(
+            c.projection.relationKinds,
+            c.projection.direction,
+            c.projection.traceDepth,
+            value,
+          )
         }
         selectedRelationId={c.projection.selectedRelationId}
         onSelectEvidence={(id, trigger, relationId) =>
@@ -396,8 +343,95 @@ export function InvestigationWorkspace(
         open={c.drawer.inspectorOpen}
         onClose={c.drawer.closeInspector}
         closeButtonRef={c.drawer.inspectorCloseRef}
-        generatedNotes={renderOptionalNotes(aiStatus, c)}
+        generatedNotes={renderOptionalNotes(c.system.aiStatus, c)}
       />
+    </>
+  );
+}
+
+export function InvestigationWorkspace(
+  props: {
+    initialAiStatus?: AiStatusResponse;
+    initialHealth?: BackendHealth | null;
+  } = {},
+) {
+  const c = useInvestigationController(
+    props.initialAiStatus ?? DEFAULT_AI_STATUS,
+    props.initialHealth ?? null,
+  );
+  const inspectorModal = c.drawer.compactViewport && c.drawer.inspectorOpen;
+
+  return (
+    <WorkspaceChrome
+      inspectorModal={inspectorModal}
+      canBack={c.history.canBack}
+      canForward={c.history.canForward}
+      onMoveHistory={c.history.move}
+      compactViewport={c.drawer.compactViewport}
+      inspectorTriggerRef={c.drawer.inspectorTriggerRef}
+      onOpenInspector={c.drawer.openInspector}
+      expiresAt={c.sessionState.workspace?.expiresAt ?? null}
+      statusBar={
+        <SystemStatusBar
+          inert={inspectorModal}
+          health={c.system.health}
+          aiStatus={c.system.aiStatus}
+          statusError={c.system.statusError}
+        />
+      }
+    >
+      <ExplorerRegion
+        inert={inspectorModal}
+        repositories={c.sessionState.repositories}
+        selectedRepositoryId={c.sessionState.selectedRepositoryId}
+        onRepositoryChange={(id) => void c.sessionState.chooseRepository(id)}
+        workspace={c.sessionState.workspace}
+        projects={c.sessionState.projects}
+        selectedProjectId={c.sessionState.selectedProjectId}
+        onProjectChange={(id) => {
+          ++c.refs.selectionGeneration.current;
+          void c.sessionState.selectProject(id);
+        }}
+        scanLifecycle={c.scanLifecycle}
+        refreshingSystem={c.system.refreshing}
+        onRefreshSystem={() => void c.system.refreshStatus()}
+        searchQuery={c.searchState.searchQuery}
+        onSearchQueryChange={(value) => {
+          c.searchState.setSearchQuery(value);
+          c.searchState.setSearchOffset(0);
+          c.searchState.clearSearchResults();
+        }}
+        searchMode={c.searchState.searchMode}
+        searchEnabled={Boolean(
+          c.sessionState.workspace && c.sessionState.session,
+        )}
+        onSearchModeChange={(value) => {
+          c.searchState.setSearchMode(value);
+          c.searchState.setSearchOffset(0);
+          c.searchState.clearSearchResults();
+        }}
+        searchItems={c.searchState.search.items}
+        searchOffset={c.searchState.search.offset}
+        searchTotal={c.searchState.search.total}
+        searchNextOffset={c.searchState.search.nextOffset}
+        searchLoading={c.searchState.searchLoading}
+        searchError={c.searchState.searchError}
+        onRetrySearch={c.searchState.retrySearch}
+        onSearchPage={(offset) => void c.searchState.chooseSearchPage(offset)}
+        onChooseSymbol={(item) => void c.actions.chooseSymbol(item)}
+        files={c.fileInventory.files}
+        manifestByPath={c.fileInventory.manifestByPath}
+        filesLoading={c.fileInventory.filesLoading}
+        filesError={c.fileInventory.filesError?.message ?? null}
+        onRetryFiles={c.fileInventory.retryFiles}
+        onFilesPage={(offset) => void c.fileInventory.chooseFilesPage(offset)}
+        onChooseFile={(file) => void c.actions.chooseFile(file)}
+        notice={c.sessionState.workspaceNotice}
+        error={c.sessionState.workspaceError}
+        errorRetryable={c.sessionState.workspaceRetryable}
+        onRetryWorkspace={() => void c.sessionState.retryWorkspace()}
+      />
+      <WorkspaceMainAndInspector c={c} inspectorModal={inspectorModal} />
     </WorkspaceChrome>
   );
 }

@@ -1,4 +1,11 @@
-import { ApiFailure, findWorkspacePaths, readViewer } from './api.ts';
+import {
+  ApiFailure,
+  findWorkspacePaths,
+  readBackendSymbols,
+  readDeepNeighbors,
+  readDirectEvidence,
+  readViewer,
+} from './api.ts';
 import type {
   ApiResponse,
   EvidenceItem,
@@ -6,12 +13,15 @@ import type {
   FindSymbolPathsRequest,
   FindSymbolPathsResponse,
   GraphProjection,
+  ListSymbolsResponse,
   ProjectContexts,
   RelationKindFilter,
   Scope,
   SearchState,
   SessionProjection,
+  TraceDepthOption,
   TraceDirection,
+  TraceNodeLimitOption,
   WorkspaceMetadata,
 } from './types.ts';
 
@@ -85,23 +95,40 @@ export async function readSession(scope: Scope): Promise<SessionProjection> {
   );
 }
 
+export function requiresBackendGraph(
+  kinds: readonly RelationKindFilter[],
+  depth: TraceDepthOption,
+  nodeLimit: TraceNodeLimitOption,
+): boolean {
+  return depth !== 2 || nodeLimit !== 50 || kinds.includes('constructs');
+}
+
 export async function readGraph(
   symbolId: string,
   scope: Scope,
   kinds: RelationKindFilter[],
   direction: TraceDirection,
+  depth: TraceDepthOption = 2,
+  nodeLimit: TraceNodeLimitOption = 50,
 ): Promise<GraphProjection> {
+  const request = {
+    snapshotId: scope.snapshotId,
+    symbolId,
+    direction,
+    relationKinds: kinds,
+    depth,
+    nodeLimit,
+  };
+  if (requiresBackendGraph(kinds, depth, nodeLimit)) {
+    return unwrapScoped(
+      await readDeepNeighbors(scope.scanId, scope.projectId, request),
+      scope,
+    );
+  }
   return unwrapScoped(
     await readViewer<ApiResponse<GraphProjection>>(scope.scanId, 'neighbors', {
       projectId: scope.projectId,
-      request: {
-        snapshotId: scope.snapshotId,
-        symbolId,
-        direction,
-        relationKinds: kinds,
-        depth: 2,
-        nodeLimit: 50,
-      },
+      request,
     }),
     scope,
   );
@@ -131,6 +158,17 @@ export async function readSymbolPaths(
   return result;
 }
 
+export async function readSymbolSearchMeta(
+  scope: Scope,
+  query: string,
+  offset: number,
+): Promise<ListSymbolsResponse> {
+  return unwrapScoped(
+    await readBackendSymbols(scope.scanId, scope.projectId, query, offset),
+    scope,
+  );
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiFailure) return `${error.code}: ${error.message}`;
   return 'The local Investigation Workspace request failed.';
@@ -144,14 +182,26 @@ export async function readEvidence(
   id: string,
   scope: Scope,
 ): Promise<EvidenceItem> {
-  const response = await readViewer<ApiResponse<EvidenceProjection>>(
-    scope.scanId,
-    'evidence',
-    {
-      projectId: scope.projectId,
-      request: { snapshotId: scope.snapshotId, evidenceIds: [id] },
-    },
-  );
+  let response: ApiResponse<EvidenceProjection>;
+  try {
+    response = await readViewer<ApiResponse<EvidenceProjection>>(
+      scope.scanId,
+      'evidence',
+      {
+        projectId: scope.projectId,
+        request: { snapshotId: scope.snapshotId, evidenceIds: [id] },
+      },
+    );
+  } catch (error) {
+    if (error instanceof ApiFailure && error.code === 'VIEWER_UNAVAILABLE') {
+      response = await readDirectEvidence(scope.scanId, scope.projectId, {
+        snapshotId: scope.snapshotId,
+        evidenceIds: [id],
+      });
+    } else {
+      throw error;
+    }
+  }
   const item = unwrapScoped(response, scope).items.find(
     (candidate) => evidenceId(candidate) === id,
   );

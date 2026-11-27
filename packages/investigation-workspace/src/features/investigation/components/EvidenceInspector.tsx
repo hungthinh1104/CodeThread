@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode, type RefObject } from 'react';
+import { useEffect, useState, type ReactNode, type RefObject } from 'react';
 import type { EvidenceItem } from '../types.ts';
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
 };
 
 export function EvidenceInspector(props: Props) {
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+
   useEffect(() => {
     if (!props.compact || !props.open) return;
     const close = (event: KeyboardEvent) => {
@@ -42,6 +44,11 @@ export function EvidenceInspector(props: Props) {
     props.closeButtonRef.current?.focus();
     return () => document.removeEventListener('keydown', close);
   }, [props.compact, props.open, props.onClose, props.closeButtonRef]);
+
+  const reference =
+    props.item?.status === 'available'
+      ? `${props.item.filePath}:${props.item.evidence.range.start.line}:${props.item.evidence.range.start.column}`
+      : null;
 
   return (
     <>
@@ -96,15 +103,30 @@ export function EvidenceInspector(props: Props) {
         ) : null}
         {props.item?.status === 'available' ? (
           <div className="evidence-card">
-            <p>
+            <div className="section-heading-row">
               <strong>Source</strong>
-              <code>{props.item.filePath}</code>
-            </p>
+              <button
+                type="button"
+                className="ai-anchor"
+                onClick={() => {
+                  if (!reference) return;
+                  void navigator.clipboard?.writeText(reference).then(
+                    () => setCopiedRef(reference),
+                    () => {},
+                  );
+                }}
+              >
+                {copiedRef === reference ? 'Copied' : 'Copy ref'}
+              </button>
+            </div>
+            <code>{props.item.filePath}</code>
             <p>
               <strong>Location</strong>
               <span>
-                Line {props.item.evidence.range.start.line}, column{' '}
-                {props.item.evidence.range.start.column}
+                Lines {props.item.evidence.range.start.line}–
+                {props.item.evidence.range.end.line}, col{' '}
+                {props.item.evidence.range.start.column}–
+                {props.item.evidence.range.end.column}
               </span>
             </p>
             <p>

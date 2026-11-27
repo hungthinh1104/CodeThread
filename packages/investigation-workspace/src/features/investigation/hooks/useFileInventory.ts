@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { readViewer } from '../api.ts';
+import { readScanManifestFiles, readViewer } from '../api.ts';
 import { errorMessage } from '../queries.ts';
-import type { FilePage, WorkspaceMetadata } from '../types.ts';
+import type {
+  FilePage,
+  ScanManifestFile,
+  WorkspaceMetadata,
+} from '../types.ts';
 
 export function useFileInventory(workspace: WorkspaceMetadata | null) {
   const [files, setFiles] = useState<FilePage | null>(null);
+  const [manifestByPath, setManifestByPath] = useState<
+    ReadonlyMap<string, ScanManifestFile>
+  >(() => new Map());
   const [filesLoading, setFilesLoading] = useState(false);
   const [filesError, setFilesError] = useState<{
     offset: number;
@@ -12,15 +19,27 @@ export function useFileInventory(workspace: WorkspaceMetadata | null) {
   } | null>(null);
   const fileGeneration = useRef(0);
 
-  function invalidateFiles() {
-    ++fileGeneration.current;
-  }
-
   function resetFiles() {
     ++fileGeneration.current;
     setFiles(null);
+    setManifestByPath(new Map());
     setFilesLoading(false);
     setFilesError(null);
+  }
+
+  async function loadManifestSlice(
+    scanId: string,
+    offset: number,
+    generation: number,
+  ) {
+    if (offset > 1256) return;
+    const manifest = await readScanManifestFiles(scanId, offset).catch(
+      () => null,
+    );
+    if (!manifest || generation !== fileGeneration.current) return;
+    setManifestByPath(
+      new Map(manifest.items.map((item) => [item.path, item] as const)),
+    );
   }
 
   async function chooseFilesPage(offset: number) {
@@ -35,6 +54,7 @@ export function useFileInventory(workspace: WorkspaceMetadata | null) {
       if (generation === fileGeneration.current) {
         setFiles(page);
         setFilesError(null);
+        void loadManifestSlice(workspace.scanId, offset, generation);
       }
     } catch (error) {
       if (generation === fileGeneration.current)
@@ -59,8 +79,10 @@ export function useFileInventory(workspace: WorkspaceMetadata | null) {
         if (
           generation === fileGeneration.current &&
           workspaceId === workspace.scanId
-        )
+        ) {
           setFiles(page);
+          void loadManifestSlice(workspaceId, 0, generation);
+        }
       })
       .catch((error: unknown) => {
         if (generation === fileGeneration.current)
@@ -79,9 +101,9 @@ export function useFileInventory(workspace: WorkspaceMetadata | null) {
 
   return {
     files,
+    manifestByPath,
     filesLoading,
     filesError,
-    invalidateFiles,
     resetFiles,
     chooseFilesPage,
     retryFiles,

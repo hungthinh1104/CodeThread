@@ -328,7 +328,32 @@ function createRepositoryActions(context: {
     context.bumpRetry();
   }
 
-  return { chooseRepository, retryWorkspace };
+  async function openSpecificScan(repositoryId: string, scanId: string) {
+    const generation = context.resetWorkspace();
+    rememberWorkspaceScan(null);
+    context.setSelectedRepositoryId(repositoryId);
+    try {
+      const opened = await openScan(scanId);
+      if (generation !== context.workspaceGenerationRef.current) return;
+      if (
+        opened.workspace.repositoryId !== repositoryId ||
+        opened.workspace.scanId !== scanId
+      )
+        throw new ApiFailure(502, {
+          error: {
+            code: 'WORKSPACE_SCAN_MISMATCH',
+            message:
+              'The opened scan does not match the selected repository and scan.',
+          },
+        });
+      await context.loadProjectContexts(opened.workspace, generation);
+    } catch (error) {
+      if (generation === context.workspaceGenerationRef.current)
+        context.reportWorkspaceError(errorMessage(error), true);
+    }
+  }
+
+  return { chooseRepository, openSpecificScan, retryWorkspace };
 }
 
 export function useWorkspaceSession(input: UseWorkspaceSessionInput) {
@@ -412,8 +437,29 @@ export function useWorkspaceSession(input: UseWorkspaceSessionInput) {
     loadProjectContexts: contextActions.loadProjectContexts,
   });
 
+  function upsertRepository(updated: RepositoryItem) {
+    setRepositories((prev) => {
+      const exists = prev.some((item) => item.id === updated.id);
+      return exists
+        ? prev.map((item) => (item.id === updated.id ? updated : item))
+        : [updated, ...prev];
+    });
+  }
+
+  function selectRegisteredRepository(created: RepositoryItem) {
+    upsertRepository(created);
+    resetWorkspace();
+    rememberWorkspaceScan(null);
+    setSelectedRepositoryId(created.id);
+    setWorkspaceNotice(
+      'Repository registered. Run a scan to publish an immutable snapshot.',
+    );
+  }
+
   return {
     repositories,
+    upsertRepository,
+    selectRegisteredRepository,
     selectedRepositoryId,
     workspace,
     projects,

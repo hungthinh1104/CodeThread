@@ -13,11 +13,21 @@ export const workspaceScanIdSchema = z
   .uuid()
   .transform((id) => id.toLowerCase());
 
+export const workspaceRepositoryIdSchema = z
+  .uuid()
+  .transform((id) => id.toLowerCase());
+
 export type WorkspaceMetadata = {
   repositoryId: string;
   scanId: string;
   commitId: string;
+  treeId?: string | null;
   revision: string;
+  generation?: string;
+  attempt?: number;
+  activationResult?: 'activated' | 'stale' | 'not_eligible' | null;
+  createdAt?: string;
+  updatedAt?: string;
   expiresAt: string;
 };
 

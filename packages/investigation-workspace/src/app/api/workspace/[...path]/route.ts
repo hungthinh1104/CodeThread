@@ -9,6 +9,9 @@ import {
 import {
   forwardViewerOperation,
   parseRequestJson,
+  queryWorkspaceBackendSymbols,
+  queryWorkspaceDeepNeighbors,
+  queryWorkspaceDirectEvidence,
   queryWorkspacePaths,
   synthesizeWorkspaceAi,
   WorkspaceBffError,
@@ -59,7 +62,8 @@ export async function POST(
       );
     const payload = await parseRequestJson(request);
     const sessionId = sessionIdFromCookie(request, scan.data);
-    if (path[0] === 'meta') {
+    const operation = path[0]!;
+    if (operation === 'meta') {
       if (!z.strictObject({}).safeParse(payload).success)
         throw new WorkspaceBffError(
           400,
@@ -70,18 +74,28 @@ export async function POST(
         workspace: await workspaceMetadata(sessionId, scan.data),
       });
     }
-    if (path[0] === 'ai') {
+    if (operation === 'ai')
       return jsonResponse(
         await synthesizeWorkspaceAi(sessionId, scan.data, payload),
       );
-    }
-    if (path[0] === 'paths') {
+    if (operation === 'paths')
       return jsonResponse(
         await queryWorkspacePaths(sessionId, scan.data, payload),
       );
-    }
+    if (operation === 'neighbors-deep')
+      return jsonResponse(
+        await queryWorkspaceDeepNeighbors(sessionId, scan.data, payload),
+      );
+    if (operation === 'evidence-direct')
+      return jsonResponse(
+        await queryWorkspaceDirectEvidence(sessionId, scan.data, payload),
+      );
+    if (operation === 'symbols-meta')
+      return jsonResponse(
+        await queryWorkspaceBackendSymbols(sessionId, scan.data, payload),
+      );
     return jsonResponse(
-      await forwardViewerOperation(sessionId, scan.data, path[0]!, payload),
+      await forwardViewerOperation(sessionId, scan.data, operation, payload),
     );
   } catch (error) {
     return errorResponse(error);

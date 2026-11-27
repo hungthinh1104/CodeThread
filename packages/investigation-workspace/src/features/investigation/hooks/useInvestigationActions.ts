@@ -73,6 +73,8 @@ function createSelectionActions(
         scope,
         input.relationKinds,
         input.direction,
+        input.traceDepth,
+        input.traceNodeLimit,
       );
       if (!isCurrent()) return false;
       const root = projection.graph.symbols.find(
@@ -103,6 +105,8 @@ function createSelectionActions(
         root,
         relationKinds: input.relationKinds,
         direction: input.direction,
+        traceDepth: input.traceDepth,
+        traceNodeLimit: input.traceNodeLimit,
         selectedRelationId: null,
         selectedEvidenceId: root.declarationEvidenceId,
         view: 'source',
@@ -152,6 +156,8 @@ function createSelectionActions(
       root: item.symbol,
       relationKinds: input.relationKinds,
       direction: input.direction,
+      traceDepth: input.traceDepth,
+      traceNodeLimit: input.traceNodeLimit,
       selectedRelationId: null,
       selectedEvidenceId: item.symbol.declarationEvidenceId,
       view: 'source',
@@ -163,6 +169,8 @@ function createSelectionActions(
       scope,
       input.relationKinds,
       input.direction,
+      input.traceDepth,
+      input.traceNodeLimit,
     );
     void input.loadEvidence(item.symbol.declarationEvidenceId, scope);
     input.focusSelectedDeclaration(generation);
@@ -247,11 +255,20 @@ function createSecondaryActions(
       root: symbol,
       relationKinds: input.relationKinds,
       direction: input.direction,
+      traceDepth: input.traceDepth,
+      traceNodeLimit: input.traceNodeLimit,
       selectedRelationId: null,
       selectedEvidenceId: symbol.declarationEvidenceId,
       view: 'source',
     });
-    void input.loadGraph(symbol, scope, input.relationKinds, input.direction);
+    void input.loadGraph(
+      symbol,
+      scope,
+      input.relationKinds,
+      input.direction,
+      input.traceDepth,
+      input.traceNodeLimit,
+    );
     void input.loadEvidence(symbol.declarationEvidenceId, scope);
   }
 
@@ -297,6 +314,8 @@ function createTraceAndHistoryActions(
       root: input.selected,
       relationKinds: input.relationKinds,
       direction: input.direction,
+      traceDepth: input.traceDepth,
+      traceNodeLimit: input.traceNodeLimit,
       selectedRelationId: input.selectedRelationId,
       selectedEvidenceId: input.evidence ? evidenceId(input.evidence) : null,
       view: input.activeView,
@@ -334,11 +353,15 @@ function createTraceAndHistoryActions(
   async function changeFilters(
     kinds: RelationKindFilter[],
     newDirection = input.direction,
+    newDepth = input.traceDepth,
+    newLimit = input.traceNodeLimit,
   ) {
     if (!kinds.length) return;
     ++refs.selectionGeneration.current;
     input.setRelationKinds(kinds);
     input.setDirection(newDirection);
+    input.setTraceDepth(newDepth);
+    input.setTraceNodeLimit(newLimit);
     const scope = refs.scopeRef.current;
     const root = input.selected;
     if (!scope || !root) return;
@@ -348,11 +371,13 @@ function createTraceAndHistoryActions(
       root,
       relationKinds: kinds,
       direction: newDirection,
+      traceDepth: newDepth,
+      traceNodeLimit: newLimit,
       selectedRelationId: null,
       selectedEvidenceId: null,
       view: 'trace',
     });
-    void input.loadGraph(root, scope, kinds, newDirection);
+    void input.loadGraph(root, scope, kinds, newDirection, newDepth, newLimit);
   }
 
   function readDeclarationEvidence() {

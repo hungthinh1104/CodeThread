@@ -188,6 +188,7 @@ export async function backendRequest(
     timeoutMs?: number;
     maxResponseBytes?: number;
     timeoutCode?: string;
+    allowStatuses?: readonly number[];
   },
 ): Promise<unknown> {
   const token = process.env.CODETHREAD_API_TOKEN;
@@ -238,12 +239,15 @@ export async function backendRequest(
     );
   }
   const value = await boundedJson(response, options?.maxResponseBytes);
-  if (!response.ok) {
+  const allowedNonOk = options?.allowStatuses?.includes(response.status);
+  if (!response.ok && !allowedNonOk) {
     const error = backendApiErrorResponseSchema.safeParse(value);
     throw new WorkspaceBffError(
       response.status,
       error.success ? error.data.error.code : 'BACKEND_REQUEST_FAILED',
-      'The local backend could not complete this request.',
+      error.success
+        ? error.data.error.message
+        : 'The local backend could not complete this request.',
     );
   }
   try {

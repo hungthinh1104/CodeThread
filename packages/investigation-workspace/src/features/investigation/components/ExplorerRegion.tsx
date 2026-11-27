@@ -1,10 +1,13 @@
+import type { UseScanLifecycleState } from '../hooks/useScanLifecycle.ts';
 import type {
   FilePage,
   ProjectContexts,
   RepositoryItem,
+  ScanManifestFile,
   SearchItem,
   WorkspaceMetadata,
 } from '../types.ts';
+import { RepositoryScanManager } from './RepositoryScanManager.tsx';
 
 type Props = {
   inert: boolean;
@@ -15,6 +18,9 @@ type Props = {
   projects: ProjectContexts | null;
   selectedProjectId: string;
   onProjectChange: (id: string) => void;
+  scanLifecycle: UseScanLifecycleState;
+  refreshingSystem: boolean;
+  onRefreshSystem: () => void;
   searchQuery: string;
   onSearchQueryChange: (value: string) => void;
   searchMode: 'project' | 'repository';
@@ -30,6 +36,7 @@ type Props = {
   onSearchPage: (offset: number) => void;
   onChooseSymbol: (item: SearchItem) => void;
   files: FilePage | null;
+  manifestByPath: ReadonlyMap<string, ScanManifestFile>;
   filesLoading: boolean;
   filesError: string | null;
   onRetryFiles: () => void;
@@ -41,7 +48,17 @@ type Props = {
   onRetryWorkspace: () => void;
 };
 
+function formatBytes(bytes: number | null): string | null {
+  if (bytes === null) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+}
+
 function ExplorerContextSection(props: Props) {
+  const selectedRepository = props.repositories.find(
+    (item) => item.id === props.selectedRepositoryId,
+  );
   const project = props.projects?.items.find(
     (item) => item.id === props.selectedProjectId,
   );
@@ -71,16 +88,34 @@ function ExplorerContextSection(props: Props) {
       </select>
       {props.workspace ? (
         <div className="context-summary">
-          <span>Scan {props.workspace.scanId}</span>
+          <span>
+            Scan {props.workspace.scanId}
+            {props.workspace.generation
+              ? ` · gen ${props.workspace.generation}`
+              : ''}
+            {props.workspace.activationResult
+              ? ` · ${props.workspace.activationResult}`
+              : ''}
+          </span>
           <span>Revision {props.workspace.revision}</span>
           <code>{props.workspace.commitId}</code>
+          {props.workspace.treeId ? (
+            <code>tree {props.workspace.treeId.slice(0, 12)}…</code>
+          ) : null}
         </div>
       ) : (
         <p className="muted small">
-          Choose a repository with a completed local scan. Scan creation stays
-          in the existing backend workflow.
+          Choose a repository with a completed local scan, or register and scan
+          a local repository below.
         </p>
       )}
+
+      <RepositoryScanManager
+        selectedRepository={selectedRepository}
+        scanLifecycle={props.scanLifecycle}
+        refreshingSystem={props.refreshingSystem}
+        onRefreshSystem={props.onRefreshSystem}
+      />
 
       <label className="field-label" htmlFor="project-select">
         Project context
@@ -98,9 +133,9 @@ function ExplorerContextSection(props: Props) {
             value={item.id}
             disabled={item.status !== 'ready' || item.snapshotId === null}
           >
-            {item.label} — {item.status}
+            {item.label} — {item.status} ({item.rootFiles} files)
             {item.diagnosticCount > 0
-              ? ` (${item.diagnosticCount} diagnostics)`
+              ? ` · ${item.diagnosticCount} diagnostics`
               : ''}
           </option>
         ))}
@@ -113,13 +148,27 @@ function ExplorerContextSection(props: Props) {
             : ''}
         </p>
       ) : null}
-      {unavailableProjects.length ? (
+      <ExplorerDiagnosticsBlock
+        projects={props.projects}
+        unavailableProjects={unavailableProjects}
+      />
+    </>
+  );
+}
+
+function ExplorerDiagnosticsBlock(props: {
+  projects: ProjectContexts | null;
+  unavailableProjects: ProjectContexts['items'];
+}) {
+  return (
+    <>
+      {props.unavailableProjects.length ? (
         <details className="diagnostics">
           <summary>
-            Unavailable project contexts ({unavailableProjects.length})
+            Unavailable project contexts ({props.unavailableProjects.length})
           </summary>
           <ul>
-            {unavailableProjects.map((item) => (
+            {props.unavailableProjects.map((item) => (
               <li key={item.id}>
                 <strong>{item.label}</strong> — {item.status}
                 {item.snapshotId ? (
@@ -143,6 +192,13 @@ function ExplorerContextSection(props: Props) {
       ) : null}
       {props.projects?.source ? (
         <ul className="coverage-checks" aria-label="Repository completeness">
+          <li>
+            Source scope: {props.projects.source.files} .ts files (
+            {formatBytes(props.projects.source.bytes)})
+            {props.projects.source.excludedTypeScriptFiles > 0
+              ? ` · ${props.projects.source.excludedTypeScriptFiles} excluded`
+              : ''}
+          </li>
           <li>
             Git inventory:{' '}
             {props.projects.source.inventoryComplete
@@ -306,19 +362,26 @@ function FileInventorySection(props: Props) {
       ) : null}
       {props.files?.items.length ? (
         <ul className="file-list">
-          {props.files.items.map((file) => (
-            <li key={file.path}>
-              <button type="button" onClick={() => props.onChooseFile(file)}>
-                <code>{file.path}</code>
-                <span className={`status-text status-${file.status}`}>
-                  {file.status.replace('_', ' ')}
-                </span>
-                {file.analysisReason ? (
-                  <span>{file.analysisReason}</span>
-                ) : null}
-              </button>
-            </li>
-          ))}
+          {props.files.items.map((file) => {
+            const manifest = props.manifestByPath.get(file.path);
+            const sizeLabel = formatBytes(file.byteLength);
+            return (
+              <li key={file.path}>
+                <button type="button" onClick={() => props.onChooseFile(file)}>
+                  <code>{file.path}</code>
+                  <span className={`status-text status-${file.status}`}>
+                    {file.status.replace('_', ' ')}
+                    {sizeLabel ? ` · ${sizeLabel}` : ''}
+                    {manifest ? ` · mode ${manifest.git_mode}` : ''}
+                    {file.sha256 ? ` · ${file.sha256.slice(0, 8)}` : ''}
+                  </span>
+                  {file.analysisReason ? (
+                    <span>{file.analysisReason}</span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       ) : props.files && !props.files.items.length ? (
         <p className="muted small">No files are present in this inventory.</p>

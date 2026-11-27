@@ -1,10 +1,21 @@
 import type {
+  AcceptedScan,
+  AiStatusResponse,
   AiSynthesisResponse,
   AiSynthesizeApiRequest,
   ApiErrorBody,
+  BackendHealth,
+  EvidenceProjection,
   FindSymbolPathsRequest,
   FindSymbolPathsResponse,
+  GetSourceEvidenceRequest,
+  GraphNeighborsRequest,
+  GraphProjection,
+  ListSymbolsResponse,
   RepositoryItem,
+  ScanManifestPage,
+  ScanProjectSummary,
+  ScanStatusRecord,
   WorkspaceMetadata,
 } from './types.ts';
 
@@ -60,6 +71,10 @@ async function requestJson<T>(input: string, init: RequestInit): Promise<T> {
   return value as T;
 }
 
+function get<T>(path: string): Promise<T> {
+  return requestJson<T>(path, { method: 'GET' });
+}
+
 function post<T>(path: string, body: unknown, scanId?: string): Promise<T> {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (scanId) headers.set('x-codethread-scan-id', scanId);
@@ -70,10 +85,59 @@ function post<T>(path: string, body: unknown, scanId?: string): Promise<T> {
   });
 }
 
+export function readSystemHealth() {
+  return get<{ health: BackendHealth; ai: AiStatusResponse }>('/api/health');
+}
+
 export function readRepositories() {
-  return requestJson<{ items: RepositoryItem[] }>('/api/repositories', {
-    method: 'GET',
-  });
+  return get<{ items: RepositoryItem[] }>('/api/repositories');
+}
+
+export function readRepositoryById(repositoryId: string) {
+  return get<{ repository: RepositoryItem }>(
+    `/api/repositories/${encodeURIComponent(repositoryId)}`,
+  );
+}
+
+export function registerRepository(locator: string) {
+  return post<{ repository: RepositoryItem }>('/api/repositories', { locator });
+}
+
+export function requestRepositoryScan(
+  repositoryId: string,
+  revision: string,
+  idempotencyKey: string,
+) {
+  return post<{ scan: AcceptedScan }>(
+    `/api/repositories/${encodeURIComponent(repositoryId)}/scans`,
+    { revision, idempotencyKey },
+  );
+}
+
+export function readScanStatus(scanId: string) {
+  return get<{ scan: ScanStatusRecord }>(
+    `/api/scans/${encodeURIComponent(scanId)}`,
+  );
+}
+
+export function cancelScan(scanId: string) {
+  return post<{ scan: { id: string; state: 'cancelled' } }>(
+    `/api/scans/${encodeURIComponent(scanId)}/cancel`,
+    {},
+  );
+}
+
+export function readScanProjects(scanId: string) {
+  return get<{ scanId: string; items: ScanProjectSummary[] }>(
+    `/api/scans/${encodeURIComponent(scanId)}/projects`,
+  );
+}
+
+export function readScanManifestFiles(scanId: string, offset = 0) {
+  const suffix = offset > 0 ? `?offset=${offset}` : '';
+  return get<ScanManifestPage>(
+    `/api/scans/${encodeURIComponent(scanId)}/files${suffix}`,
+  );
 }
 
 export function openScan(scanId: string) {
@@ -109,6 +173,43 @@ export function readViewer<T>(
   body: unknown,
 ): Promise<T> {
   return post<T>(`/api/workspace/${operation}`, body, scanId);
+}
+
+export function readDeepNeighbors(
+  scanId: string,
+  projectId: string,
+  request: GraphNeighborsRequest,
+): Promise<{ projectId: string; result: GraphProjection }> {
+  return post<{ projectId: string; result: GraphProjection }>(
+    '/api/workspace/neighbors-deep',
+    { projectId, request },
+    scanId,
+  );
+}
+
+export function readDirectEvidence(
+  scanId: string,
+  projectId: string,
+  request: GetSourceEvidenceRequest,
+): Promise<{ projectId: string; result: EvidenceProjection }> {
+  return post<{ projectId: string; result: EvidenceProjection }>(
+    '/api/workspace/evidence-direct',
+    { projectId, request },
+    scanId,
+  );
+}
+
+export function readBackendSymbols(
+  scanId: string,
+  projectId: string,
+  query: string,
+  offset: number,
+): Promise<{ projectId: string; result: ListSymbolsResponse }> {
+  return post<{ projectId: string; result: ListSymbolsResponse }>(
+    '/api/workspace/symbols-meta',
+    { projectId, request: { query, offset } },
+    scanId,
+  );
 }
 
 export function findWorkspacePaths(

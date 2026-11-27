@@ -6,7 +6,11 @@ import {
   backendApiErrorResponseSchema,
   backendApiResponseSchemas,
   findSymbolPathsRequestSchema,
+  getSourceEvidenceRequestSchema,
+  graphNeighborsRequestSchema,
   parseFindSymbolPathsResult,
+  parseGetSourceEvidenceResult,
+  parseGraphNeighborsResult,
   viewerApiRepositoryRequestSchemas,
   viewerApiResponseSchemas,
 } from '@codethread/contracts';
@@ -14,6 +18,9 @@ import type {
   AiStatusResponse,
   AiSynthesisResponse,
   FindSymbolPathsResponse,
+  GetSourceEvidenceResponse,
+  GraphNeighborsResponse,
+  ListSymbolsResponse,
 } from '@codethread/contracts';
 import { z } from 'zod';
 import {
@@ -28,6 +35,7 @@ import {
   workspaceScanIdSchema,
 } from './bff-types.ts';
 import type { WorkspaceMetadata, WorkspaceSession } from './bff-types.ts';
+import { listRepositories } from './scan-admin-bff.ts';
 import {
   backendRequest,
   boundedJson,
@@ -35,7 +43,12 @@ import {
   parseViewerAddress,
 } from './upstream.ts';
 
-export { parseRequestJson, WorkspaceBffError, workspaceScanIdSchema };
+export {
+  listRepositories,
+  parseRequestJson,
+  WorkspaceBffError,
+  workspaceScanIdSchema,
+};
 export type { WorkspaceMetadata };
 
 const openWorkspaceRequestSchema = z.strictObject({
@@ -49,6 +62,21 @@ const workspaceAiRequestSchema = z.strictObject({
 const workspacePathsRequestSchema = z.strictObject({
   projectId: z.string().min(1).max(256),
   request: findSymbolPathsRequestSchema,
+});
+const workspaceDeepNeighborsRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: graphNeighborsRequestSchema,
+});
+const workspaceDirectEvidenceRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: getSourceEvidenceRequestSchema,
+});
+const workspaceSymbolsMetaRequestSchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: z.strictObject({
+    query: z.string().max(256).default(''),
+    offset: z.number().int().min(0).max(20000).default(0),
+  }),
 });
 
 type SessionRegistry = Map<string, WorkspaceSession>;
@@ -66,31 +94,6 @@ const pendingOpens = (serverGlobal.codethreadWorkspacePendingOpens ??= {
 function cleanupSessions(now = Date.now()): void {
   for (const [id, session] of sessions)
     if (session.expiresAt <= now) sessions.delete(id);
-}
-
-export async function listRepositories() {
-  const rows = (await backendRequest(
-    'GET /v1/repositories',
-    '/v1/repositories',
-    'GET',
-  )) as z.infer<(typeof backendApiResponseSchemas)['GET /v1/repositories']>;
-  return {
-    items: rows.map((repository) => {
-      const label =
-        repository.locator
-          .split(/[\\/]/)
-          .filter(Boolean)
-          .at(-1)
-          ?.replace(/[\p{Cc}\p{Cf}]/gu, '\uFFFD')
-          .slice(0, 120) || 'Local repository';
-      return {
-        id: repository.id,
-        label,
-        activeScanId: repository.active_job_id,
-        generation: repository.desired_generation,
-      };
-    }),
-  };
 }
 
 export function parseOpenWorkspaceScan(value: unknown): string {
@@ -135,7 +138,13 @@ async function createWorkspaceSession(scanId: string) {
     repositoryId: scan.repository_id,
     scanId: scan.id,
     commitId: scan.git_commit_oid,
+    treeId: scan.git_tree_oid,
     revision: scan.revision_selector,
+    generation: scan.generation,
+    attempt: scan.attempt,
+    activationResult: scan.activation_result,
+    createdAt: scan.created_at,
+    updatedAt: scan.updated_at,
     expiresAt: viewer.expiresAt,
   };
   sessions.set(sessionId, { ...address, metadata });
@@ -341,6 +350,103 @@ export async function queryWorkspacePaths(
       'The local backend returned an invalid symbol-path projection.',
     );
   }
+}
+
+export async function queryWorkspaceDeepNeighbors(
+  sessionId: string | undefined,
+  scanId: string,
+  value: unknown,
+): Promise<{
+  projectId: string;
+  result: {
+    graph: GraphNeighborsResponse;
+    unknowns: { total: number; items: [] };
+  };
+}> {
+  requireWorkspaceSession(sessionId, scanId);
+  const parsed = workspaceDeepNeighborsRequestSchema.safeParse(value);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'Workspace neighbor-graph request failed contract validation.',
+    );
+  const rawResult = await backendRequest(
+    'POST /v1/scans/:id/projects/:projectId/neighbors',
+    `/v1/scans/${scanId}/projects/${encodeURIComponent(parsed.data.projectId)}/neighbors`,
+    'POST',
+    { body: parsed.data.request },
+  );
+  try {
+    const graph = parseGraphNeighborsResult(parsed.data.request, rawResult);
+    return {
+      projectId: parsed.data.projectId,
+      result: { graph, unknowns: { total: 0, items: [] } },
+    };
+  } catch {
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned an invalid neighbor-graph projection.',
+    );
+  }
+}
+
+export async function queryWorkspaceDirectEvidence(
+  sessionId: string | undefined,
+  scanId: string,
+  value: unknown,
+): Promise<{ projectId: string; result: GetSourceEvidenceResponse }> {
+  requireWorkspaceSession(sessionId, scanId);
+  const parsed = workspaceDirectEvidenceRequestSchema.safeParse(value);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'Workspace evidence request failed contract validation.',
+    );
+  const rawResult = await backendRequest(
+    'POST /v1/scans/:id/projects/:projectId/evidence',
+    `/v1/scans/${scanId}/projects/${encodeURIComponent(parsed.data.projectId)}/evidence`,
+    'POST',
+    { body: parsed.data.request },
+  );
+  try {
+    const result = parseGetSourceEvidenceResult(parsed.data.request, rawResult);
+    return { projectId: parsed.data.projectId, result };
+  } catch {
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The local backend returned an invalid source-evidence projection.',
+    );
+  }
+}
+
+export async function queryWorkspaceBackendSymbols(
+  sessionId: string | undefined,
+  scanId: string,
+  value: unknown,
+): Promise<{ projectId: string; result: ListSymbolsResponse }> {
+  requireWorkspaceSession(sessionId, scanId);
+  const parsed = workspaceSymbolsMetaRequestSchema.safeParse(value);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'Workspace symbol-search request failed contract validation.',
+    );
+  const query = encodeURIComponent(parsed.data.request.query);
+  const offset = parsed.data.request.offset;
+  const rawResult = await backendRequest(
+    'GET /v1/scans/:id/projects/:projectId/symbols',
+    `/v1/scans/${scanId}/projects/${encodeURIComponent(parsed.data.projectId)}/symbols?query=${query}&offset=${offset}`,
+    'GET',
+  );
+  return {
+    projectId: parsed.data.projectId,
+    result: rawResult as ListSymbolsResponse,
+  };
 }
 
 export async function aiStatus(): Promise<AiStatusResponse> {

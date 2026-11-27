@@ -8,11 +8,16 @@ frontend, repository administration, public service, or deployment remain gated.
 
 ## User journey
 
-1. Choose a repository with an available successful scan.
+1. Choose a repository with an available successful scan, or register a local
+   repository beneath `CODETHREAD_ALLOWED_REPO_ROOT` and run/monitor/cancel a
+   pinned Git revision scan (`ADR-0012`).
 2. Choose a ready compiler project context within that pinned scan.
-3. Search the repository catalog or browse its paged file inventory.
-4. Inspect a source-backed declaration and its returned CALLS or REFERENCES, or
-   query bounded directed symbol-to-symbol paths (`A → … → B`) in Trace.
+3. Search the repository catalog or browse its paged file inventory (with
+   committed Git modes and SHA-256 digests).
+4. Inspect a source-backed declaration and its returned `CALLS`, `REFERENCES`,
+   or `CONSTRUCTS` across configurable traversal bounds (`depth 1..5`, `50..200`
+   nodes), or query bounded directed symbol-to-symbol paths (`A → … → B`) in
+   Trace.
 5. Open verified evidence and follow an exact declaration anchor. When several
    contexts contain the same anchor, choose the destination context.
 6. Use Back and Forward to restore the earlier scan, context, root, filters,
@@ -101,14 +106,17 @@ browser entries leave the displayed context intact.
 
 The Next.js app is a loopback-only, same-origin presentation process. Its Route
 Handlers are a fixed adapter, not an application backend: they accept only the
-existing repository-list, scan-status, viewer-open, viewer API operations,
-scan-scoped `POST /v1/scans/:id/projects/:projectId/paths` symbol-path queries,
-and opt-in AI status/synthesis routes (ADR-0011); reject arbitrary URLs, paths,
-query parameters and redirects; cap JSON requests at 64 KiB and responses at 1
-MiB; validate viewer and backend responses with the public
-`@codethread/contracts` schemas; and return `Cache-Control: no-store` with typed
-errors. The server binds only to `127.0.0.1` and checks the configured exact
-Host and same Origin on state-changing requests.
+existing repository-list/registration, scan-submission/status/cancel/manifest,
+health, viewer-open, viewer API operations, scan-scoped backend symbol/neighbor/
+path/evidence queries
+([ADR-0012](../decisions/0012-full-backend-workspace-integration.md)), and
+opt-in AI status/synthesis routes
+([ADR-0011](../decisions/0011-optional-workspace-ai-wiring.md)); reject
+arbitrary URLs, paths, query parameters and redirects; cap JSON requests at 64
+KiB and responses at 1 MiB; validate viewer and backend responses with the
+public `@codethread/contracts` schemas; and return `Cache-Control: no-store`
+with typed errors. The server binds only to `127.0.0.1` and checks the
+configured exact Host and same Origin on state-changing requests.
 
 `CODETHREAD_API_TOKEN` is read only by server code. The BFF opens the existing
 per-scan ephemeral viewer using the backend API, validates that its returned

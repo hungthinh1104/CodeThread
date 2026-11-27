@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type {
   CodeSymbol,
   EvidenceItem,
@@ -26,6 +27,7 @@ type Props = {
 };
 
 export function SourcePanel(props: Props) {
+  const [copiedAnchor, setCopiedAnchor] = useState<string | null>(null);
   const root = props.root;
   const item = props.evidence;
   const declaration =
@@ -37,6 +39,19 @@ export function SourcePanel(props: Props) {
       : item.evidenceId === root.declarationEvidenceId)
       ? item
       : null;
+
+  const anchor =
+    declaration?.status === 'available'
+      ? `${declaration.filePath}:${declaration.evidence.range.start.line}:${declaration.evidence.range.start.column}`
+      : null;
+
+  function copyAnchor() {
+    if (!anchor) return;
+    void navigator.clipboard?.writeText(anchor).then(
+      () => setCopiedAnchor(anchor),
+      () => {},
+    );
+  }
 
   return (
     <section
@@ -64,22 +79,30 @@ export function SourcePanel(props: Props) {
         <div className="source-excerpt">
           <div className="section-heading-row">
             <h3>Verified declaration excerpt</h3>
-            <button
-              id="inspect-declaration-evidence"
-              type="button"
-              onClick={(event) =>
-                props.onSelectEvidence(
-                  root.declarationEvidenceId,
-                  event.currentTarget,
-                )
-              }
-            >
-              Inspect evidence
-            </button>
+            <div className="row-actions source-actions">
+              <button type="button" onClick={copyAnchor}>
+                {copiedAnchor === anchor ? 'Copied location' : 'Copy location'}
+              </button>
+              <button
+                id="inspect-declaration-evidence"
+                type="button"
+                onClick={(event) =>
+                  props.onSelectEvidence(
+                    root.declarationEvidenceId,
+                    event.currentTarget,
+                  )
+                }
+              >
+                Inspect evidence
+              </button>
+            </div>
           </div>
           <p className="muted small">
-            {declaration.filePath} · line{' '}
-            {declaration.evidence.range.start.line} · SHA-256{' '}
+            {declaration.filePath} · lines{' '}
+            {declaration.evidence.range.start.line}–
+            {declaration.evidence.range.end.line} (col{' '}
+            {declaration.evidence.range.start.column}–
+            {declaration.evidence.range.end.column}) · SHA-256{' '}
             {declaration.evidence.contentHash}
           </p>
           <pre className="evidence-text">{declaration.text}</pre>

@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import type { GraphProjection } from '../types.ts';
+import type { CodeSymbol, GraphProjection } from '../types.ts';
 
-type Props = { graph: GraphProjection['graph'] };
+type Props = {
+  graph: GraphProjection['graph'];
+  rootSymbolId?: string;
+  onFollowSymbol?: (symbol: CodeSymbol) => void;
+};
 
 type Point = { x: number; y: number };
 
@@ -29,7 +33,7 @@ function edgePath(source: Point, target: Point): string {
   return `M ${startX} ${startY} C ${middleX} ${startY}, ${middleX} ${endY}, ${endX} ${endY}`;
 }
 
-export function TraceGraph({ graph }: Props) {
+export function TraceGraph(props: Props) {
   const [open, setOpen] = useState(false);
   return (
     <details
@@ -37,12 +41,12 @@ export function TraceGraph({ graph }: Props) {
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>Show exact relationship diagram</summary>
-      {open ? <TraceDiagram graph={graph} /> : null}
+      {open ? <TraceDiagram {...props} /> : null}
     </details>
   );
 }
 
-function TraceDiagram({ graph }: Props) {
+function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
   const symbols = graph.symbols;
   if (!symbols.length) return null;
   const positions = new Map<string, Point>();
@@ -68,8 +72,9 @@ function TraceDiagram({ graph }: Props) {
     >
       <h3 id="trace-graph-heading">Returned exact relationships</h3>
       <p className="muted small">
-        The diagram includes only returned symbols and exact edges. Use the
-        relationship list for evidence and navigation.
+        The diagram includes only returned symbols and exact edges. Click a
+        symbol node to focus its declaration, or use the list below for
+        occurrence evidence.
       </p>
       <div
         className="trace-graph-scroll"
@@ -139,8 +144,19 @@ function TraceDiagram({ graph }: Props) {
           {symbols.map((symbol, index) => {
             const point = positions.get(symbol.id);
             if (!point) return null;
+            const isRoot = symbol.id === rootSymbolId;
             return (
-              <g key={symbol.id} className="trace-node">
+              <g
+                key={symbol.id}
+                className={`trace-node${isRoot ? ' trace-node-root' : ''}${onFollowSymbol ? ' trace-node-interactive' : ''}`}
+                onClick={
+                  onFollowSymbol ? () => onFollowSymbol(symbol) : undefined
+                }
+              >
+                <title>
+                  {symbol.kind} {symbol.name} ({symbol.filePath}:
+                  {symbol.range.start.line})
+                </title>
                 <rect
                   x={point.x}
                   y={point.y}

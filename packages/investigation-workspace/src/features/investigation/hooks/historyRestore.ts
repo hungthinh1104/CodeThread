@@ -11,7 +11,9 @@ import type {
   RelationKindFilter,
   Scope,
   SessionProjection,
+  TraceDepthOption,
   TraceDirection,
+  TraceNodeLimitOption,
   WorkspaceMetadata,
 } from '../types.ts';
 import type { WorkspaceSessionRefs } from './useWorkspaceSession.ts';
@@ -39,6 +41,10 @@ export interface InvestigationActionsInput {
   readonly setRelationKinds: (kinds: RelationKindFilter[]) => void;
   readonly direction: TraceDirection;
   readonly setDirection: (direction: TraceDirection) => void;
+  readonly traceDepth: TraceDepthOption;
+  readonly setTraceDepth: (depth: TraceDepthOption) => void;
+  readonly traceNodeLimit: TraceNodeLimitOption;
+  readonly setTraceNodeLimit: (limit: TraceNodeLimitOption) => void;
   readonly selectedRelationId: string | null;
   readonly activeView: InvestigationView;
   readonly setActiveView: (view: InvestigationView) => void;
@@ -51,6 +57,8 @@ export interface InvestigationActionsInput {
     scope: Scope,
     kinds: RelationKindFilter[],
     direction: TraceDirection,
+    depth?: TraceDepthOption,
+    nodeLimit?: TraceNodeLimitOption,
   ) => Promise<GraphProjection | null>;
   readonly loadEvidence: (
     id: string,
@@ -118,6 +126,8 @@ export function createRestoreHandler(input: InvestigationActionsInput) {
       active.scanId !== scope.scanId ||
       active.projectId !== scope.projectId ||
       active.snapshotId !== scope.snapshotId;
+    const restoredDepth = entry.traceDepth ?? 2;
+    const restoredLimit = entry.traceNodeLimit ?? 50;
     input.invalidateProjectionReads();
     input.reportWorkspaceError(null);
     try {
@@ -131,6 +141,8 @@ export function createRestoreHandler(input: InvestigationActionsInput) {
             scope,
             entry.relationKinds,
             entry.direction,
+            restoredDepth,
+            restoredLimit,
           )
         : null;
       if (!isCurrent()) return;
@@ -153,6 +165,8 @@ export function createRestoreHandler(input: InvestigationActionsInput) {
       }
       input.setRelationKinds(entry.relationKinds);
       input.setDirection(entry.direction);
+      input.setTraceDepth(restoredDepth);
+      input.setTraceNodeLimit(restoredLimit);
       input.setSelected(root);
       input.setActiveView(entry.view);
       input.setGraph(projection);

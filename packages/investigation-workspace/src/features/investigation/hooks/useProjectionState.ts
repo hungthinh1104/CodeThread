@@ -16,7 +16,9 @@ import type {
   ProjectContexts,
   RelationKindFilter,
   Scope,
+  TraceDepthOption,
   TraceDirection,
+  TraceNodeLimitOption,
 } from '../types.ts';
 
 async function queryMatchingContexts(
@@ -65,6 +67,9 @@ function useProjectionStore() {
     'calls',
   ]);
   const [direction, setDirection] = useState<TraceDirection>('both');
+  const [traceDepth, setTraceDepth] = useState<TraceDepthOption>(2);
+  const [traceNodeLimit, setTraceNodeLimit] =
+    useState<TraceNodeLimitOption>(50);
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(
     null,
   );
@@ -108,6 +113,10 @@ function useProjectionStore() {
     setRelationKinds,
     direction,
     setDirection,
+    traceDepth,
+    setTraceDepth,
+    traceNodeLimit,
+    setTraceNodeLimit,
     selectedRelationId,
     setSelectedRelationId,
     contextCandidates,
@@ -212,6 +221,8 @@ export function useProjectionState(
     scope: Scope,
     kinds: RelationKindFilter[],
     requestedDirection: TraceDirection,
+    depth: TraceDepthOption = s.traceDepth,
+    nodeLimit: TraceNodeLimitOption = s.traceNodeLimit,
   ): Promise<GraphProjection | null> {
     const generation = ++s.graphGeneration.current;
     const rootSymbolId = typeof root === 'string' ? root : root.id;
@@ -230,6 +241,8 @@ export function useProjectionState(
         scope,
         kinds,
         requestedDirection,
+        depth,
+        nodeLimit,
       );
       if (
         generation !== s.graphGeneration.current ||

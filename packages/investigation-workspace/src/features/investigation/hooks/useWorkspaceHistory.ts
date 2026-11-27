@@ -28,6 +28,8 @@ function sameEntry(left: NavigationEntry, right: NavigationEntry): boolean {
     left.snapshotId === right.snapshotId &&
     left.root?.id === right.root?.id &&
     left.direction === right.direction &&
+    (left.traceDepth ?? 2) === (right.traceDepth ?? 2) &&
+    (left.traceNodeLimit ?? 50) === (right.traceNodeLimit ?? 50) &&
     left.relationKinds.length === right.relationKinds.length &&
     left.relationKinds.every((kind) => right.relationKinds.includes(kind)) &&
     left.selectedRelationId === right.selectedRelationId &&

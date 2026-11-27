@@ -42,7 +42,7 @@ function PathResultsView(props: {
     <div className="path-results">
       <div className="coverage-summary">
         <div className="coverage-status" role="status">
-          <span>Evidence basis: static</span>
+          <span>Path basis: static</span>
           <span>Paths: {result.paths.length}</span>
           <span>Coverage: {result.meta.coverage}</span>
           <span>

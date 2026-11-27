@@ -8,8 +8,11 @@ import type {
   InvestigationView,
   RelationKindFilter,
   SessionProjection,
+  TraceDepthOption,
   TraceDirection,
+  TraceNodeLimitOption,
 } from '../types.ts';
+import { SnapshotSummaryStrip } from './SnapshotSummaryStrip.tsx';
 import { SourcePanel } from './SourcePanel.tsx';
 import { TracePanel } from './TracePanel.tsx';
 
@@ -32,6 +35,10 @@ type Props = {
   onRelationKindsChange: (value: RelationKindFilter[]) => void;
   direction: TraceDirection;
   onDirectionChange: (value: TraceDirection) => void;
+  traceDepth: TraceDepthOption;
+  onTraceDepthChange: (value: TraceDepthOption) => void;
+  traceNodeLimit: TraceNodeLimitOption;
+  onTraceNodeLimitChange: (value: TraceNodeLimitOption) => void;
   selectedRelationId: string | null;
   onSelectEvidence: (
     id: string,
@@ -140,27 +147,17 @@ export function MainRegion(props: Props) {
         onRelationKindsChange={props.onRelationKindsChange}
         direction={props.direction}
         onDirectionChange={props.onDirectionChange}
+        traceDepth={props.traceDepth}
+        onTraceDepthChange={props.onTraceDepthChange}
+        traceNodeLimit={props.traceNodeLimit}
+        onTraceNodeLimitChange={props.onTraceNodeLimitChange}
         selectedRelationId={props.selectedRelationId}
         onSelectEvidence={props.onSelectEvidence}
         onFollowSymbol={props.onFollowSymbol}
         symbolPaths={props.symbolPaths}
       />
 
-      {props.session ? (
-        <details className="session-coverage">
-          <summary>Snapshot coverage by capability</summary>
-          <ul>
-            {Object.entries(props.session.coverageByCapability).map(
-              ([capability, status]) => (
-                <li key={capability}>
-                  <code>{capability}</code>
-                  <span>{status}</span>
-                </li>
-              ),
-            )}
-          </ul>
-        </details>
-      ) : null}
+      {props.session ? <SnapshotSummaryStrip session={props.session} /> : null}
     </main>
   );
 }
