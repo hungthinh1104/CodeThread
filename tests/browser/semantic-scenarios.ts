@@ -179,10 +179,21 @@ export async function verifyLatestQueryWins(
     const page = await openPage(browser, viewer.origin, viewer.url);
     await page.getByRole('tab', { name: 'Trace' }).click();
     let delayed = false;
+    let releaseDelayed = () => {};
+    const delayedGate = new Promise<void>((resolve) => {
+      releaseDelayed = resolve;
+    });
+    let markDelayedFinished = () => {};
+    const delayedFinished = new Promise<void>((resolve) => {
+      markDelayedFinished = resolve;
+    });
     await page.route('**/api/neighbors', async (route) => {
       if (!delayed) {
         delayed = true;
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await delayedGate;
+        await route.continue();
+        markDelayedFinished();
+        return;
       }
       await route.continue();
     });
@@ -194,7 +205,17 @@ export async function verifyLatestQueryWins(
     await search.press('Enter');
     await page.getByRole('button', { name: /getAll · method/ }).click();
     await page.getByRole('heading', { name: 'method getAll' }).waitFor();
-    await page.waitForTimeout(700);
+    const delayedResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/neighbors',
+    );
+    releaseDelayed();
+    await Promise.all([delayedFinished, (await delayedResponse).finished()]);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     assert.equal(
       await page.locator('#root-symbol h3').textContent(),
       'method getAll',

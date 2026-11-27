@@ -195,9 +195,10 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     await closeEvidenceInspector(page);
 
     // Capture a completed old-context response and release it after a new context has a root.
-    let release!: () => void, seen!: () => void;
+    let release!: () => void, seen!: () => void, delivered!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve)),
-      captured = new Promise<void>((resolve) => (seen = resolve));
+      captured = new Promise<void>((resolve) => (seen = resolve)),
+      staleDelivered = new Promise<void>((resolve) => (delivered = resolve));
     let hold = true;
     await page.route('**/api/neighbors', async (route) => {
       const payload = route.request().postDataJSON() as { projectId: string };
@@ -207,6 +208,7 @@ export async function verifyRepositoryNavigation(browser: Browser) {
         seen();
         await held;
         await route.fulfill({ response });
+        delivered();
       } else await route.continue();
     });
     await project.selectOption(a);
@@ -261,8 +263,17 @@ export async function verifyRepositoryNavigation(browser: Browser) {
     );
     await targetC.click();
     await root(page, 'target');
+    const staleResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/neighbors',
+    );
     release();
-    await page.waitForTimeout(150);
+    await Promise.all([staleDelivered, (await staleResponse).finished()]);
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     assert.equal(await project.inputValue(), c);
     assert.equal(
       await page.locator('#root-symbol h3').innerText(),

@@ -185,7 +185,10 @@ async function verifyRelationSelectionReusesProjection(
     await exactCall
       .getByRole('button', { name: 'Select relationship' })
       .click();
-    await page.waitForTimeout(100);
+    await page
+      .locator('#evidence pre')
+      .getByText(/getPathFromEnv\(envWithDefault\)/)
+      .waitFor();
     assert.equal(
       neighborRequests,
       1,
@@ -350,14 +353,27 @@ async function verifyInteractiveGraphOccurrences(
     assert.notEqual(firstId, secondId);
     assert.notEqual(firstId, selfId);
     assert.notEqual(secondId, selfId);
-    let delayNextEvidence = true;
+    let evidenceGate: {
+      promise: Promise<void>;
+      release: () => void;
+    } | null = null;
+    function holdNextEvidence() {
+      let release = () => {};
+      const promise = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      evidenceGate = { promise, release };
+      return evidenceGate;
+    }
     await page.route('**/api/evidence', async (route) => {
-      if (delayNextEvidence) {
-        delayNextEvidence = false;
-        await new Promise((resolve) => setTimeout(resolve, 600));
+      if (evidenceGate) {
+        const active = evidenceGate;
+        evidenceGate = null;
+        await active.promise;
       }
       await route.continue();
     });
+    const firstEvidenceGate = holdNextEvidence();
     const firstEvidenceRequest = page.waitForRequest(
       (request) => new URL(request.url()).pathname === '/api/evidence',
     );
@@ -384,7 +400,17 @@ async function verifyInteractiveGraphOccurrences(
       .getByText(/occurrences\.ts@3:/)
       .waitFor();
     assert.equal(neighborRequests, 1);
-    await page.waitForTimeout(700);
+    const firstEvidenceResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/evidence',
+    );
+    firstEvidenceGate.release();
+    await (await firstEvidenceResponse).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     assert.match(
       await page.locator('#evidence pre').innerText(),
       /target\(\)/,
@@ -463,7 +489,7 @@ async function verifyInteractiveGraphOccurrences(
     );
     assert.equal(neighborRequests, 4, 'a filter change issues one graph query');
 
-    delayNextEvidence = true;
+    const staleEvidenceGate = holdNextEvidence();
     const staleEvidenceRequest = page.waitForRequest(
       (request) => new URL(request.url()).pathname === '/api/evidence',
     );
@@ -473,10 +499,6 @@ async function verifyInteractiveGraphOccurrences(
       .first()
       .click();
     await staleEvidenceRequest;
-    await page
-      .locator('#evidence pre')
-      .getByText('target()', { exact: true })
-      .waitFor();
     await page
       .locator('#relationships')
       .getByRole('button', { name: 'Follow target' })
@@ -488,7 +510,17 @@ async function verifyInteractiveGraphOccurrences(
       .locator('#evidence pre')
       .getByText('function target', { exact: false })
       .waitFor();
-    await page.waitForTimeout(700);
+    const staleEvidenceResponse = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/evidence',
+    );
+    staleEvidenceGate.release();
+    await (await staleEvidenceResponse).finished();
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     assert.match(
       await page.locator('#evidence pre').innerText(),
       /function target/,

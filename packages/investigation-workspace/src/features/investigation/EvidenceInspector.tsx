@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { CodeExcerpt } from './CodeExcerpt.tsx';
 import type { EvidenceProjection } from './types.ts';
 
 const useIsomorphicLayoutEffect =
@@ -6,8 +7,17 @@ const useIsomorphicLayoutEffect =
 
 type EvidenceItem = EvidenceProjection['items'][number];
 
+type EvidenceRole = 'declaration' | 'occurrence' | 'observation';
+
+const EVIDENCE_ROLE_LABEL: Record<EvidenceRole, string> = {
+  declaration: 'Declaration evidence',
+  occurrence: 'Occurrence evidence',
+  observation: 'Observation evidence',
+};
+
 type Props = {
   item: EvidenceItem | null;
+  evidenceRole?: EvidenceRole | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -72,30 +82,34 @@ export function EvidenceInspector(props: Props) {
         hidden={props.compact && !props.open}
         inert={props.compact && !props.open}
       >
-        <button
-          id="close-inspector"
-          ref={props.closeButtonRef}
-          className="inspector-close"
-          type="button"
-          hidden={!props.compact}
-          onClick={props.onClose}
-        >
-          Close evidence
-        </button>
-        <p className="step-label">03 / Evidence</p>
-        <h2 id="evidence-heading">Evidence inspector</h2>
-        <p className="muted small">
+        <div className="inspector-header">
+          <div>
+            <p className="step-label">03 / Evidence</p>
+            <h2 id="evidence-heading">Evidence inspector</h2>
+          </div>
+          <button
+            id="close-inspector"
+            ref={props.closeButtonRef}
+            className="inspector-close"
+            type="button"
+            hidden={!props.compact}
+            onClick={props.onClose}
+          >
+            Close evidence
+          </button>
+        </div>
+        <p className="muted small inspector-subtitle">
           Evidence is verified against the pinned snapshot. Static facts do not
           establish runtime execution.
         </p>
         {props.loading ? <p role="status">Loading verified evidence…</p> : null}
         {props.error ? (
-          <p className="notice error" role="alert">
-            {props.error}
+          <div className="notice error" role="alert">
+            <span>{props.error}</span>
             <button type="button" onClick={props.onRetry}>
               Retry evidence
             </button>
-          </p>
+          </div>
         ) : null}
         {!props.item && !props.loading && !props.error ? (
           <p className="empty-state">
@@ -104,31 +118,46 @@ export function EvidenceInspector(props: Props) {
         ) : null}
         {props.item?.status === 'available' ? (
           <div className="evidence-card">
-            <p>
-              <strong>Source</strong>
-              <code>{props.item.filePath}</code>
-            </p>
-            <p>
-              <strong>Location</strong>
-              <span>
-                Line {props.item.evidence.range.start.line}, column{' '}
-                {props.item.evidence.range.start.column}
-              </span>
-            </p>
-            <p>
-              <strong>SHA-256</strong>
-              <code className="hash">{props.item.evidence.contentHash}</code>
-            </p>
-            <p>
-              <strong>Extractor</strong>
-              <span>
-                {props.item.evidence.extractor.name}{' '}
-                {props.item.evidence.extractor.version}
-              </span>
-            </p>
-            <pre className="evidence-text" tabIndex={0}>
-              {props.item.text}
-            </pre>
+            {props.evidenceRole ? (
+              <p className={`evidence-role role-${props.evidenceRole}`}>
+                {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
+              </p>
+            ) : null}
+            <dl className="evidence-meta">
+              <div>
+                <dt>Source</dt>
+                <dd>
+                  <code>{props.item.filePath}</code>
+                </dd>
+              </div>
+              <div>
+                <dt>Location</dt>
+                <dd>
+                  Line {props.item.evidence.range.start.line}, column{' '}
+                  {props.item.evidence.range.start.column}
+                </dd>
+              </div>
+              <div>
+                <dt>SHA-256</dt>
+                <dd>
+                  <code className="hash">
+                    {props.item.evidence.contentHash}
+                  </code>
+                </dd>
+              </div>
+              <div>
+                <dt>Extractor</dt>
+                <dd>
+                  {props.item.evidence.extractor.name}{' '}
+                  {props.item.evidence.extractor.version}
+                </dd>
+              </div>
+            </dl>
+            <CodeExcerpt
+              text={props.item.text}
+              startLine={props.item.evidence.range.start.line}
+              focusable
+            />
             <p className="caption">
               Exact verified evidence excerpt; this is not the complete file.
             </p>

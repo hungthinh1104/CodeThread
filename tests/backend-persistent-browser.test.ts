@@ -290,7 +290,7 @@ async function inspectWorkspaceFrontend(
         !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
     );
     expect(await page.locator('.context-summary').innerText()).toMatch(
-      /Revision HEAD/,
+      /Revision\s+HEAD/,
     );
     expect(await page.locator('.coverage-checks').innerText()).toMatch(
       /Git inventory:\s*complete/,
@@ -372,6 +372,16 @@ async function inspectWorkspaceFrontend(
     await page.getByRole('tab', { name: 'Trace' }).click();
     await page.getByLabel('Direction').selectOption('both');
     await page.getByText('Evidence basis: static', { exact: true }).waitFor();
+    expect(
+      await page.locator('#evidence-inspector .evidence-card').count(),
+    ).toBe(1);
+    await call
+      .getByRole('button', { name: 'Inspect occurrence evidence' })
+      .click();
+    await page
+      .locator('#evidence-inspector')
+      .getByText('Occurrence evidence')
+      .waitFor();
     await page.route(
       '**/api/workspace/evidence',
       (route) => route.abort('failed'),

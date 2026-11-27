@@ -5,6 +5,7 @@ import type {
   GraphProjection,
   SessionProjection,
 } from './types.ts';
+import { CodeExcerpt } from './CodeExcerpt.tsx';
 import { TraceGraph } from './TraceGraph.tsx';
 import type { RefObject } from 'react';
 
@@ -148,12 +149,12 @@ export function MainRegion(props: Props) {
           <p role="status">Loading verified source evidence…</p>
         ) : null}
         {root && props.evidenceError ? (
-          <p className="notice error" role="alert">
-            {props.evidenceError}{' '}
+          <div className="notice error" role="alert">
+            <span>{props.evidenceError}</span>
             <button type="button" onClick={props.onRetryEvidence}>
               Retry evidence
             </button>
-          </p>
+          </div>
         ) : null}
         {root && declaration?.status === 'available' ? (
           <div className="source-excerpt">
@@ -172,12 +173,19 @@ export function MainRegion(props: Props) {
                 Inspect evidence
               </button>
             </div>
-            <p className="muted small">
-              {declaration.filePath} · line{' '}
-              {declaration.evidence.range.start.line} · SHA-256{' '}
-              {declaration.evidence.contentHash}
+            <p className="source-meta">
+              <code>{declaration.filePath}</code>
+              <span>·</span>
+              <span>line {declaration.evidence.range.start.line}</span>
+              <span>·</span>
+              <code className="hash">
+                SHA-256 {declaration.evidence.contentHash}
+              </code>
             </p>
-            <pre className="evidence-text">{evidenceText}</pre>
+            <CodeExcerpt
+              text={evidenceText ?? ''}
+              startLine={declaration.evidence.range.start.line}
+            />
             <p className="caption">
               Exact verified excerpt from snapshot {root.snapshotId}; not the
               complete file.
@@ -242,41 +250,46 @@ export function MainRegion(props: Props) {
       >
         <fieldset className="filters">
           <legend>Relationship kinds</legend>
-          {(['calls', 'references'] as const).map((kind) => (
-            <label key={kind}>
-              <input
-                type="checkbox"
-                checked={props.relationKinds.includes(kind)}
-                onChange={(event) => {
-                  const next = event.currentTarget.checked
-                    ? [...props.relationKinds, kind]
-                    : props.relationKinds.filter((value) => value !== kind);
-                  if (next.length) props.onRelationKindsChange(next);
-                }}
-                disabled={
-                  !root ||
-                  (props.relationKinds.length === 1 &&
-                    props.relationKinds.includes(kind))
-                }
-              />
-              {kind.toUpperCase()}
-            </label>
-          ))}
-          <label htmlFor="direction-select">Direction</label>
-          <select
-            id="direction-select"
-            value={props.direction}
-            onChange={(event) =>
-              props.onDirectionChange(
-                event.currentTarget.value as Props['direction'],
-              )
-            }
-            disabled={!root}
-          >
-            <option value="outgoing">Outgoing</option>
-            <option value="incoming">Incoming</option>
-            <option value="both">Incoming and outgoing</option>
-          </select>
+          <div className="filter-group">
+            {(['calls', 'references'] as const).map((kind) => (
+              <label key={kind} className={`filter-check filter-${kind}`}>
+                <input
+                  type="checkbox"
+                  checked={props.relationKinds.includes(kind)}
+                  onChange={(event) => {
+                    const next = event.currentTarget.checked
+                      ? [...props.relationKinds, kind]
+                      : props.relationKinds.filter((value) => value !== kind);
+                    if (next.length) props.onRelationKindsChange(next);
+                  }}
+                  disabled={
+                    !root ||
+                    (props.relationKinds.length === 1 &&
+                      props.relationKinds.includes(kind))
+                  }
+                />
+                <span className="kind-swatch" aria-hidden="true" />
+                {kind.toUpperCase()}
+              </label>
+            ))}
+          </div>
+          <div className="filter-direction">
+            <label htmlFor="direction-select">Direction</label>
+            <select
+              id="direction-select"
+              value={props.direction}
+              onChange={(event) =>
+                props.onDirectionChange(
+                  event.currentTarget.value as Props['direction'],
+                )
+              }
+              disabled={!root}
+            >
+              <option value="outgoing">Outgoing</option>
+              <option value="incoming">Incoming</option>
+              <option value="both">Incoming and outgoing</option>
+            </select>
+          </div>
         </fieldset>
         {!root ? (
           <p className="empty-state">
@@ -287,12 +300,12 @@ export function MainRegion(props: Props) {
           <p role="status">Querying the pinned snapshot…</p>
         ) : null}
         {props.graphError ? (
-          <p className="notice error" role="alert">
-            {props.graphError}{' '}
+          <div className="notice error" role="alert">
+            <span>{props.graphError}</span>
             <button type="button" onClick={props.onRetryGraph}>
               Retry trace
             </button>
-          </p>
+          </div>
         ) : null}
         {props.graph?.graph.meta ? (
           <div className="coverage-summary">
@@ -314,7 +327,11 @@ export function MainRegion(props: Props) {
           </div>
         ) : null}
         {props.activeView === 'trace' && graph?.relations.length ? (
-          <TraceGraph graph={graph} />
+          <TraceGraph
+            graph={graph}
+            rootSymbolId={root?.id ?? null}
+            onFollowSymbol={props.onFollowSymbol}
+          />
         ) : null}
         {graph?.relations.length ? (
           <ol className="relationship-list">
@@ -326,19 +343,35 @@ export function MainRegion(props: Props) {
                   ? symbolById.get(relation.resolution.targetId)
                   : undefined;
               const isSelected = props.selectedRelationId === relation.id;
+              const resolutionClass =
+                relation.resolution.status === 'exact'
+                  ? 'status-exact'
+                  : 'status-uncertain';
               return (
                 <li
                   key={relation.id}
-                  className={isSelected ? 'selected' : ''}
+                  className={`relation-row relation-${relation.kind}${isSelected ? ' selected' : ''}`}
                   aria-current={isSelected ? 'true' : undefined}
                   data-relation-id={relation.id}
                 >
-                  <div>
-                    <strong>
-                      {relation.kind.toUpperCase()} ·{' '}
-                      {relation.resolution.status}
-                    </strong>
-                    <span>
+                  <div className="relation-body">
+                    <div className="relation-head">
+                      <strong className={`relation-kind kind-${relation.kind}`}>
+                        {relation.kind.toUpperCase()}
+                      </strong>
+                      <span
+                        className={`relation-resolution ${resolutionClass}`}
+                      >
+                        {relation.resolution.status}
+                      </span>
+                      {source ? (
+                        <code className="relation-location">
+                          {source.filePath}:
+                          {site?.range.start.line ?? source.range.start.line}
+                        </code>
+                      ) : null}
+                    </div>
+                    <span className="relation-flow">
                       {source?.name ?? relation.sourceSymbolId}
                       {target
                         ? ` → ${target.name}`
@@ -346,12 +379,6 @@ export function MainRegion(props: Props) {
                           ? ' → target omitted by graph limit'
                           : ' → no exact target'}
                     </span>
-                    {source ? (
-                      <code>
-                        {source.filePath}:
-                        {site?.range.start.line ?? source.range.start.line}
-                      </code>
-                    ) : null}
                   </div>
                   <div className="row-actions">
                     <button
@@ -368,6 +395,7 @@ export function MainRegion(props: Props) {
                     </button>
                     {relation.resolution.status === 'exact' && target ? (
                       <button
+                        className="btn-primary"
                         type="button"
                         onClick={() => props.onFollowSymbol(target)}
                       >
