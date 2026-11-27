@@ -17,6 +17,7 @@ type Props = {
   inert: boolean;
   repositories: RepositoryItem[];
   selectedRepositoryId: string;
+  selectedSymbolId: string | null;
   onRepositoryChange: (id: string) => void;
   workspace: WorkspaceMetadata | null;
   projects: ProjectContexts | null;
@@ -86,12 +87,18 @@ export function ExplorerRegion(props: Props) {
       </select>
       {props.workspace ? (
         <div className="context-summary">
-          <span>Scan {props.workspace.scanId}</span>
-          <span>Revision {props.workspace.revision}</span>
-          <code>{props.workspace.commitId}</code>
+          <div className="context-row">
+            <span className="context-key">Scan</span>
+            <code className="context-val">{props.workspace.scanId}</code>
+          </div>
+          <div className="context-row">
+            <span className="context-key">Revision</span>
+            <span className="context-val">{props.workspace.revision}</span>
+          </div>
+          <code className="context-commit">{props.workspace.commitId}</code>
         </div>
       ) : (
-        <p className="muted small">
+        <p className="muted small context-hint">
           Choose a repository with a completed local scan. Scan creation stays
           in the existing backend workflow.
         </p>
@@ -158,25 +165,61 @@ export function ExplorerRegion(props: Props) {
       ) : null}
       {props.projects?.source ? (
         <ul className="coverage-checks" aria-label="Repository completeness">
-          <li>
-            Git inventory:{' '}
-            {props.projects.source.inventoryComplete
-              ? 'complete'
-              : 'incomplete'}
+          <li
+            className={
+              props.projects.source.inventoryComplete
+                ? 'check-complete'
+                : 'check-incomplete'
+            }
+          >
+            <span className="check-label">Git inventory:</span>{' '}
+            <span className="check-state">
+              {props.projects.source.inventoryComplete
+                ? 'complete'
+                : 'incomplete'}
+            </span>
           </li>
-          <li>
-            Source coverage:{' '}
-            {props.projects.source.sourceCoverageComplete
-              ? 'complete'
-              : 'incomplete'}
+          <li
+            className={
+              props.projects.source.sourceCoverageComplete
+                ? 'check-complete'
+                : 'check-incomplete'
+            }
+          >
+            <span className="check-label">Source coverage:</span>{' '}
+            <span className="check-state">
+              {props.projects.source.sourceCoverageComplete
+                ? 'complete'
+                : 'incomplete'}
+            </span>
           </li>
-          <li>
-            Project analysis:{' '}
-            {props.projects.source.analysisComplete ? 'complete' : 'incomplete'}
+          <li
+            className={
+              props.projects.source.analysisComplete
+                ? 'check-complete'
+                : 'check-incomplete'
+            }
+          >
+            <span className="check-label">Project analysis:</span>{' '}
+            <span className="check-state">
+              {props.projects.source.analysisComplete
+                ? 'complete'
+                : 'incomplete'}
+            </span>
           </li>
-          <li>
-            Compiler contexts:{' '}
-            {props.projects.source.contextComplete ? 'complete' : 'incomplete'}
+          <li
+            className={
+              props.projects.source.contextComplete
+                ? 'check-complete'
+                : 'check-incomplete'
+            }
+          >
+            <span className="check-label">Compiler contexts:</span>{' '}
+            <span className="check-state">
+              {props.projects.source.contextComplete
+                ? 'complete'
+                : 'incomplete'}
+            </span>
           </li>
         </ul>
       ) : null}
@@ -237,64 +280,72 @@ export function ExplorerRegion(props: Props) {
                 : `${props.searchTotal} matching symbols`}
         </div>
         {props.searchError ? (
-          <p className="notice error" role="alert">
-            {props.searchError}{' '}
+          <div className="notice error" role="alert">
+            <span>{props.searchError}</span>
             <button type="button" onClick={props.onRetrySearch}>
               Retry symbol search
             </button>
-          </p>
+          </div>
         ) : null}
         {props.searchItems.length ? (
           <ul className="result-list">
-            {props.searchItems.map((item) => (
-              <li key={`${item.projectId}:${item.symbol.id}`}>
-                <button
-                  className="symbol-result"
-                  type="button"
-                  onClick={() => props.onChooseSymbol(item)}
-                >
-                  <strong>{item.symbol.name}</strong>
-                  <span>
-                    {item.symbol.kind} · {item.projectLabel}
-                  </span>
-                  <code>
-                    {item.symbol.filePath}:{item.symbol.range.start.line}:
-                    {item.symbol.range.start.column}
-                  </code>
-                </button>
-              </li>
-            ))}
+            {props.searchItems.map((item) => {
+              const isSelected = props.selectedSymbolId === item.symbol.id;
+              return (
+                <li key={`${item.projectId}:${item.symbol.id}`}>
+                  <button
+                    className={`symbol-result${isSelected ? ' is-selected' : ''}`}
+                    type="button"
+                    aria-current={isSelected ? 'true' : undefined}
+                    onClick={() => props.onChooseSymbol(item)}
+                  >
+                    <strong>{item.symbol.name}</strong>
+                    <span>
+                      {item.symbol.kind} · {item.projectLabel}
+                    </span>
+                    <code>
+                      {item.symbol.filePath}:{item.symbol.range.start.line}:
+                      {item.symbol.range.start.column}
+                    </code>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         ) : props.searchEnabled &&
           !props.searchLoading &&
           !props.searchError ? (
           <p className="muted small">No symbols on this page match.</p>
         ) : null}
-        <nav className="pager" aria-label="Symbol search pages">
-          <button
-            type="button"
-            onClick={() =>
-              props.onSearchPage(Math.max(0, props.searchOffset - 50))
-            }
-            disabled={props.searchOffset === 0 || props.searchLoading}
-          >
-            Previous
-          </button>
-          <span>
-            {props.searchTotal === 0
-              ? '0 results'
-              : `${props.searchOffset + 1}–${Math.min(props.searchOffset + props.searchItems.length, props.searchTotal)} of ${props.searchTotal}`}
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              props.onSearchPage(props.searchNextOffset ?? props.searchOffset)
-            }
-            disabled={props.searchNextOffset === null || props.searchLoading}
-          >
-            Next
-          </button>
-        </nav>
+        {props.searchEnabled ||
+        props.searchTotal > 0 ||
+        props.searchOffset > 0 ? (
+          <nav className="pager" aria-label="Symbol search pages">
+            <button
+              type="button"
+              onClick={() =>
+                props.onSearchPage(Math.max(0, props.searchOffset - 50))
+              }
+              disabled={props.searchOffset === 0 || props.searchLoading}
+            >
+              Previous
+            </button>
+            <span>
+              {props.searchTotal === 0
+                ? '0 results'
+                : `${props.searchOffset + 1}–${Math.min(props.searchOffset + props.searchItems.length, props.searchTotal)} of ${props.searchTotal}`}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                props.onSearchPage(props.searchNextOffset ?? props.searchOffset)
+              }
+              disabled={props.searchNextOffset === null || props.searchLoading}
+            >
+              Next
+            </button>
+          </nav>
+        ) : null}
       </section>
 
       <section className="explorer-section" aria-labelledby="files-heading">
@@ -306,13 +357,15 @@ export function ExplorerRegion(props: Props) {
           <p role="status">Loading file inventory…</p>
         ) : null}
         {props.filesError ? (
-          <p className="notice error" role="alert">
-            {props.filesError}{' '}
-            {props.files ? 'Showing the previously loaded page. ' : null}
+          <div className="notice error" role="alert">
+            <span>
+              {props.filesError}
+              {props.files ? ' Showing the previously loaded page.' : ''}
+            </span>
             <button type="button" onClick={props.onRetryFiles}>
               Retry file inventory
             </button>
-          </p>
+          </div>
         ) : null}
         {props.files?.items.length ? (
           <ul className="file-list">
@@ -373,14 +426,14 @@ export function ExplorerRegion(props: Props) {
         </p>
       ) : null}
       {props.error ? (
-        <p className="notice error" role="alert">
-          {props.error}{' '}
+        <div className="notice error" role="alert">
+          <span>{props.error}</span>
           {props.errorRetryable ? (
             <button type="button" onClick={props.onRetryWorkspace}>
               Retry workspace request
             </button>
           ) : null}
-        </p>
+        </div>
       ) : null}
     </aside>
   );

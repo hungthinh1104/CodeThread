@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import type { GraphProjection } from './types.ts';
+import type { CodeSymbol, GraphProjection } from './types.ts';
 
-type Props = { graph: GraphProjection['graph'] };
+type Props = {
+  graph: GraphProjection['graph'];
+  rootSymbolId?: string | null;
+  onFollowSymbol?: (symbol: CodeSymbol) => void;
+};
 
 type Point = { x: number; y: number };
 
@@ -29,7 +33,7 @@ function edgePath(source: Point, target: Point): string {
   return `M ${startX} ${startY} C ${middleX} ${startY}, ${middleX} ${endY}, ${endX} ${endY}`;
 }
 
-export function TraceGraph({ graph }: Props) {
+export function TraceGraph({ graph, rootSymbolId, onFollowSymbol }: Props) {
   const [open, setOpen] = useState(false);
   return (
     <details
@@ -37,12 +41,18 @@ export function TraceGraph({ graph }: Props) {
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>Show exact relationship diagram</summary>
-      {open ? <TraceDiagram graph={graph} /> : null}
+      {open ? (
+        <TraceDiagram
+          graph={graph}
+          rootSymbolId={rootSymbolId}
+          onFollowSymbol={onFollowSymbol}
+        />
+      ) : null}
     </details>
   );
 }
 
-function TraceDiagram({ graph }: Props) {
+function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
   const symbols = graph.symbols;
   if (!symbols.length) return null;
   const positions = new Map<string, Point>();
@@ -95,6 +105,26 @@ function TraceDiagram({ graph }: Props) {
             >
               <path d="M0,0 L8,4 L0,8 Z" fill="var(--ct-accent)" />
             </marker>
+            <marker
+              id="trace-arrow-calls"
+              markerWidth="8"
+              markerHeight="8"
+              refX="8"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0,0 L8,4 L0,8 Z" fill="var(--ct-calls)" />
+            </marker>
+            <marker
+              id="trace-arrow-references"
+              markerWidth="8"
+              markerHeight="8"
+              refX="8"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M0,0 L8,4 L0,8 Z" fill="var(--ct-references)" />
+            </marker>
             {symbols.map((symbol, index) => {
               const point = positions.get(symbol.id);
               if (!point) return null;
@@ -116,6 +146,12 @@ function TraceDiagram({ graph }: Props) {
             if (targetId === null) return null;
             const target = positions.get(targetId);
             if (!source || !target) return null;
+            const markerId =
+              relation.kind === 'calls'
+                ? 'trace-arrow-calls'
+                : relation.kind === 'references'
+                  ? 'trace-arrow-references'
+                  : 'trace-arrow';
             return (
               <g
                 key={relation.id}
@@ -124,7 +160,7 @@ function TraceDiagram({ graph }: Props) {
               >
                 <path
                   d={edgePath(source, target)}
-                  markerEnd="url(#trace-arrow)"
+                  markerEnd={`url(#${markerId})`}
                 >
                   <title>
                     {relation.kind.toUpperCase()}:{' '}
@@ -139,8 +175,29 @@ function TraceDiagram({ graph }: Props) {
           {symbols.map((symbol, index) => {
             const point = positions.get(symbol.id);
             if (!point) return null;
+            const isRoot = rootSymbolId === symbol.id;
+            const interactive = Boolean(onFollowSymbol) && !isRoot;
             return (
-              <g key={symbol.id} className="trace-node">
+              <g
+                key={symbol.id}
+                className={`trace-node${isRoot ? ' trace-node-root' : ''}${interactive ? ' trace-node-interactive' : ''}`}
+                role={interactive ? 'button' : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                aria-label={interactive ? `Follow ${symbol.name}` : undefined}
+                onClick={
+                  interactive ? () => onFollowSymbol!(symbol) : undefined
+                }
+                onKeyDown={
+                  interactive
+                    ? (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onFollowSymbol!(symbol);
+                        }
+                      }
+                    : undefined
+                }
+              >
                 <rect
                   x={point.x}
                   y={point.y}
