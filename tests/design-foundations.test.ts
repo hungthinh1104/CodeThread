@@ -99,7 +99,7 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
     expect(design).toContain('not an approved general product UI');
   });
 
-  it('uses the PR #38 canonical colors in the Investigation Workspace', () => {
+  it('uses canonical Warm Graphite tokens and meets contrast on all workspace surfaces', () => {
     const workspaceDarkStart = workspaceCss.indexOf(
       '@media (prefers-color-scheme: dark)',
     );
