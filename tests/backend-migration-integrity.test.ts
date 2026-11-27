@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   connect,
@@ -7,6 +8,10 @@ import {
 } from '../scripts/backend/database.ts';
 import { applyMigrations } from '../scripts/backend/migrations.ts';
 import { readMigrations } from '../scripts/backend/migration-set.ts';
+import {
+  assertRoleGrants,
+  queryRoleGrants,
+} from '../scripts/backend/restore-verify.ts';
 
 const databaseUrl = process.env.CODETHREAD_TEST_DATABASE_URL;
 
@@ -83,6 +88,55 @@ describe.skipIf(!databaseUrl)('PostgreSQL migration integrity', () => {
       await expect(applyMigrations(db)).rejects.toThrow(
         'Applied migration 3 does not match this build',
       );
+    } finally {
+      await db?.end({ timeout: 5 });
+      await admin
+        .unsafe(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`)
+        .catch(() => {});
+      await admin.end({ timeout: 5 });
+    }
+  }, 60_000);
+
+  it('audits PUBLIC and runtime role grants against live PostgreSQL privileges', async () => {
+    const admin = connect(databaseUrl!),
+      databaseName = 'ct_roles_' + randomUUID().replaceAll('-', ''),
+      targetUrl = new URL(databaseUrl!);
+    targetUrl.pathname = `/${databaseName}`;
+    let db: ReturnType<typeof connect> | undefined;
+    try {
+      await admin.unsafe(`CREATE DATABASE "${databaseName}"`);
+      db = connect(targetUrl.toString());
+      await applyMigrations(db);
+      await db.unsafe(
+        await readFile(new URL('../db/roles.sql', import.meta.url), 'utf8'),
+      );
+
+      const safeGrants = await queryRoleGrants(db);
+      expect(safeGrants).toEqual({
+        runtime_can_read: true,
+        runtime_can_delete: false,
+        runtime_can_create: false,
+        runtime_can_prune: false,
+        retention_can_prune: true,
+        public_can_use_schema: false,
+        public_can_create_schema: false,
+        public_can_prune: false,
+        runtime_can_write_migrations: false,
+      });
+      expect(() => assertRoleGrants(safeGrants)).not.toThrow();
+
+      await db.unsafe('GRANT USAGE ON SCHEMA codethread TO PUBLIC');
+      const leakedSchema = await queryRoleGrants(db);
+      expect(leakedSchema?.public_can_use_schema).toBe(true);
+      expect(() => assertRoleGrants(leakedSchema)).toThrow('unsafe');
+
+      await db.unsafe('REVOKE ALL ON SCHEMA codethread FROM PUBLIC');
+      await db.unsafe(
+        'GRANT EXECUTE ON FUNCTION codethread.prune_inactive_data(timestamptz,integer,integer,integer) TO PUBLIC',
+      );
+      const leakedFunction = await queryRoleGrants(db);
+      expect(leakedFunction?.public_can_prune).toBe(true);
+      expect(() => assertRoleGrants(leakedFunction)).toThrow('unsafe');
     } finally {
       await db?.end({ timeout: 5 });
       await admin

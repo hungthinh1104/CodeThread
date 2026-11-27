@@ -1,5 +1,8 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import type { EvidenceProjection } from './types.ts';
+
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 type EvidenceItem = EvidenceProjection['items'][number];
 
@@ -15,6 +18,11 @@ type Props = {
 };
 
 export function EvidenceInspector(props: Props) {
+  useIsomorphicLayoutEffect(() => {
+    if (!props.compact || !props.open) return;
+    props.closeButtonRef.current?.focus();
+  }, [props.compact, props.open, props.closeButtonRef]);
+
   useEffect(() => {
     if (!props.compact || !props.open) return;
     const close = (event: KeyboardEvent) => {
@@ -40,9 +48,8 @@ export function EvidenceInspector(props: Props) {
       }
     };
     document.addEventListener('keydown', close);
-    props.closeButtonRef.current?.focus();
     return () => document.removeEventListener('keydown', close);
-  }, [props.compact, props.open, props.onClose, props.closeButtonRef]);
+  }, [props.compact, props.open, props.onClose]);
 
   return (
     <>

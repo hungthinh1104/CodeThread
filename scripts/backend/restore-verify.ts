@@ -22,6 +22,30 @@ export interface RoleGrantAudit {
   runtime_can_write_migrations: boolean;
 }
 
+export async function queryRoleGrants(
+  db: ReturnType<typeof connect>,
+): Promise<RoleGrantAudit | undefined> {
+  const roles = await db<RoleGrantAudit[]>`SELECT
+    has_table_privilege('codethread_runtime','codethread.scan_job','SELECT') AS runtime_can_read,
+    has_table_privilege('codethread_runtime','codethread.scan_job','DELETE') AS runtime_can_delete,
+    has_schema_privilege('codethread_runtime','codethread','CREATE') AS runtime_can_create,
+    has_function_privilege('codethread_runtime',
+      'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+      'EXECUTE') AS runtime_can_prune,
+    has_function_privilege('codethread_retention',
+      'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+      'EXECUTE') AS retention_can_prune,
+    has_schema_privilege('public','codethread','USAGE') AS public_can_use_schema,
+    has_schema_privilege('public','codethread','CREATE') AS public_can_create_schema,
+    has_function_privilege('public',
+      'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
+      'EXECUTE') AS public_can_prune,
+    (has_table_privilege('codethread_runtime','codethread.schema_migration','INSERT') OR
+     has_table_privilege('codethread_runtime','codethread.schema_migration','UPDATE') OR
+     has_table_privilege('codethread_runtime','codethread.schema_migration','DELETE')) AS runtime_can_write_migrations`;
+  return roles[0];
+}
+
 export function assertRoleGrants(grants: RoleGrantAudit | undefined): void {
   if (
     !grants ||
@@ -288,25 +312,8 @@ async function main() {
     await db.unsafe(
       await readFile(new URL('../../db/roles.sql', import.meta.url), 'utf8'),
     );
-    const roles = await db<RoleGrantAudit[]>`SELECT
-      has_table_privilege('codethread_runtime','codethread.scan_job','SELECT') AS runtime_can_read,
-      has_table_privilege('codethread_runtime','codethread.scan_job','DELETE') AS runtime_can_delete,
-      has_schema_privilege('codethread_runtime','codethread','CREATE') AS runtime_can_create,
-      has_function_privilege('codethread_runtime',
-        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
-        'EXECUTE') AS runtime_can_prune,
-      has_function_privilege('codethread_retention',
-        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
-        'EXECUTE') AS retention_can_prune,
-      has_schema_privilege('PUBLIC','codethread','USAGE') AS public_can_use_schema,
-      has_schema_privilege('PUBLIC','codethread','CREATE') AS public_can_create_schema,
-      has_function_privilege('PUBLIC',
-        'codethread.prune_inactive_data(timestamp with time zone,integer,integer,integer)',
-        'EXECUTE') AS public_can_prune,
-      (has_table_privilege('codethread_runtime','codethread.schema_migration','INSERT') OR
-       has_table_privilege('codethread_runtime','codethread.schema_migration','UPDATE') OR
-       has_table_privilege('codethread_runtime','codethread.schema_migration','DELETE')) AS runtime_can_write_migrations`;
-    assertRoleGrants(roles[0]);
+    const roleGrants = await queryRoleGrants(db);
+    assertRoleGrants(roleGrants);
     const restoredSummary = await verifyDatabase(db);
     if (stableJson(sourceSummary) !== stableJson(restoredSummary))
       throw new Error(
@@ -316,14 +323,14 @@ async function main() {
       stableJson({
         sourceSummary,
         restoredSummary,
-        runtimeRoles: roles[0],
+        runtimeRoles: roleGrants,
       }),
     );
     console.log(
       JSON.stringify({
         status: 'verified',
         ...restoredSummary,
-        roles: roles[0],
+        roles: roleGrants,
         verificationDigest,
       }),
     );

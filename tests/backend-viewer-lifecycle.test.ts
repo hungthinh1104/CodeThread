@@ -133,7 +133,7 @@ describe('PersistentViewerManager lifecycle guards', () => {
     }
   });
 
-  it('rejects opens racing with closeAll() without leaking viewer servers', async () => {
+  it('rejects opens racing with closeAll() and distinguishes capacity reset from shutdown', async () => {
     const db = ((_strings: TemplateStringsArray, scanId: string) =>
       Promise.resolve([{ id: scanId }])) as unknown as Database;
     loadState.session = await makeSession(
@@ -145,19 +145,26 @@ describe('PersistentViewerManager lifecycle guards', () => {
     });
     const manager = new PersistentViewerManager(db);
     const pendingOpen = manager.open('66666666-6666-4666-8666-666666666666');
-    const closing = manager.closeAll();
+    const resetting = manager.closeAll();
     release();
     await expect(pendingOpen).rejects.toMatchObject({
       status: 503,
       code: 'VIEWER_UNAVAILABLE',
     });
-    await closing;
+    await resetting;
+    loadState.gate = null;
+
+    // Non-shutdown closeAll() recovers capacity for subsequent opens.
+    const reopened = await manager.open('77777777-7777-4777-8777-777777777777');
+    expect(reopened.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/#[a-f0-9]{64}$/);
+
+    // Shutdown closeAll({ shutdown: true }) permanently rejects further opens.
+    await manager.closeAll({ shutdown: true });
     await expect(
-      manager.open('77777777-7777-4777-8777-777777777777'),
+      manager.open('88888888-8888-4888-8888-888888888888'),
     ).rejects.toMatchObject({
       status: 503,
       code: 'VIEWER_UNAVAILABLE',
     });
-    loadState.gate = null;
   });
 });
