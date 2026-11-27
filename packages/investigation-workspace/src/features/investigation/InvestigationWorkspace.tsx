@@ -26,17 +26,30 @@ export function InvestigationWorkspace() {
     inspectorModel,
   } = useWorkspaceController();
 
+  const activeRepo = explorerModel.repositories.find(
+    (item) => item.id === explorerModel.selectedRepositoryId,
+  );
+
   return (
     <div className="page-shell">
       <header className="page-header" inert={inspector.inspectorModal}>
         <div className="header-brand">
-          <p className="eyebrow">CODETHREAD / LOCAL ANALYSIS</p>
-          <div className="header-title-row">
-            <h1>Investigation Workspace</h1>
+          <span className="brand-kicker">CODETHREAD</span>
+          <span className="brand-sep" aria-hidden="true">
+            /
+          </span>
+          <h1>Investigation Workspace</h1>
+          {workspace && activeRepo ? (
+            <span className="header-context">
+              <span>{activeRepo.label}</span>
+              <span aria-hidden="true">·</span>
+              <code>{workspace.revision}</code>
+            </span>
+          ) : (
             <p className="header-subtitle">
               Trace source-backed relationships in a pinned snapshot.
             </p>
-          </div>
+          )}
         </div>
         <div className="header-actions">
           <nav className="history-controls" aria-label="Investigation history">
@@ -80,10 +93,6 @@ export function InvestigationWorkspace() {
           </button>
         </div>
       </header>
-      <p className="scope-note" inert={inspector.inspectorModal}>
-        Local snapshot only · no source execution · unsupported relationships
-        and incomplete coverage stay visible.
-      </p>
       <div className="workspace-grid">
         <ExplorerRegion
           inert={inspector.inspectorModal}
@@ -107,7 +116,10 @@ export function InvestigationWorkspace() {
         />
       </div>
       <footer className="page-footer" inert={inspector.inspectorModal}>
-        <span>Static source evidence · validated API projections</span>
+        <span>
+          Local snapshot only · no source execution · static evidence ·
+          validated API projections
+        </span>
         {workspace ? (
           <span role={sessionExpired ? 'status' : undefined}>
             {sessionExpired

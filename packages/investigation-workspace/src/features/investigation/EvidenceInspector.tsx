@@ -90,7 +90,7 @@ export function EvidenceInspector(props: Props) {
         hidden={props.compact && !props.open}
         inert={props.compact && !props.open}
       >
-        <div className="inspector-header">
+        <div className="inspector-header pane-header">
           <div>
             <p className="step-label">03 / Evidence</p>
             <h2 id="evidence-heading">Evidence inspector</h2>
@@ -106,119 +106,128 @@ export function EvidenceInspector(props: Props) {
             Close evidence
           </button>
         </div>
-        <p className="muted small inspector-subtitle">
-          Evidence is verified against the pinned snapshot. Static facts do not
-          establish runtime execution.
-        </p>
-        {props.loading ? <p role="status">Loading verified evidence…</p> : null}
-        {props.error ? (
-          <div className="notice error" role="alert">
-            <span>{props.error}</span>
-            <button type="button" onClick={props.onRetry}>
-              Retry evidence
-            </button>
-          </div>
-        ) : null}
-        {!props.item && !props.loading && !props.error ? (
-          <p className="inspector-empty">
-            Select a declaration or relation occurrence.
+        <div className="pane-body">
+          <p className="muted small inspector-subtitle">
+            Evidence is verified against the pinned snapshot. Static facts do
+            not establish runtime execution.
           </p>
-        ) : null}
-        {props.item?.status === 'available' ? (
-          <div className="evidence-card">
-            <div className="evidence-role-row">
-              {props.evidenceRole ? (
-                <p className={`evidence-role role-${props.evidenceRole}`}>
-                  {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
-                </p>
-              ) : (
-                <span />
-              )}
-              <button
-                className="btn-ghost copy-ref-btn"
-                type="button"
-                aria-label={
-                  copyStatus === 'copied'
-                    ? 'Source reference copied'
-                    : copyStatus === 'unavailable'
-                      ? 'Clipboard unavailable for source reference'
-                      : 'Copy source reference'
-                }
-                onClick={() => {
-                  const refText =
-                    props.item?.status === 'available'
-                      ? `${props.item.filePath}:${props.item.evidence.range.start.line}`
-                      : '';
-                  if (!refText || !navigator.clipboard?.writeText) {
-                    setCopyStatus('unavailable');
-                    return;
-                  }
-                  void navigator.clipboard.writeText(refText).then(
-                    () => setCopyStatus('copied'),
-                    () => setCopyStatus('unavailable'),
-                  );
-                }}
-              >
-                {copyStatus === 'copied'
-                  ? 'Copied'
-                  : copyStatus === 'unavailable'
-                    ? 'Copy unavailable'
-                    : 'Copy ref'}
+          {props.loading ? (
+            <p role="status">Loading verified evidence…</p>
+          ) : null}
+          {props.error ? (
+            <div className="notice error" role="alert">
+              <span>{props.error}</span>
+              <button type="button" onClick={props.onRetry}>
+                Retry evidence
               </button>
-              <span className="sr-only" role="status" aria-live="polite">
-                {copyStatus === 'copied'
-                  ? `Copied ${props.item.filePath}:${props.item.evidence.range.start.line}`
-                  : copyStatus === 'unavailable'
-                    ? 'Clipboard is unavailable; copy the source location from the metadata table.'
-                    : ''}
-              </span>
             </div>
-            <dl className="evidence-meta">
-              <div>
-                <dt>Source</dt>
-                <dd>
-                  <code>{props.item.filePath}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Location</dt>
-                <dd>
-                  Line {props.item.evidence.range.start.line}, column{' '}
-                  {props.item.evidence.range.start.column}
-                </dd>
-              </div>
-              <div>
-                <dt>SHA-256</dt>
-                <dd>
-                  <code className="hash">
-                    {props.item.evidence.contentHash}
-                  </code>
-                </dd>
-              </div>
-              <div>
-                <dt>Extractor</dt>
-                <dd>
-                  {props.item.evidence.extractor.name}{' '}
-                  {props.item.evidence.extractor.version}
-                </dd>
-              </div>
-            </dl>
-            <CodeExcerpt
-              text={props.item.text}
-              startLine={props.item.evidence.range.start.line}
-              focusable
-            />
-            <p className="caption">
-              Exact verified evidence excerpt; this is not the complete file.
+          ) : null}
+          {!props.item && !props.loading && !props.error ? (
+            <p className="inspector-empty">
+              Select a declaration or relation occurrence.
             </p>
-          </div>
-        ) : null}
-        {props.item?.status === 'unavailable' ? (
-          <p className="notice warning" role="status">
-            Evidence unavailable: {props.item.code}. No working-tree source was
-            substituted.
-          </p>
-        ) : null}
+          ) : null}
+          {props.item?.status === 'available' ? (
+            <div className="evidence-card">
+              <div className="evidence-details">
+                <div className="evidence-role-row">
+                  {props.evidenceRole ? (
+                    <p className={`evidence-role role-${props.evidenceRole}`}>
+                      {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    className="btn-ghost copy-ref-btn"
+                    type="button"
+                    aria-label={
+                      copyStatus === 'copied'
+                        ? 'Source reference copied'
+                        : copyStatus === 'unavailable'
+                          ? 'Clipboard unavailable for source reference'
+                          : 'Copy source reference'
+                    }
+                    onClick={() => {
+                      const refText =
+                        props.item?.status === 'available'
+                          ? `${props.item.filePath}:${props.item.evidence.range.start.line}`
+                          : '';
+                      if (!refText || !navigator.clipboard?.writeText) {
+                        setCopyStatus('unavailable');
+                        return;
+                      }
+                      void navigator.clipboard.writeText(refText).then(
+                        () => setCopyStatus('copied'),
+                        () => setCopyStatus('unavailable'),
+                      );
+                    }}
+                  >
+                    {copyStatus === 'copied'
+                      ? 'Copied'
+                      : copyStatus === 'unavailable'
+                        ? 'Copy unavailable'
+                        : 'Copy ref'}
+                  </button>
+                  <span className="sr-only" role="status" aria-live="polite">
+                    {copyStatus === 'copied'
+                      ? `Copied ${props.item.filePath}:${props.item.evidence.range.start.line}`
+                      : copyStatus === 'unavailable'
+                        ? 'Clipboard is unavailable; copy the source location from the metadata table.'
+                        : ''}
+                  </span>
+                </div>
+                <dl className="evidence-meta">
+                  <div>
+                    <dt>Source</dt>
+                    <dd>
+                      <code>{props.item.filePath}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Location</dt>
+                    <dd>
+                      Line {props.item.evidence.range.start.line}, column{' '}
+                      {props.item.evidence.range.start.column}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>SHA-256</dt>
+                    <dd>
+                      <code className="hash">
+                        {props.item.evidence.contentHash}
+                      </code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Extractor</dt>
+                    <dd>
+                      {props.item.evidence.extractor.name}{' '}
+                      {props.item.evidence.extractor.version}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+              <div className="evidence-code-col">
+                <CodeExcerpt
+                  text={props.item.text}
+                  startLine={props.item.evidence.range.start.line}
+                  focusable
+                />
+                <p className="caption">
+                  Exact verified evidence excerpt; this is not the complete
+                  file.
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {props.item?.status === 'unavailable' ? (
+            <p className="notice warning" role="status">
+              Evidence unavailable: {props.item.code}. No working-tree source
+              was substituted.
+            </p>
+          ) : null}
+        </div>
       </aside>
     </>
   );

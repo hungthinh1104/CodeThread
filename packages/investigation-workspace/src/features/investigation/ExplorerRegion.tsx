@@ -53,232 +53,239 @@ export function ExplorerRegion({ inert, model }: Props) {
       aria-labelledby="explorer-heading"
       inert={inert}
     >
-      <div className="region-title">
+      <div className="region-title pane-header">
         <p className="step-label">01 / Explorer</p>
         <h2 id="explorer-heading">Pinned context</h2>
       </div>
-      <ContextSection
-        repositories={model.repositories}
-        selectedRepositoryId={model.selectedRepositoryId}
-        onRepositoryChange={model.onRepositoryChange}
-        workspace={model.workspace}
-        projects={model.projects}
-        selectedProjectId={model.selectedProjectId}
-        onProjectChange={model.onProjectChange}
-      />
+      <div className="pane-body">
+        <ContextSection
+          repositories={model.repositories}
+          selectedRepositoryId={model.selectedRepositoryId}
+          onRepositoryChange={model.onRepositoryChange}
+          workspace={model.workspace}
+          projects={model.projects}
+          selectedProjectId={model.selectedProjectId}
+          onProjectChange={model.onProjectChange}
+        />
 
-      <section className="explorer-section" aria-labelledby="search-heading">
-        <div className="search-header-row">
-          <h3 id="search-heading">Find a symbol</h3>
-          <label className="sr-only" htmlFor="search-mode">
-            Search scope
-          </label>
-          <select
-            id="search-mode"
-            className="scope-inline-select"
-            value={model.searchMode}
-            onChange={(event) =>
-              model.onSearchModeChange(
-                event.currentTarget.value as 'project' | 'repository',
-              )
-            }
-            disabled={!model.searchEnabled}
-          >
-            <option value="project">Selected project</option>
-            <option value="repository">Repository catalog</option>
-          </select>
-        </div>
-        <label className="field-label" htmlFor="symbol-query">
-          Name or source path
-        </label>
-        <div className="search-input-wrap">
-          <input
-            id="symbol-query"
-            value={model.searchQuery}
-            onChange={(event) =>
-              model.onSearchQueryChange(event.currentTarget.value)
-            }
-            maxLength={256}
-            autoComplete="off"
-            disabled={!model.searchEnabled}
-          />
-          {model.searchEnabled && model.searchQuery.length > 0 ? (
-            <button
-              className="search-clear"
-              type="button"
-              aria-label="Clear symbol search"
-              onClick={() => {
-                model.onSearchQueryChange('');
-                document.getElementById('symbol-query')?.focus();
-              }}
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
-        <div className="result-heading" aria-live="polite">
-          {model.searchLoading
-            ? 'Searching the pinned snapshot…'
-            : model.searchError
-              ? 'Symbol search failed'
-              : !model.searchEnabled
-                ? 'Select a project context to search'
-                : `${search.total} matching symbols`}
-        </div>
-        {model.searchError ? (
-          <div className="notice error" role="alert">
-            <span>{model.searchError}</span>
-            <button type="button" onClick={model.onRetrySearch}>
-              Retry symbol search
-            </button>
-          </div>
-        ) : null}
-        {search.items.length ? (
-          <ul className="result-list">
-            {search.items.map((item) => {
-              const isSelected = model.selectedSymbolId === item.symbol.id;
-              return (
-                <li key={`${item.projectId}:${item.symbol.id}`}>
-                  <button
-                    className={`symbol-result${isSelected ? ' is-selected' : ''}`}
-                    type="button"
-                    aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => model.onChooseSymbol(item)}
-                  >
-                    <strong>{item.symbol.name}</strong>
-                    <span>
-                      {item.symbol.kind} · {item.projectLabel}
-                    </span>
-                    <code>
-                      {item.symbol.filePath}:{item.symbol.range.start.line}:
-                      {item.symbol.range.start.column}
-                    </code>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : model.searchEnabled &&
-          !model.searchLoading &&
-          !model.searchError ? (
-          <p className="muted small">No symbols on this page match.</p>
-        ) : null}
-        {model.searchEnabled || search.total > 0 || search.offset > 0 ? (
-          <nav className="pager" aria-label="Symbol search pages">
-            <button
-              type="button"
-              onClick={() =>
-                model.onSearchPage(Math.max(0, search.offset - 50))
-              }
-              disabled={search.offset === 0 || model.searchLoading}
-            >
-              Previous
-            </button>
-            <span>
-              {search.total === 0
-                ? '0 results'
-                : `${search.offset + 1}–${Math.min(search.offset + search.items.length, search.total)} of ${search.total}`}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                model.onSearchPage(search.nextOffset ?? search.offset)
-              }
-              disabled={search.nextOffset === null || model.searchLoading}
-            >
-              Next
-            </button>
-          </nav>
-        ) : null}
-      </section>
-
-      <section className="explorer-section" aria-labelledby="files-heading">
-        <div className="section-heading-row">
-          <h3 id="files-heading">Source inventory</h3>
-          {model.files ? <span>{model.files.total} files</span> : null}
-        </div>
-        {model.filesLoading ? (
-          <p role="status">Loading file inventory…</p>
-        ) : null}
-        {model.filesError ? (
-          <div className="notice error" role="alert">
-            <span>
-              {model.filesError}
-              {model.files ? ' Showing the previously loaded page.' : ''}
-            </span>
-            <button type="button" onClick={model.onRetryFiles}>
-              Retry file inventory
-            </button>
-          </div>
-        ) : null}
-        {model.files?.items.length ? (
-          <ul className="file-list">
-            {model.files.items.map((file) => (
-              <li key={file.path}>
-                <button type="button" onClick={() => model.onChooseFile(file)}>
-                  <code>{file.path}</code>
-                  <span className={`status-text status-${file.status}`}>
-                    {file.status.replace('_', ' ')}
-                  </span>
-                  {file.analysisReason ? (
-                    <span>{file.analysisReason}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : model.files && !model.files.items.length ? (
-          <p className="muted small">No files are present in this inventory.</p>
-        ) : null}
-        {model.files ? (
-          <nav className="pager" aria-label="Source inventory pages">
-            <button
-              type="button"
-              onClick={() =>
-                model.onFilesPage(Math.max(0, model.files!.offset - 50))
-              }
-              disabled={model.files.offset === 0 || model.filesLoading}
-            >
-              Previous
-            </button>
-            <span>
-              {model.files.total === 0
-                ? '0 inventory entries'
-                : `${model.files.offset + 1}–${Math.min(model.files.offset + model.files.items.length, model.files.total)} of ${model.files.total}`}
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                model.onFilesPage(
-                  model.files!.nextOffset ?? model.files!.offset,
+        <section className="explorer-section" aria-labelledby="search-heading">
+          <div className="search-header-row">
+            <h3 id="search-heading">Find a symbol</h3>
+            <label className="sr-only" htmlFor="search-mode">
+              Search scope
+            </label>
+            <select
+              id="search-mode"
+              className="scope-inline-select"
+              value={model.searchMode}
+              onChange={(event) =>
+                model.onSearchModeChange(
+                  event.currentTarget.value as 'project' | 'repository',
                 )
               }
-              disabled={model.files.nextOffset === null || model.filesLoading}
+              disabled={!model.searchEnabled}
             >
-              Next
-            </button>
-          </nav>
-        ) : null}
-        <p className="muted small">
-          The inventory lists source status and hashes. Full-file content is not
-          available in this API; select a symbol for verified excerpts.
-        </p>
-      </section>
-      {model.notice ? (
-        <p className="notice" role="status">
-          {model.notice}
-        </p>
-      ) : null}
-      {model.error ? (
-        <div className="notice error" role="alert">
-          <span>{model.error}</span>
-          {model.errorRetryable ? (
-            <button type="button" onClick={model.onRetryWorkspace}>
-              Retry workspace request
-            </button>
+              <option value="project">Selected project</option>
+              <option value="repository">Repository catalog</option>
+            </select>
+          </div>
+          <label className="field-label" htmlFor="symbol-query">
+            Name or source path
+          </label>
+          <div className="search-input-wrap">
+            <input
+              id="symbol-query"
+              value={model.searchQuery}
+              onChange={(event) =>
+                model.onSearchQueryChange(event.currentTarget.value)
+              }
+              maxLength={256}
+              autoComplete="off"
+              disabled={!model.searchEnabled}
+            />
+            {model.searchEnabled && model.searchQuery.length > 0 ? (
+              <button
+                className="search-clear"
+                type="button"
+                aria-label="Clear symbol search"
+                onClick={() => {
+                  model.onSearchQueryChange('');
+                  document.getElementById('symbol-query')?.focus();
+                }}
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          <div className="result-heading" aria-live="polite">
+            {model.searchLoading
+              ? 'Searching the pinned snapshot…'
+              : model.searchError
+                ? 'Symbol search failed'
+                : !model.searchEnabled
+                  ? 'Select a project context to search'
+                  : `${search.total} matching symbols`}
+          </div>
+          {model.searchError ? (
+            <div className="notice error" role="alert">
+              <span>{model.searchError}</span>
+              <button type="button" onClick={model.onRetrySearch}>
+                Retry symbol search
+              </button>
+            </div>
           ) : null}
-        </div>
-      ) : null}
+          {search.items.length ? (
+            <ul className="result-list">
+              {search.items.map((item) => {
+                const isSelected = model.selectedSymbolId === item.symbol.id;
+                return (
+                  <li key={`${item.projectId}:${item.symbol.id}`}>
+                    <button
+                      className={`symbol-result${isSelected ? ' is-selected' : ''}`}
+                      type="button"
+                      aria-current={isSelected ? 'true' : undefined}
+                      onClick={() => model.onChooseSymbol(item)}
+                    >
+                      <strong>{item.symbol.name}</strong>
+                      <span>
+                        {item.symbol.kind} · {item.projectLabel}
+                      </span>
+                      <code>
+                        {item.symbol.filePath}:{item.symbol.range.start.line}:
+                        {item.symbol.range.start.column}
+                      </code>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : model.searchEnabled &&
+            !model.searchLoading &&
+            !model.searchError ? (
+            <p className="muted small">No symbols on this page match.</p>
+          ) : null}
+          {model.searchEnabled || search.total > 0 || search.offset > 0 ? (
+            <nav className="pager" aria-label="Symbol search pages">
+              <button
+                type="button"
+                onClick={() =>
+                  model.onSearchPage(Math.max(0, search.offset - 50))
+                }
+                disabled={search.offset === 0 || model.searchLoading}
+              >
+                Previous
+              </button>
+              <span>
+                {search.total === 0
+                  ? '0 results'
+                  : `${search.offset + 1}–${Math.min(search.offset + search.items.length, search.total)} of ${search.total}`}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  model.onSearchPage(search.nextOffset ?? search.offset)
+                }
+                disabled={search.nextOffset === null || model.searchLoading}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
+        </section>
+
+        <section className="explorer-section" aria-labelledby="files-heading">
+          <div className="section-heading-row">
+            <h3 id="files-heading">Source inventory</h3>
+            {model.files ? <span>{model.files.total} files</span> : null}
+          </div>
+          {model.filesLoading ? (
+            <p role="status">Loading file inventory…</p>
+          ) : null}
+          {model.filesError ? (
+            <div className="notice error" role="alert">
+              <span>
+                {model.filesError}
+                {model.files ? ' Showing the previously loaded page.' : ''}
+              </span>
+              <button type="button" onClick={model.onRetryFiles}>
+                Retry file inventory
+              </button>
+            </div>
+          ) : null}
+          {model.files?.items.length ? (
+            <ul className="file-list">
+              {model.files.items.map((file) => (
+                <li key={file.path}>
+                  <button
+                    type="button"
+                    onClick={() => model.onChooseFile(file)}
+                  >
+                    <code>{file.path}</code>
+                    <span className={`status-text status-${file.status}`}>
+                      {file.status.replace('_', ' ')}
+                    </span>
+                    {file.analysisReason ? (
+                      <span>{file.analysisReason}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : model.files && !model.files.items.length ? (
+            <p className="muted small">
+              No files are present in this inventory.
+            </p>
+          ) : null}
+          {model.files ? (
+            <nav className="pager" aria-label="Source inventory pages">
+              <button
+                type="button"
+                onClick={() =>
+                  model.onFilesPage(Math.max(0, model.files!.offset - 50))
+                }
+                disabled={model.files.offset === 0 || model.filesLoading}
+              >
+                Previous
+              </button>
+              <span>
+                {model.files.total === 0
+                  ? '0 inventory entries'
+                  : `${model.files.offset + 1}–${Math.min(model.files.offset + model.files.items.length, model.files.total)} of ${model.files.total}`}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  model.onFilesPage(
+                    model.files!.nextOffset ?? model.files!.offset,
+                  )
+                }
+                disabled={model.files.nextOffset === null || model.filesLoading}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
+          <p className="muted small">
+            The inventory lists source status and hashes. Full-file content is
+            not available in this API; select a symbol for verified excerpts.
+          </p>
+        </section>
+        {model.notice ? (
+          <p className="notice" role="status">
+            {model.notice}
+          </p>
+        ) : null}
+        {model.error ? (
+          <div className="notice error" role="alert">
+            <span>{model.error}</span>
+            {model.errorRetryable ? (
+              <button type="button" onClick={model.onRetryWorkspace}>
+                Retry workspace request
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </aside>
   );
 }

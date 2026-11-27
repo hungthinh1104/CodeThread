@@ -368,7 +368,7 @@ export async function verifyWorkspacePresentation(
 
       for (const width of [1440, 1280]) {
         const layout = await layoutAt(page, width);
-        assert.equal(layout.gap, '16px');
+        assert.equal(layout.gap, '0px');
         assert.equal(layout.columns.trim().split(/\s+/).length, 3);
         assert.equal(layout.hasHorizontalOverflow, false);
         await waitForCompactInspector(page, false);

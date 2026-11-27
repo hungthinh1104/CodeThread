@@ -63,11 +63,17 @@ controls); radii: `0/4/8 px`; no large shadows (drawer overlays stay at most
 
 ## Composition direction
 
-Desktop: context header → Explorer (file/symbol) + main source/trace switcher +
-contextual Evidence Inspector. Source and evidence precede graph. At constrained
-width collapse Inspector into accessible drawer. A real pinned investigation is
-the first validation screen; the existing two-column loopback viewer is not a
-complete product frontend.
+Desktop (`> 1120px`): full-viewport (`100dvh`) docked workbench shell — top
+context bar → 3 full-height hairline-split panes (`Explorer` |
+`Main source/trace` | `Evidence Inspector`, `0px` seam with `1px` dividers, each
+scrolling independently with pinned pane headers) → fixed status bar. At
+constrained desktop widths (`901px–1120px`), `Evidence Inspector` docks cleanly
+below `Main` as a horizontal bottom dock inside the viewport. At compact widths
+(`<= 900px`), collapse Inspector into an accessible slide-over drawer; at
+mobile/200% zoom (`<= 760px`), reflow to natural single-column document scroll.
+Source and evidence precede graph. A real pinned investigation is the first
+validation screen; the existing two-column loopback viewer is not a complete
+product frontend.
 
 ## Design QA
 

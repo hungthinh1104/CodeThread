@@ -56,7 +56,7 @@ export function MainRegion({ inert, headingRef, model }: Props) {
       aria-labelledby="workspace-heading"
       inert={inert}
     >
-      <div className="main-heading">
+      <div className="main-heading pane-header">
         <div>
           <p className="step-label">02 / Investigation</p>
           <h2 id="workspace-heading" ref={headingRef} tabIndex={-1}>
@@ -113,52 +113,54 @@ export function MainRegion({ inert, headingRef, model }: Props) {
         </div>
       </div>
 
-      <SourcePanel
-        hidden={model.activeView !== 'source'}
-        root={root}
-        evidence={model.evidence}
-        evidenceLoading={model.evidenceLoading}
-        evidenceError={model.evidenceError}
-        onRetryEvidence={model.onRetryEvidence}
-        onSelectEvidence={model.onSelectEvidence}
-        contextCandidates={model.contextCandidates}
-        contextSearchLoading={model.contextSearchLoading}
-        contextSearchMessage={model.contextSearchMessage}
-        onFindContexts={model.onFindContexts}
-        onChooseContext={model.onChooseContext}
-      />
+      <div className="pane-body">
+        <SourcePanel
+          hidden={model.activeView !== 'source'}
+          root={root}
+          evidence={model.evidence}
+          evidenceLoading={model.evidenceLoading}
+          evidenceError={model.evidenceError}
+          onRetryEvidence={model.onRetryEvidence}
+          onSelectEvidence={model.onSelectEvidence}
+          contextCandidates={model.contextCandidates}
+          contextSearchLoading={model.contextSearchLoading}
+          contextSearchMessage={model.contextSearchMessage}
+          onFindContexts={model.onFindContexts}
+          onChooseContext={model.onChooseContext}
+        />
 
-      <TracePanel
-        hidden={model.activeView !== 'trace'}
-        root={root}
-        graphProjection={model.graph}
-        graphLoading={model.graphLoading}
-        graphError={model.graphError}
-        onRetryGraph={model.onRetryGraph}
-        relationKinds={model.relationKinds}
-        onRelationKindsChange={model.onRelationKindsChange}
-        direction={model.direction}
-        onDirectionChange={model.onDirectionChange}
-        selectedRelationId={model.selectedRelationId}
-        onSelectEvidence={model.onSelectEvidence}
-        onFollowSymbol={model.onFollowSymbol}
-      />
+        <TracePanel
+          hidden={model.activeView !== 'trace'}
+          root={root}
+          graphProjection={model.graph}
+          graphLoading={model.graphLoading}
+          graphError={model.graphError}
+          onRetryGraph={model.onRetryGraph}
+          relationKinds={model.relationKinds}
+          onRelationKindsChange={model.onRelationKindsChange}
+          direction={model.direction}
+          onDirectionChange={model.onDirectionChange}
+          selectedRelationId={model.selectedRelationId}
+          onSelectEvidence={model.onSelectEvidence}
+          onFollowSymbol={model.onFollowSymbol}
+        />
 
-      {model.session ? (
-        <details className="session-coverage">
-          <summary>Snapshot coverage by capability</summary>
-          <ul>
-            {Object.entries(model.session.coverageByCapability).map(
-              ([capability, status]) => (
-                <li key={capability}>
-                  <code>{capability}</code>
-                  <span>{status}</span>
-                </li>
-              ),
-            )}
-          </ul>
-        </details>
-      ) : null}
+        {model.session ? (
+          <details className="session-coverage">
+            <summary>Snapshot coverage by capability</summary>
+            <ul>
+              {Object.entries(model.session.coverageByCapability).map(
+                ([capability, status]) => (
+                  <li key={capability}>
+                    <code>{capability}</code>
+                    <span>{status}</span>
+                  </li>
+                ),
+              )}
+            </ul>
+          </details>
+        ) : null}
+      </div>
     </main>
   );
 }
