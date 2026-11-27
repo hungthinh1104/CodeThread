@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
 import { CodeExcerpt } from './CodeExcerpt.tsx';
 import type { EvidenceProjection } from './types.ts';
 
@@ -28,6 +28,12 @@ type Props = {
 };
 
 export function EvidenceInspector(props: Props) {
+  const [copiedRef, setCopiedRef] = useState(false);
+
+  useEffect(() => {
+    setCopiedRef(false);
+  }, [props.item]);
+
   useIsomorphicLayoutEffect(() => {
     if (!props.compact || !props.open) return;
     props.closeButtonRef.current?.focus();
@@ -112,17 +118,37 @@ export function EvidenceInspector(props: Props) {
           </div>
         ) : null}
         {!props.item && !props.loading && !props.error ? (
-          <p className="empty-state">
+          <p className="inspector-empty">
             Select a declaration or relation occurrence.
           </p>
         ) : null}
         {props.item?.status === 'available' ? (
           <div className="evidence-card">
-            {props.evidenceRole ? (
-              <p className={`evidence-role role-${props.evidenceRole}`}>
-                {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
-              </p>
-            ) : null}
+            <div className="evidence-role-row">
+              {props.evidenceRole ? (
+                <p className={`evidence-role role-${props.evidenceRole}`}>
+                  {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
+                </p>
+              ) : (
+                <span />
+              )}
+              <button
+                className="btn-ghost copy-ref-btn"
+                type="button"
+                aria-label="Copy source reference"
+                onClick={() => {
+                  const refText = `${props.item!.status === 'available' ? `${props.item!.filePath}:${props.item!.evidence.range.start.line}` : ''}`;
+                  if (refText && navigator.clipboard?.writeText) {
+                    void navigator.clipboard.writeText(refText).then(
+                      () => setCopiedRef(true),
+                      () => {},
+                    );
+                  }
+                }}
+              >
+                {copiedRef ? 'Copied' : 'Copy ref'}
+              </button>
+            </div>
             <dl className="evidence-meta">
               <div>
                 <dt>Source</dt>

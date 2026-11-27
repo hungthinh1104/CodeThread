@@ -240,23 +240,26 @@ export function ExplorerRegion(props: Props) {
       ) : null}
 
       <section className="explorer-section" aria-labelledby="search-heading">
-        <h3 id="search-heading">Find a symbol</h3>
-        <label className="field-label" htmlFor="search-mode">
-          Search scope
-        </label>
-        <select
-          id="search-mode"
-          value={props.searchMode}
-          onChange={(event) =>
-            props.onSearchModeChange(
-              event.currentTarget.value as 'project' | 'repository',
-            )
-          }
-          disabled={!props.searchEnabled}
-        >
-          <option value="project">Selected project</option>
-          <option value="repository">Repository catalog</option>
-        </select>
+        <div className="search-header-row">
+          <h3 id="search-heading">Find a symbol</h3>
+          <label className="sr-only" htmlFor="search-mode">
+            Search scope
+          </label>
+          <select
+            id="search-mode"
+            className="scope-inline-select"
+            value={props.searchMode}
+            onChange={(event) =>
+              props.onSearchModeChange(
+                event.currentTarget.value as 'project' | 'repository',
+              )
+            }
+            disabled={!props.searchEnabled}
+          >
+            <option value="project">Selected project</option>
+            <option value="repository">Repository catalog</option>
+          </select>
+        </div>
         <label className="field-label" htmlFor="symbol-query">
           Name or source path
         </label>

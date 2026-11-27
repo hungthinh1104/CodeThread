@@ -141,12 +141,30 @@ export function MainRegion(props: Props) {
         tabIndex={0}
       >
         {!root ? (
-          <p className="empty-state">
-            Select a symbol from the pinned catalog.
-          </p>
+          <div className="empty-workbench">
+            <p className="empty-state-lead">
+              Select a symbol from the pinned catalog.
+            </p>
+            <ol className="empty-steps">
+              <li>
+                <strong>Establish context</strong> — pick a repository scan and
+                compiler project in Explorer.
+              </li>
+              <li>
+                <strong>Inspect declaration</strong> — review the pinned source
+                excerpt and SHA-256 provenance.
+              </li>
+              <li>
+                <strong>Trace relationships</strong> — switch to Trace for exact{' '}
+                <code>CALLS</code> and <code>REFERENCES</code>.
+              </li>
+            </ol>
+          </div>
         ) : null}
         {root && props.evidenceLoading ? (
-          <p role="status">Loading verified source evidence…</p>
+          <p className="status-line" role="status">
+            Loading verified source evidence…
+          </p>
         ) : null}
         {root && props.evidenceError ? (
           <div className="notice error" role="alert">
@@ -157,11 +175,17 @@ export function MainRegion(props: Props) {
           </div>
         ) : null}
         {root && declaration?.status === 'available' ? (
-          <div className="source-excerpt">
-            <div className="section-heading-row">
-              <h3>Verified declaration excerpt</h3>
+          <div className="source-excerpt code-frame">
+            <div className="code-frame-header">
+              <div className="code-frame-title">
+                <h3>Verified declaration excerpt</h3>
+                <code className="code-frame-path">
+                  {declaration.filePath}:{declaration.evidence.range.start.line}
+                </code>
+              </div>
               <button
                 id="inspect-declaration-evidence"
+                className="btn-subtle"
                 type="button"
                 onClick={(event) =>
                   props.onSelectEvidence(
@@ -173,23 +197,19 @@ export function MainRegion(props: Props) {
                 Inspect evidence
               </button>
             </div>
-            <p className="source-meta">
-              <code>{declaration.filePath}</code>
-              <span>·</span>
-              <span>line {declaration.evidence.range.start.line}</span>
-              <span>·</span>
-              <code className="hash">
-                SHA-256 {declaration.evidence.contentHash}
-              </code>
-            </p>
             <CodeExcerpt
               text={evidenceText ?? ''}
               startLine={declaration.evidence.range.start.line}
             />
-            <p className="caption">
-              Exact verified excerpt from snapshot {root.snapshotId}; not the
-              complete file.
-            </p>
+            <div className="code-frame-footer">
+              <code className="hash">
+                SHA-256 {declaration.evidence.contentHash}
+              </code>
+              <span className="caption">
+                Exact verified excerpt from snapshot {root.snapshotId}; not the
+                complete file.
+              </span>
+            </div>
           </div>
         ) : null}
         {root && declaration?.status === 'unavailable' ? (
@@ -249,10 +269,13 @@ export function MainRegion(props: Props) {
         tabIndex={0}
       >
         <fieldset className="filters">
-          <legend>Relationship kinds</legend>
+          <legend className="sr-only">Relationship kinds</legend>
           <div className="filter-group">
             {(['calls', 'references'] as const).map((kind) => (
-              <label key={kind} className={`filter-check filter-${kind}`}>
+              <label
+                key={kind}
+                className={`filter-check filter-${kind}${props.relationKinds.includes(kind) ? ' is-checked' : ''}`}
+              >
                 <input
                   type="checkbox"
                   checked={props.relationKinds.includes(kind)}
@@ -382,6 +405,7 @@ export function MainRegion(props: Props) {
                   </div>
                   <div className="row-actions">
                     <button
+                      className="btn-ghost"
                       type="button"
                       onClick={(event) =>
                         props.onSelectEvidence(
