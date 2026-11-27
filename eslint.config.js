@@ -22,6 +22,12 @@ export default [
     },
   },
   {
+    files: ['packages/investigation-workspace/src/features/**/*.{ts,tsx}'],
+    rules: {
+      'max-lines': ['error', { max: 500 }],
+    },
+  },
+  {
     files: [
       'tests/{contracts,contract-integrity,query-results,semantic-trace,architecture,tooling}.test.ts',
     ],

@@ -47,3 +47,25 @@ export type FollowContextProjection = ProjectResult<
 export type CatalogItem = CatalogPage['items'][number];
 
 export type ApiErrorBody = { error: { code: string; message: string } };
+
+export type Scope = {
+  scanId: string;
+  projectId: string;
+  snapshotId: string;
+};
+
+export type SearchItem = {
+  projectId: string;
+  projectLabel: string;
+  snapshotId: string;
+  symbol: CatalogPage['items'][number]['symbol'];
+};
+
+export type SearchState = {
+  items: SearchItem[];
+  offset: number;
+  total: number;
+  nextOffset: number | null;
+};
+
+export type EvidenceRole = 'declaration' | 'occurrence' | 'observation';

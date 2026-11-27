@@ -1,243 +1,71 @@
+import { ContextSection } from './ContextSection.tsx';
 import type {
-  CatalogPage,
   FilePage,
   ProjectContexts,
   RepositoryItem,
+  SearchItem,
+  SearchState,
   WorkspaceMetadata,
 } from './types.ts';
 
-export type SearchItem = {
-  projectId: string;
-  projectLabel: string;
-  snapshotId: string;
-  symbol: CatalogPage['items'][number]['symbol'];
+export type ExplorerModel = {
+  repositories: RepositoryItem[];
+  selectedRepositoryId: string;
+  selectedSymbolId: string | null;
+  workspace: WorkspaceMetadata | null;
+  projects: ProjectContexts | null;
+  selectedProjectId: string;
+  searchMode: 'project' | 'repository';
+  searchQuery: string;
+  searchEnabled: boolean;
+  search: SearchState;
+  searchLoading: boolean;
+  searchError: string | null;
+  files: FilePage | null;
+  filesLoading: boolean;
+  filesError: string | null;
+  notice: string | null;
+  error: string | null;
+  errorRetryable: boolean;
+  onRepositoryChange: (id: string) => void;
+  onProjectChange: (id: string) => void;
+  onSearchQueryChange: (value: string) => void;
+  onSearchModeChange: (value: 'project' | 'repository') => void;
+  onRetrySearch: () => void;
+  onSearchPage: (offset: number) => void;
+  onChooseSymbol: (item: SearchItem) => void;
+  onRetryFiles: () => void;
+  onFilesPage: (offset: number) => void;
+  onChooseFile: (file: FilePage['items'][number]) => void;
+  onRetryWorkspace: () => void;
 };
 
 type Props = {
   inert: boolean;
-  repositories: RepositoryItem[];
-  selectedRepositoryId: string;
-  selectedSymbolId: string | null;
-  onRepositoryChange: (id: string) => void;
-  workspace: WorkspaceMetadata | null;
-  projects: ProjectContexts | null;
-  selectedProjectId: string;
-  onProjectChange: (id: string) => void;
-  searchQuery: string;
-  onSearchQueryChange: (value: string) => void;
-  searchMode: 'project' | 'repository';
-  searchEnabled: boolean;
-  onSearchModeChange: (value: 'project' | 'repository') => void;
-  searchItems: SearchItem[];
-  searchOffset: number;
-  searchTotal: number;
-  searchNextOffset: number | null;
-  searchLoading: boolean;
-  searchError: string | null;
-  onRetrySearch: () => void;
-  onSearchPage: (offset: number) => void;
-  onChooseSymbol: (item: SearchItem) => void;
-  files: FilePage | null;
-  filesLoading: boolean;
-  filesError: string | null;
-  onRetryFiles: () => void;
-  onFilesPage: (offset: number) => void;
-  onChooseFile: (file: FilePage['items'][number]) => void;
-  notice?: string | null;
-  error: string | null;
-  errorRetryable: boolean;
-  onRetryWorkspace: () => void;
+  model: ExplorerModel;
 };
 
-export function ExplorerRegion(props: Props) {
-  const project = props.projects?.items.find(
-    (item) => item.id === props.selectedProjectId,
-  );
-  const unavailableProjects =
-    props.projects?.items.filter(
-      (item) => item.status !== 'ready' || item.snapshotId === null,
-    ) ?? [];
+export function ExplorerRegion({ inert, model }: Props) {
+  const { search } = model;
   return (
     <aside
       className="region explorer"
       aria-labelledby="explorer-heading"
-      inert={props.inert}
+      inert={inert}
     >
       <div className="region-title">
         <p className="step-label">01 / Explorer</p>
         <h2 id="explorer-heading">Pinned context</h2>
       </div>
-      <label className="field-label" htmlFor="repository-select">
-        Repository and scan
-      </label>
-      <select
-        id="repository-select"
-        value={props.selectedRepositoryId}
-        onChange={(event) =>
-          props.onRepositoryChange(event.currentTarget.value)
-        }
-      >
-        <option value="">Choose a repository</option>
-        {props.repositories.map((repository) => (
-          <option key={repository.id} value={repository.id}>
-            {repository.label}
-            {repository.activeScanId ? '' : ' — no scan'}
-          </option>
-        ))}
-      </select>
-      {props.workspace ? (
-        <div className="context-summary">
-          <div className="context-row">
-            <span className="context-key">Scan</span>
-            <code className="context-val">{props.workspace.scanId}</code>
-          </div>
-          <div className="context-row">
-            <span className="context-key">Revision</span>
-            <span className="context-val">{props.workspace.revision}</span>
-          </div>
-          <code className="context-commit">{props.workspace.commitId}</code>
-        </div>
-      ) : (
-        <p className="muted small context-hint">
-          Choose a repository with a completed local scan. Scan creation stays
-          in the existing backend workflow.
-        </p>
-      )}
-
-      <label className="field-label" htmlFor="project-select">
-        Project context
-      </label>
-      <select
-        id="project-select"
-        value={props.selectedProjectId}
-        onChange={(event) => props.onProjectChange(event.currentTarget.value)}
-        disabled={!props.projects}
-      >
-        <option value="">Choose a project context</option>
-        {props.projects?.items.map((item) => (
-          <option
-            key={item.id}
-            value={item.id}
-            disabled={item.status !== 'ready' || item.snapshotId === null}
-          >
-            {item.label} — {item.status}
-            {item.diagnosticCount > 0
-              ? ` (${item.diagnosticCount} diagnostics)`
-              : ''}
-          </option>
-        ))}
-      </select>
-      {project && project.status !== 'ready' ? (
-        <p className="notice warning" role="status">
-          This context is {project.status} and cannot provide a graph snapshot.
-          {project.diagnostics[0]
-            ? ` ${project.diagnostics[0].code}: ${project.diagnostics[0].message}`
-            : ''}
-        </p>
-      ) : null}
-      {unavailableProjects.length ? (
-        <details className="diagnostics">
-          <summary>
-            Unavailable project contexts ({unavailableProjects.length})
-          </summary>
-          <ul>
-            {unavailableProjects.map((item) => (
-              <li key={item.id}>
-                <strong>{item.label}</strong> — {item.status}
-                {item.snapshotId ? (
-                  <code>Snapshot {item.snapshotId}</code>
-                ) : null}
-                {item.diagnostics.map((diagnostic, index) => (
-                  <span key={`${diagnostic.code}-${index}`}>
-                    <code>{diagnostic.code}</code> {diagnostic.message}
-                    {diagnostic.path ? <code>{diagnostic.path}</code> : null}
-                  </span>
-                ))}
-                {!item.diagnostics.length ? (
-                  <span>
-                    No detailed diagnostic was returned for this context.
-                  </span>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-      {props.projects?.source ? (
-        <ul className="coverage-checks" aria-label="Repository completeness">
-          <li
-            className={
-              props.projects.source.inventoryComplete
-                ? 'check-complete'
-                : 'check-incomplete'
-            }
-          >
-            <span className="check-label">Git inventory:</span>{' '}
-            <span className="check-state">
-              {props.projects.source.inventoryComplete
-                ? 'complete'
-                : 'incomplete'}
-            </span>
-          </li>
-          <li
-            className={
-              props.projects.source.sourceCoverageComplete
-                ? 'check-complete'
-                : 'check-incomplete'
-            }
-          >
-            <span className="check-label">Source coverage:</span>{' '}
-            <span className="check-state">
-              {props.projects.source.sourceCoverageComplete
-                ? 'complete'
-                : 'incomplete'}
-            </span>
-          </li>
-          <li
-            className={
-              props.projects.source.analysisComplete
-                ? 'check-complete'
-                : 'check-incomplete'
-            }
-          >
-            <span className="check-label">Project analysis:</span>{' '}
-            <span className="check-state">
-              {props.projects.source.analysisComplete
-                ? 'complete'
-                : 'incomplete'}
-            </span>
-          </li>
-          <li
-            className={
-              props.projects.source.contextComplete
-                ? 'check-complete'
-                : 'check-incomplete'
-            }
-          >
-            <span className="check-label">Compiler contexts:</span>{' '}
-            <span className="check-state">
-              {props.projects.source.contextComplete
-                ? 'complete'
-                : 'incomplete'}
-            </span>
-          </li>
-        </ul>
-      ) : null}
-      {props.projects?.source?.diagnostics.length ? (
-        <details className="diagnostics">
-          <summary>
-            Repository diagnostics ({props.projects.source.diagnostics.length})
-          </summary>
-          <ul>
-            {props.projects.source.diagnostics.map((item, index) => (
-              <li key={`${item.code}-${index}`}>
-                <strong>{item.code}</strong> {item.message}
-                {item.path ? <code>{item.path}</code> : null}
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      <ContextSection
+        repositories={model.repositories}
+        selectedRepositoryId={model.selectedRepositoryId}
+        onRepositoryChange={model.onRepositoryChange}
+        workspace={model.workspace}
+        projects={model.projects}
+        selectedProjectId={model.selectedProjectId}
+        onProjectChange={model.onProjectChange}
+      />
 
       <section className="explorer-section" aria-labelledby="search-heading">
         <div className="search-header-row">
@@ -248,13 +76,13 @@ export function ExplorerRegion(props: Props) {
           <select
             id="search-mode"
             className="scope-inline-select"
-            value={props.searchMode}
+            value={model.searchMode}
             onChange={(event) =>
-              props.onSearchModeChange(
+              model.onSearchModeChange(
                 event.currentTarget.value as 'project' | 'repository',
               )
             }
-            disabled={!props.searchEnabled}
+            disabled={!model.searchEnabled}
           >
             <option value="project">Selected project</option>
             <option value="repository">Repository catalog</option>
@@ -266,21 +94,21 @@ export function ExplorerRegion(props: Props) {
         <div className="search-input-wrap">
           <input
             id="symbol-query"
-            value={props.searchQuery}
+            value={model.searchQuery}
             onChange={(event) =>
-              props.onSearchQueryChange(event.currentTarget.value)
+              model.onSearchQueryChange(event.currentTarget.value)
             }
             maxLength={256}
             autoComplete="off"
-            disabled={!props.searchEnabled}
+            disabled={!model.searchEnabled}
           />
-          {props.searchEnabled && props.searchQuery.length > 0 ? (
+          {model.searchEnabled && model.searchQuery.length > 0 ? (
             <button
               className="search-clear"
               type="button"
               aria-label="Clear symbol search"
               onClick={() => {
-                props.onSearchQueryChange('');
+                model.onSearchQueryChange('');
                 document.getElementById('symbol-query')?.focus();
               }}
             >
@@ -289,33 +117,33 @@ export function ExplorerRegion(props: Props) {
           ) : null}
         </div>
         <div className="result-heading" aria-live="polite">
-          {props.searchLoading
+          {model.searchLoading
             ? 'Searching the pinned snapshot…'
-            : props.searchError
+            : model.searchError
               ? 'Symbol search failed'
-              : !props.searchEnabled
+              : !model.searchEnabled
                 ? 'Select a project context to search'
-                : `${props.searchTotal} matching symbols`}
+                : `${search.total} matching symbols`}
         </div>
-        {props.searchError ? (
+        {model.searchError ? (
           <div className="notice error" role="alert">
-            <span>{props.searchError}</span>
-            <button type="button" onClick={props.onRetrySearch}>
+            <span>{model.searchError}</span>
+            <button type="button" onClick={model.onRetrySearch}>
               Retry symbol search
             </button>
           </div>
         ) : null}
-        {props.searchItems.length ? (
+        {search.items.length ? (
           <ul className="result-list">
-            {props.searchItems.map((item) => {
-              const isSelected = props.selectedSymbolId === item.symbol.id;
+            {search.items.map((item) => {
+              const isSelected = model.selectedSymbolId === item.symbol.id;
               return (
                 <li key={`${item.projectId}:${item.symbol.id}`}>
                   <button
                     className={`symbol-result${isSelected ? ' is-selected' : ''}`}
                     type="button"
                     aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => props.onChooseSymbol(item)}
+                    onClick={() => model.onChooseSymbol(item)}
                   >
                     <strong>{item.symbol.name}</strong>
                     <span>
@@ -330,35 +158,33 @@ export function ExplorerRegion(props: Props) {
               );
             })}
           </ul>
-        ) : props.searchEnabled &&
-          !props.searchLoading &&
-          !props.searchError ? (
+        ) : model.searchEnabled &&
+          !model.searchLoading &&
+          !model.searchError ? (
           <p className="muted small">No symbols on this page match.</p>
         ) : null}
-        {props.searchEnabled ||
-        props.searchTotal > 0 ||
-        props.searchOffset > 0 ? (
+        {model.searchEnabled || search.total > 0 || search.offset > 0 ? (
           <nav className="pager" aria-label="Symbol search pages">
             <button
               type="button"
               onClick={() =>
-                props.onSearchPage(Math.max(0, props.searchOffset - 50))
+                model.onSearchPage(Math.max(0, search.offset - 50))
               }
-              disabled={props.searchOffset === 0 || props.searchLoading}
+              disabled={search.offset === 0 || model.searchLoading}
             >
               Previous
             </button>
             <span>
-              {props.searchTotal === 0
+              {search.total === 0
                 ? '0 results'
-                : `${props.searchOffset + 1}–${Math.min(props.searchOffset + props.searchItems.length, props.searchTotal)} of ${props.searchTotal}`}
+                : `${search.offset + 1}–${Math.min(search.offset + search.items.length, search.total)} of ${search.total}`}
             </span>
             <button
               type="button"
               onClick={() =>
-                props.onSearchPage(props.searchNextOffset ?? props.searchOffset)
+                model.onSearchPage(search.nextOffset ?? search.offset)
               }
-              disabled={props.searchNextOffset === null || props.searchLoading}
+              disabled={search.nextOffset === null || model.searchLoading}
             >
               Next
             </button>
@@ -369,27 +195,27 @@ export function ExplorerRegion(props: Props) {
       <section className="explorer-section" aria-labelledby="files-heading">
         <div className="section-heading-row">
           <h3 id="files-heading">Source inventory</h3>
-          {props.files ? <span>{props.files.total} files</span> : null}
+          {model.files ? <span>{model.files.total} files</span> : null}
         </div>
-        {props.filesLoading ? (
+        {model.filesLoading ? (
           <p role="status">Loading file inventory…</p>
         ) : null}
-        {props.filesError ? (
+        {model.filesError ? (
           <div className="notice error" role="alert">
             <span>
-              {props.filesError}
-              {props.files ? ' Showing the previously loaded page.' : ''}
+              {model.filesError}
+              {model.files ? ' Showing the previously loaded page.' : ''}
             </span>
-            <button type="button" onClick={props.onRetryFiles}>
+            <button type="button" onClick={model.onRetryFiles}>
               Retry file inventory
             </button>
           </div>
         ) : null}
-        {props.files?.items.length ? (
+        {model.files?.items.length ? (
           <ul className="file-list">
-            {props.files.items.map((file) => (
+            {model.files.items.map((file) => (
               <li key={file.path}>
-                <button type="button" onClick={() => props.onChooseFile(file)}>
+                <button type="button" onClick={() => model.onChooseFile(file)}>
                   <code>{file.path}</code>
                   <span className={`status-text status-${file.status}`}>
                     {file.status.replace('_', ' ')}
@@ -401,33 +227,33 @@ export function ExplorerRegion(props: Props) {
               </li>
             ))}
           </ul>
-        ) : props.files && !props.files.items.length ? (
+        ) : model.files && !model.files.items.length ? (
           <p className="muted small">No files are present in this inventory.</p>
         ) : null}
-        {props.files ? (
+        {model.files ? (
           <nav className="pager" aria-label="Source inventory pages">
             <button
               type="button"
               onClick={() =>
-                props.onFilesPage(Math.max(0, props.files!.offset - 50))
+                model.onFilesPage(Math.max(0, model.files!.offset - 50))
               }
-              disabled={props.files.offset === 0 || props.filesLoading}
+              disabled={model.files.offset === 0 || model.filesLoading}
             >
               Previous
             </button>
             <span>
-              {props.files.total === 0
+              {model.files.total === 0
                 ? '0 inventory entries'
-                : `${props.files.offset + 1}–${Math.min(props.files.offset + props.files.items.length, props.files.total)} of ${props.files.total}`}
+                : `${model.files.offset + 1}–${Math.min(model.files.offset + model.files.items.length, model.files.total)} of ${model.files.total}`}
             </span>
             <button
               type="button"
               onClick={() =>
-                props.onFilesPage(
-                  props.files!.nextOffset ?? props.files!.offset,
+                model.onFilesPage(
+                  model.files!.nextOffset ?? model.files!.offset,
                 )
               }
-              disabled={props.files.nextOffset === null || props.filesLoading}
+              disabled={model.files.nextOffset === null || model.filesLoading}
             >
               Next
             </button>
@@ -438,16 +264,16 @@ export function ExplorerRegion(props: Props) {
           available in this API; select a symbol for verified excerpts.
         </p>
       </section>
-      {props.notice ? (
+      {model.notice ? (
         <p className="notice" role="status">
-          {props.notice}
+          {model.notice}
         </p>
       ) : null}
-      {props.error ? (
+      {model.error ? (
         <div className="notice error" role="alert">
-          <span>{props.error}</span>
-          {props.errorRetryable ? (
-            <button type="button" onClick={props.onRetryWorkspace}>
+          <span>{model.error}</span>
+          {model.errorRetryable ? (
+            <button type="button" onClick={model.onRetryWorkspace}>
               Retry workspace request
             </button>
           ) : null}

@@ -28,10 +28,12 @@ type Props = {
 };
 
 export function EvidenceInspector(props: Props) {
-  const [copiedRef, setCopiedRef] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<
+    'idle' | 'copied' | 'unavailable'
+  >('idle');
 
   useEffect(() => {
-    setCopiedRef(false);
+    setCopyStatus('idle');
   }, [props.item]);
 
   useIsomorphicLayoutEffect(() => {
@@ -135,19 +137,41 @@ export function EvidenceInspector(props: Props) {
               <button
                 className="btn-ghost copy-ref-btn"
                 type="button"
-                aria-label="Copy source reference"
+                aria-label={
+                  copyStatus === 'copied'
+                    ? 'Source reference copied'
+                    : copyStatus === 'unavailable'
+                      ? 'Clipboard unavailable for source reference'
+                      : 'Copy source reference'
+                }
                 onClick={() => {
-                  const refText = `${props.item!.status === 'available' ? `${props.item!.filePath}:${props.item!.evidence.range.start.line}` : ''}`;
-                  if (refText && navigator.clipboard?.writeText) {
-                    void navigator.clipboard.writeText(refText).then(
-                      () => setCopiedRef(true),
-                      () => {},
-                    );
+                  const refText =
+                    props.item?.status === 'available'
+                      ? `${props.item.filePath}:${props.item.evidence.range.start.line}`
+                      : '';
+                  if (!refText || !navigator.clipboard?.writeText) {
+                    setCopyStatus('unavailable');
+                    return;
                   }
+                  void navigator.clipboard.writeText(refText).then(
+                    () => setCopyStatus('copied'),
+                    () => setCopyStatus('unavailable'),
+                  );
                 }}
               >
-                {copiedRef ? 'Copied' : 'Copy ref'}
+                {copyStatus === 'copied'
+                  ? 'Copied'
+                  : copyStatus === 'unavailable'
+                    ? 'Copy unavailable'
+                    : 'Copy ref'}
               </button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {copyStatus === 'copied'
+                  ? `Copied ${props.item.filePath}:${props.item.evidence.range.start.line}`
+                  : copyStatus === 'unavailable'
+                    ? 'Clipboard is unavailable; copy the source location from the metadata table.'
+                    : ''}
+              </span>
             </div>
             <dl className="evidence-meta">
               <div>

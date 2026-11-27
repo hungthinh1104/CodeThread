@@ -12,6 +12,10 @@ type Point = { x: number; y: number };
 const nodeWidth = 176;
 const nodeHeight = 56;
 
+function truncateLabel(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
 function edgePath(source: Point, target: Point): string {
   if (source.x === target.x && source.y === target.y) {
     const right = source.x + nodeWidth;
@@ -216,12 +220,16 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
                     : undefined
                 }
               >
+                <title>
+                  {symbol.kind} {symbol.name} — {symbol.filePath}:
+                  {symbol.range.start.line}
+                </title>
                 <rect
                   x={point.x}
                   y={point.y}
                   width={nodeWidth}
                   height={nodeHeight}
-                  rx="6"
+                  rx="4"
                 />
                 <g clipPath={`url(#trace-node-clip-${index})`}>
                   <text
@@ -229,15 +237,15 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
                     y={point.y + 22}
                     className="trace-node-name"
                   >
-                    {symbol.name.slice(0, 22)}
+                    {truncateLabel(symbol.name, 22)}
                   </text>
                   <text
                     x={point.x + 9}
                     y={point.y + 42}
                     className="trace-node-location"
                   >
-                    {symbol.filePath.split('/').at(-1)?.slice(0, 22)}:
-                    {symbol.range.start.line}
+                    {truncateLabel(symbol.filePath.split('/').at(-1) ?? '', 18)}
+                    :{symbol.range.start.line}
                   </text>
                 </g>
               </g>
