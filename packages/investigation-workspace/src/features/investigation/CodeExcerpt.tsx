@@ -21,10 +21,7 @@ export function CodeExcerpt({ text, startLine, focusable = false }: Props) {
           <span className="code-gutter" aria-hidden="true">
             {startLine + index}
           </span>
-          <span className="code-content">
-            {line}
-            {index < lines.length - 1 ? '\n' : ''}
-          </span>
+          <span className="code-content">{line || ' '}</span>
         </span>
       ))}
     </pre>

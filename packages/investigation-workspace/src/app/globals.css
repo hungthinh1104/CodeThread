@@ -677,8 +677,8 @@ pre {
 
 .code-line {
   display: grid;
-  grid-template-columns: var(--ct-gutter-ch, 3ch) minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: calc(var(--ct-gutter-ch, 3ch) + 14px) minmax(0, 1fr);
+  gap: 10px;
   align-items: baseline;
 }
 
@@ -686,6 +686,8 @@ pre {
   color: var(--ct-gutter-ink);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-wrap: normal;
   user-select: none;
   border-right: 1px solid var(--ct-border);
   padding-right: 8px;
