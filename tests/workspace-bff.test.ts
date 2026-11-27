@@ -4,6 +4,7 @@ import {
   openWorkspace,
   parseRequestJson,
   WorkspaceBffError,
+  workspaceMetadata,
 } from '../packages/investigation-workspace/src/server/workspace-bff.ts';
 import {
   sessionCookie,
@@ -261,6 +262,25 @@ describe('local Investigation Workspace BFF', () => {
     expect(trustedLocalRequest(trusted, true)).toBe(true);
     expect(trustedLocalRequest(wrongHost, true)).toBe(false);
     expect(trustedLocalRequest(wrongOrigin, true)).toBe(false);
+    const sameSite = new Request('http://127.0.0.1:3000/api/repositories', {
+      method: 'GET',
+      headers: {
+        host: '127.0.0.1:3000',
+        'sec-fetch-site': 'same-site',
+      },
+    });
+    expect(trustedLocalRequest(sameSite, false)).toBe(false);
+    vi.stubEnv('CODETHREAD_WORKSPACE_PORT', '80');
+    const port80 = new Request('http://127.0.0.1/api/workspace/open', {
+      method: 'POST',
+      headers: {
+        host: '127.0.0.1',
+        origin: 'http://127.0.0.1',
+        'sec-fetch-site': 'same-origin',
+      },
+    });
+    expect(trustedLocalRequest(port80, true)).toBe(true);
+    vi.stubEnv('CODETHREAD_WORKSPACE_PORT', '3000');
     expect(
       sessionCookie(
         scanId,
@@ -349,5 +369,49 @@ describe('local Investigation Workspace BFF', () => {
     );
     expect(failure).toBeInstanceOf(WorkspaceBffError);
     expect(failure).toMatchObject({ code: 'REQUEST_TOO_LARGE' });
+  });
+
+  it('preserves sessions on transient viewer timeout and evicts stale 403/near-expiry sessions', async () => {
+    const baseNow = Date.now() + 120 * 60_000;
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(baseNow);
+    const { fetcher } = backendAndViewerFetch();
+    const normal = fetcher.getMockImplementation()!;
+    try {
+      const opened = await openWorkspace(scanId);
+      // Transient viewer timeout in workspaceMetadata must return 504 without deleting the session.
+      fetcher.mockImplementationOnce(async () => {
+        throw new DOMException('Timed out', 'TimeoutError');
+      });
+      await expect(
+        workspaceMetadata(opened.sessionId, scanId),
+      ).rejects.toMatchObject({ status: 504, code: 'VIEWER_TIMEOUT' });
+      fetcher.mockImplementation(normal);
+      await expect(
+        workspaceMetadata(opened.sessionId, scanId),
+      ).resolves.toEqual(opened.metadata);
+
+      // A stale 403 (e.g. rebound viewer port) must evict the cached session on open/meta.
+      fetcher.mockImplementationOnce(async () =>
+        json({ error: { code: 'FORBIDDEN', message: 'Wrong token' } }, 403),
+      );
+      const reopened = await openWorkspace(scanId, opened.sessionId);
+      expect(reopened.sessionId).not.toBe(opened.sessionId);
+
+      // A near-expiry session (< 5s remaining) must be refreshed rather than issuing Max-Age=0.
+      clock.mockReturnValue(Date.parse(reopened.metadata.expiresAt) - 500);
+      const refreshed = await openWorkspace(scanId, reopened.sessionId);
+      expect(refreshed.sessionId).not.toBe(reopened.sessionId);
+    } finally {
+      clock.mockReturnValue(baseNow + 180 * 60_000);
+      fetcher.mockImplementation(async () =>
+        json({ error: { code: 'UNAVAILABLE', message: 'Cleanup' } }, 503),
+      );
+      try {
+        await openWorkspace(scanId);
+      } catch {
+        /* Cleanup leaves the registry empty. */
+      }
+      clock.mockRestore();
+    }
   });
 });

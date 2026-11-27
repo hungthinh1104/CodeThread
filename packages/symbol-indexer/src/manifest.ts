@@ -23,6 +23,37 @@ import type { ProjectWorkerContext } from './project-types.js';
 import { verifyFacts } from './verify.js';
 import { analyzerBuildHash } from './analyzer-build.js';
 
+const VALID_ERROR_CODES = new Set<AnalysisErrorCode>([
+  'INVALID_MANIFEST',
+  'HASH_MISMATCH',
+  'INVALID_ENCODING',
+  'INVALID_COMPILER_OPTIONS',
+  'RESOURCE_LIMIT',
+  'ANALYSIS_TIMEOUT',
+  'ANALYSIS_FAILED',
+  'MALFORMED_SOURCE',
+  'COMPILER_INTEGRITY',
+  'ANALYZER_BUILD_MISMATCH',
+  'CANCELLED',
+]);
+
+function coerceWorkerError(output: {
+  code: unknown;
+  message: unknown;
+  sourcePath?: string;
+}): AnalysisError {
+  const code =
+    typeof output.code === 'string' &&
+    VALID_ERROR_CODES.has(output.code as AnalysisErrorCode)
+      ? (output.code as AnalysisErrorCode)
+      : 'ANALYSIS_FAILED';
+  const message =
+    typeof output.message === 'string' && output.message.length > 0
+      ? output.message.slice(0, 512)
+      : 'Analysis process failed';
+  return new AnalysisError(code, message, output.sourcePath);
+}
+
 function freeze(value: unknown): void {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const item of Object.values(value)) freeze(item);
@@ -229,11 +260,7 @@ export async function analyzeInput(
         'ANALYSIS_FAILED',
         'Analysis process returned an unknown source path',
       );
-    throw new AnalysisError(
-      output.code as AnalysisErrorCode,
-      output.message,
-      output.sourcePath,
-    );
+    throw coerceWorkerError(output);
   }
   const workerElapsedMs = Date.now() - workerStarted;
   const phaseTimings = output.phaseTimings;

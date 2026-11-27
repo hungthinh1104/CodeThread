@@ -35,11 +35,16 @@ export function proxy(request: NextRequest): NextResponse {
   const method = request.method.toUpperCase();
   const origin = request.headers.get('origin');
   const stateChanging = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+  const fetchSite = request.headers.get('sec-fetch-site');
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/');
+  const invalidFetchSite = isApiRoute
+    ? fetchSite !== null && fetchSite !== 'same-origin' && fetchSite !== 'none'
+    : fetchSite === 'cross-site';
   if (
     request.headers.get('host') !== expectedHost ||
     (origin !== null && origin !== expectedOrigin) ||
     (stateChanging && origin !== expectedOrigin) ||
-    request.headers.get('sec-fetch-site') === 'cross-site'
+    invalidFetchSite
   )
     return securityHeaders(
       NextResponse.json(

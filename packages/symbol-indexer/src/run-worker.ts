@@ -4,6 +4,30 @@ import { analysisResourceLimits } from '@codethread/code-model';
 import { AnalysisError } from './analysis-types.js';
 import type { WorkerInput, WorkerOutput } from './protocol.js';
 
+const ALLOWED_WORKER_ENV_KEYS = new Set([
+  'PATH',
+  'SYSTEMROOT',
+  'WINDIR',
+  'COMSPEC',
+  'PATHEXT',
+  'TEMP',
+  'TMP',
+  'TMPDIR',
+  'TZ',
+  'LANG',
+  'LC_ALL',
+]);
+
+export function workerEnvironment(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source))
+    if (value !== undefined && ALLOWED_WORKER_ENV_KEYS.has(key.toUpperCase()))
+      env[key] = value;
+  return env;
+}
+
 export function runWorker(
   input: WorkerInput,
   remaining: number,
@@ -21,10 +45,7 @@ export function runWorker(
       );
       return;
     }
-    const env = { ...process.env };
-    delete env['NODE_OPTIONS'];
-    delete env['NODE_PATH'];
-    delete env['NODE_V8_COVERAGE'];
+    const env = workerEnvironment();
     const semiSpace = heapLimitMiB >= 64 ? 8 : 1;
     const oldSpace = heapLimitMiB - 3 * semiSpace;
     const child = spawn(
@@ -37,7 +58,9 @@ export function runWorker(
       { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true },
     );
     const chunks: Buffer[] = [];
-    const onAbort = () => child.kill();
+    // The worker has no external state to flush on cancellation or a bound.
+    const terminate = () => child.kill('SIGKILL');
+    const onAbort = terminate;
     signal?.addEventListener('abort', onAbort, { once: true });
     const cleanup = () => {
       clearTimeout(timer);
@@ -49,7 +72,7 @@ export function runWorker(
       stderr = '';
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill();
+      terminate();
     }, remaining);
     child.stdout.on('data', (chunk: Buffer) => {
       outputBytes += chunk.length;
@@ -58,7 +81,7 @@ export function runWorker(
         analysisResourceLimits(input.resourceProfile).maxResponseBytes
       ) {
         overflow = true;
-        child.kill();
+        terminate();
       } else chunks.push(chunk);
     });
     // Drain stderr without exposing untrusted source text or retaining unbounded output.
@@ -132,7 +155,7 @@ export function runWorker(
       analysisResourceLimits(input.resourceProfile).maxRequestBytes
     ) {
       overflow = true;
-      child.kill();
+      terminate();
     } else child.stdin.end(request);
   });
 }

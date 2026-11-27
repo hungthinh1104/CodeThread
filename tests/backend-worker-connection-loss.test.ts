@@ -277,13 +277,13 @@ describe.skipIf(!databaseUrl)('worker transaction connection loss', () => {
             const contender = await db.reserve();
             try {
               const attempt =
-                await contender`SELECT pg_try_advisory_lock(1919606126, 2) AS acquired`;
+                await contender`SELECT pg_try_advisory_lock(1919606129, 2) AS acquired`;
               if (attempt[0]?.acquired) {
                 const oldLock = await db`SELECT pid FROM pg_locks
-                WHERE pid=${pid} AND locktype='advisory' AND classid=1919606126::oid
+                WHERE pid=${pid} AND locktype='advisory' AND classid=1919606129::oid
                   AND objid=2::oid AND objsubid=2 AND granted`;
                 expect(oldLock).toHaveLength(0);
-                await contender`SELECT pg_advisory_unlock(1919606126, 2)`;
+                await contender`SELECT pg_advisory_unlock(1919606129, 2)`;
               }
             } finally {
               await contender.release();

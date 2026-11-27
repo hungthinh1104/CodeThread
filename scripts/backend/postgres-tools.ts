@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-function containerEnvironment(env: NodeJS.ProcessEnv): string[] {
+export function containerEnvironment(env: NodeJS.ProcessEnv): string[] {
   // The explicit Docker path is for disposable loopback integration databases.
   // Use the container's local superuser socket without forwarding URL passwords.
   const database = env.PGDATABASE;
@@ -13,7 +14,7 @@ function containerEnvironment(env: NodeJS.ProcessEnv): string[] {
     '--env',
     'PGHOST=/var/run/postgresql',
     '--env',
-    `PGUSER=${env.PGUSER ?? 'postgres'}`,
+    `PGUSER=${env.PGUSER || 'postgres'}`,
     '--env',
     `PGDATABASE=${database}`,
     '--env',
@@ -83,9 +84,10 @@ export async function runPgRestore(
   archive: string,
   env: NodeJS.ProcessEnv,
 ): Promise<void> {
+  const resolvedArchive = resolve(archive);
   const container = containerName();
   if (!container) {
-    await execFileAsync(binary, [...args, archive], {
+    await execFileAsync(binary, [...args, '--', resolvedArchive], {
       env,
       timeout: 180_000,
       windowsHide: true,
@@ -96,7 +98,7 @@ export async function runPgRestore(
   try {
     await execFileAsync(
       'docker',
-      ['cp', archive, `${container}:${remoteFile}`],
+      ['cp', resolvedArchive, `${container}:${remoteFile}`],
       {
         timeout: 120_000,
         windowsHide: true,

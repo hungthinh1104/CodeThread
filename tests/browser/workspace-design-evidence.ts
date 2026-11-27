@@ -40,7 +40,7 @@ const fixtures = [
     text: 'export function unicodePath() { return "điều tra"; }\n',
   },
 ];
-const widths = [1440, 1280, 768, 390] as const;
+const widths = [1440, 1280, 1024, 768, 390, 320] as const;
 const themes = ['light', 'dark'] as const;
 const sharedTokens = [
   'canvas',
@@ -661,34 +661,37 @@ async function main() {
   try {
     const variants = [];
     for (const theme of themes) {
-      // Each isolated browser context uses one of the BFF's four local sessions.
-      const app = await startWorkspaceApp(snapshot);
-      try {
-        const legacy = await browser.newPage({ colorScheme: theme });
-        await legacy.goto(app.viewer.url);
-        const legacyTokens = await computedTokens(legacy);
-        await legacy.close();
-        for (const width of widths) {
-          const result = await captureVariant(
-            browser,
-            app.origin,
-            directory,
-            width,
-            theme,
-          );
-          assert.deepEqual(
-            result.tokens,
-            legacyTokens,
-            `${theme} shared Warm Graphite tokens`,
-          );
-          if (mode === 'after') verifyCandidate(result);
-          variants.push(result);
-          console.log(
-            `${width}px ${theme} captured ${result.shots.length} states`,
-          );
+      for (let offset = 0; offset < widths.length; offset += 4) {
+        // Viewport contexts retain BFF sessions after close; keep each app batch
+        // within the four-session cap instead of expiring product sessions.
+        const app = await startWorkspaceApp(snapshot);
+        try {
+          const legacy = await browser.newPage({ colorScheme: theme });
+          await legacy.goto(app.viewer.url);
+          const legacyTokens = await computedTokens(legacy);
+          await legacy.close();
+          for (const width of widths.slice(offset, offset + 4)) {
+            const result = await captureVariant(
+              browser,
+              app.origin,
+              directory,
+              width,
+              theme,
+            );
+            assert.deepEqual(
+              result.tokens,
+              legacyTokens,
+              `${theme} shared Warm Graphite tokens`,
+            );
+            if (mode === 'after') verifyCandidate(result);
+            variants.push(result);
+            console.log(
+              `${width}px ${theme} captured ${result.shots.length} states`,
+            );
+          }
+        } finally {
+          await app.close();
         }
-      } finally {
-        await app.close();
       }
     }
     const report: EvidenceReport = {

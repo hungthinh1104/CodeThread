@@ -247,6 +247,7 @@ export function verifyFacts(
         observation.relationId && relations.get(observation.relationId);
       requireFact(
         relation &&
+          relation.kind === 'calls' &&
           !seenRelations.has(relation.id) &&
           relation.sourceSymbolId === observation.ownerId &&
           relation.siteEvidenceId === site.id &&

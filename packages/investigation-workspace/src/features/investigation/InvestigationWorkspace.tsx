@@ -229,6 +229,7 @@ export function InvestigationWorkspace() {
   const [compactViewport, setCompactViewport] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [workspaceRetryable, setWorkspaceRetryable] = useState(false);
   const [initializationRetryVersion, setInitializationRetryVersion] =
     useState(0);
@@ -237,6 +238,16 @@ export function InvestigationWorkspace() {
   const [graphError, setGraphError] = useState<string | null>(null);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const scopeRef = useRef<Scope | null>(null);
+  const retryTargetRef = useRef<
+    | {
+        kind: 'project';
+        projectId: string;
+        metadata: WorkspaceMetadata;
+        contexts: ProjectContexts;
+      }
+    | { kind: 'contexts'; metadata: WorkspaceMetadata }
+    | null
+  >(null);
   const workspaceGeneration = useRef(0);
   const contextGeneration = useRef(0);
   const searchGeneration = useRef(0);
@@ -346,15 +357,18 @@ export function InvestigationWorkspace() {
     setSearchLoading(false);
   }
 
-  function resetProject(projectId: string) {
+  function resetProject(projectId: string, clearCatalog = false) {
     const generation = ++contextGeneration.current;
     scopeRef.current = null;
     setSelectedProjectId(projectId);
     setSession(null);
     clearSelection();
-    clearSearchResults();
-    if (searchMode === 'project') setSearchOffset(0);
+    if (clearCatalog || searchMode === 'project') {
+      clearSearchResults();
+      setSearchOffset(0);
+    }
     reportWorkspaceError(null);
+    setWorkspaceNotice(null);
     return generation;
   }
 
@@ -362,7 +376,8 @@ export function InvestigationWorkspace() {
     const generation = ++workspaceGeneration.current;
     ++selectionGeneration.current;
     ++fileGeneration.current;
-    resetProject('');
+    retryTargetRef.current = null;
+    resetProject('', true);
     setWorkspace(null);
     setProjects(null);
     setSearchQuery('');
@@ -397,6 +412,7 @@ export function InvestigationWorkspace() {
           },
         });
       rememberWorkspaceScan(metadata.scanId);
+      retryTargetRef.current = null;
       setWorkspace(metadata);
       setProjects(result);
       const ready = result.items.filter(
@@ -412,8 +428,10 @@ export function InvestigationWorkspace() {
       }
       await selectProject(initial.id, metadata, result, 'replace');
     } catch (error) {
-      if (generation === workspaceGeneration.current)
+      if (generation === workspaceGeneration.current) {
+        retryTargetRef.current = { kind: 'contexts', metadata };
         reportWorkspaceError(errorMessage(error), true);
+      }
     }
   }
 
@@ -438,9 +456,11 @@ export function InvestigationWorkspace() {
       selection === selectionGeneration.current &&
       contextAtStart === contextGeneration.current;
     reportWorkspaceError(null);
+    setWorkspaceNotice(null);
     try {
       const projection = await readSession(scope);
       if (!isCurrent()) return null;
+      retryTargetRef.current = null;
       resetProject(projectId);
       scopeRef.current = scope;
       setSession(projection);
@@ -457,8 +477,16 @@ export function InvestigationWorkspace() {
       else pushNavigation(entry);
       return scope;
     } catch (error) {
-      if (isCurrent())
+      if (isCurrent()) {
+        if (!scopeRef.current)
+          retryTargetRef.current = {
+            kind: 'project',
+            projectId,
+            metadata,
+            contexts,
+          };
         reportWorkspaceError(errorMessage(error), !scopeRef.current);
+      }
       return null;
     }
   }
@@ -654,6 +682,8 @@ export function InvestigationWorkspace() {
       view: 'source',
     };
     pushNavigation(entry);
+    reportWorkspaceError(null);
+    setWorkspaceNotice(null);
     void loadGraph(item.symbol, scope, relationKinds, direction);
     void loadEvidence(item.symbol.declarationEvidenceId, scope);
     focusSelectedDeclaration(generation);
@@ -661,6 +691,7 @@ export function InvestigationWorkspace() {
 
   async function chooseFile(file: FilePage['items'][number]) {
     const generation = ++selectionGeneration.current;
+    setWorkspaceNotice(null);
     if (file.status !== 'analyzed') {
       reportWorkspaceError(
         file.analysisReason
@@ -669,11 +700,17 @@ export function InvestigationWorkspace() {
       );
       return;
     }
-    const contextId = file.projectIds.find((id) =>
+    const isReady = (id: string) =>
       projects?.items.some(
         (item) => item.id === id && item.status === 'ready' && item.snapshotId,
-      ),
-    );
+      ) ?? false;
+    const activeProjectId = scopeRef.current?.projectId;
+    const contextId =
+      activeProjectId &&
+      file.projectIds.includes(activeProjectId) &&
+      isReady(activeProjectId)
+        ? activeProjectId
+        : file.projectIds.find(isReady);
     if (!contextId) {
       reportWorkspaceError(
         'No ready project context contains this analyzed file.',
@@ -693,8 +730,9 @@ export function InvestigationWorkspace() {
     }
     setSearchMode('project');
     setSearchOffset(0);
-    setSearchQuery(file.path);
-    reportWorkspaceError(
+    setSearchQuery(file.path.length > 256 ? file.path.slice(-256) : file.path);
+    reportWorkspaceError(null);
+    setWorkspaceNotice(
       'Full-file source is not available; matching declarations are shown from verified snapshot evidence.',
     );
   }
@@ -708,6 +746,8 @@ export function InvestigationWorkspace() {
       );
       return;
     }
+    reportWorkspaceError(null);
+    setWorkspaceNotice(null);
     setSelected(symbol);
     setContextCandidates([]);
     setContextSearchMessage(null);
@@ -736,6 +776,7 @@ export function InvestigationWorkspace() {
     if (
       !scope ||
       (!graph?.graph.evidenceRefs.some((item) => item.id === id) &&
+        !graph?.unknowns.items.some((item) => item.evidenceId === id) &&
         selected?.declarationEvidenceId !== id)
     ) {
       reportWorkspaceError(
@@ -946,7 +987,8 @@ export function InvestigationWorkspace() {
       if (
         id &&
         (root?.declarationEvidenceId === id ||
-          projection?.graph.evidenceRefs.some((item) => item.id === id))
+          projection?.graph.evidenceRefs.some((item) => item.id === id) ||
+          projection?.unknowns.items.some((item) => item.evidenceId === id))
       ) {
         void loadEvidence(id, scope, relationId);
       } else if (id) {
@@ -1163,6 +1205,10 @@ export function InvestigationWorkspace() {
   }
 
   async function chooseSearchPage(offset: number) {
+    if (offset === searchOffset) {
+      setSearchRetryVersion((version) => version + 1);
+      return;
+    }
     setSearchOffset(offset);
   }
 
@@ -1188,6 +1234,20 @@ export function InvestigationWorkspace() {
   }
 
   async function retryWorkspace() {
+    const target = retryTargetRef.current;
+    if (target?.kind === 'project') {
+      await selectProject(
+        target.projectId,
+        target.metadata,
+        target.contexts,
+        'replace',
+      );
+      return;
+    }
+    if (target?.kind === 'contexts') {
+      await loadProjectContexts(target.metadata, workspaceGeneration.current);
+      return;
+    }
     if (workspace && projects && selectedProjectId) {
       await selectProject(selectedProjectId);
       return;
@@ -1291,7 +1351,6 @@ export function InvestigationWorkspace() {
           }}
           searchQuery={searchQuery}
           onSearchQueryChange={(value) => {
-            ++selectionGeneration.current;
             setSearchQuery(value);
             setSearchOffset(0);
             clearSearchResults();
@@ -1299,7 +1358,6 @@ export function InvestigationWorkspace() {
           searchMode={searchMode}
           searchEnabled={Boolean(workspace && session)}
           onSearchModeChange={(value) => {
-            ++selectionGeneration.current;
             setSearchMode(value);
             setSearchOffset(0);
             clearSearchResults();
@@ -1319,6 +1377,7 @@ export function InvestigationWorkspace() {
           onRetryFiles={retryFiles}
           onFilesPage={(offset) => void chooseFilesPage(offset)}
           onChooseFile={(file) => void chooseFile(file)}
+          notice={workspaceNotice}
           error={workspaceError}
           errorRetryable={workspaceRetryable}
           onRetryWorkspace={() => void retryWorkspace()}

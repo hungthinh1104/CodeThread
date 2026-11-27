@@ -203,6 +203,7 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
   server.headersTimeout = 5000;
   server.keepAliveTimeout = 5000;
   server.maxConnections = 20;
+  server.maxRequestsPerSocket = 100;
 
   async function handleRequest(
     request: IncomingMessage,
@@ -222,8 +223,13 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
         403,
       );
 
-    const url = new URL(request.url ?? '/', `http://${expectedHost}`),
-      pathname = url.pathname;
+    let url: URL;
+    try {
+      url = new URL(request.url ?? '/', `http://${expectedHost}`);
+    } catch {
+      throw new ViewerFailure('INVALID_REQUEST', 'Invalid viewer URL.', 400);
+    }
+    const pathname = url.pathname;
     const asset = assets.get(pathname);
     if (request.method === 'GET' && asset) {
       response.writeHead(200, {
@@ -249,10 +255,13 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
         403,
       );
     const suppliedToken = request.headers['x-codethread-token'];
+    const suppliedBytes =
+      typeof suppliedToken === 'string' ? Buffer.from(suppliedToken) : null;
+    const expectedBytes = Buffer.from(token);
     if (
-      typeof suppliedToken !== 'string' ||
-      suppliedToken.length !== token.length ||
-      !timingSafeEqual(Buffer.from(suppliedToken), Buffer.from(token))
+      !suppliedBytes ||
+      suppliedBytes.length !== expectedBytes.length ||
+      !timingSafeEqual(suppliedBytes, expectedBytes)
     )
       throw new ViewerFailure(
         'FORBIDDEN',
@@ -286,14 +295,28 @@ async function createLocalViewer(input: ViewerInput): Promise<ViewerHandle> {
     throw new Error('Viewer failed to bind an ephemeral loopback port.');
   }
   origin = `http://127.0.0.1:${address.port}`;
+  let closePromise: Promise<void> | undefined;
   return {
     origin,
     url: `${origin}/#${token}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+    close: () => {
+      closePromise ??= new Promise<void>((resolve, reject) => {
+        if (!server.listening) {
+          resolve();
+          return;
+        }
+        server.close((error) => {
+          if (
+            error &&
+            (error as NodeJS.ErrnoException).code !== 'ERR_SERVER_NOT_RUNNING'
+          )
+            reject(error);
+          else resolve();
+        });
         server.closeAllConnections();
-      }),
+      });
+      return closePromise;
+    },
   };
 }
 

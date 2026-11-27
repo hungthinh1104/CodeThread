@@ -36,19 +36,28 @@ export async function storeSourceObjects(
       Buffer.from(bytes),
       bytes.byteLength,
     ]);
-    await db.unsafe(
-      `INSERT INTO codethread.source_object(sha256,bytes,byte_length)
-       VALUES ${values.join(',')}
-       ON CONFLICT (sha256) DO NOTHING`,
-      parameters as Parameters<Database['unsafe']>[1],
-    );
+    const insertChunk = () =>
+      db.unsafe(
+        `INSERT INTO codethread.source_object(sha256,bytes,byte_length)
+         VALUES ${values.join(',')}
+         ON CONFLICT (sha256) DO NOTHING`,
+        parameters as Parameters<Database['unsafe']>[1],
+      );
+    await insertChunk();
     const hashes = chunk.map(([sha256]) => sha256),
       slots = hashes.map((_, index) => `$${index + 1}`).join(',');
-    const stored = await db.unsafe(
-      `SELECT sha256,bytes,byte_length FROM codethread.source_object
-       WHERE sha256 IN (${slots})`,
-      hashes,
-    );
+    const readStored = () =>
+      db.unsafe(
+        `SELECT sha256,bytes,byte_length FROM codethread.source_object
+         WHERE sha256 IN (${slots})`,
+        hashes,
+      );
+    let stored = await readStored();
+    if (stored.length < chunk.length) {
+      // Retention prune can remove an unreferenced row between INSERT and SELECT.
+      await insertChunk();
+      stored = await readStored();
+    }
     const byHash = new Map(stored.map((row) => [String(row.sha256), row]));
     for (const [sha256, expected] of chunk) {
       const actual = byHash.get(sha256),

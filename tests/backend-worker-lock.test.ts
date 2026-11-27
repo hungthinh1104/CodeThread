@@ -78,14 +78,14 @@ describe.skipIf(!databaseUrl)('worker lock connection loss', () => {
       first = startWorker();
       await waitForReady(first);
       const locks = await db`SELECT pid FROM pg_locks
-        WHERE locktype='advisory' AND classid=1919606126::oid
+        WHERE locktype='advisory' AND classid=1919606129::oid
           AND objid=2::oid AND objsubid=2 AND granted`;
       expect(locks).toHaveLength(1);
       await db`SELECT pg_terminate_backend(${locks[0]!.pid})`;
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {
         const held = await db`SELECT pid FROM pg_locks
-          WHERE locktype='advisory' AND classid=1919606126::oid
+          WHERE locktype='advisory' AND classid=1919606129::oid
             AND objid=2::oid AND objsubid=2 AND granted`;
         if (!held.length) break;
         await new Promise((resolve) => setTimeout(resolve, 20));

@@ -119,7 +119,9 @@ export function EvidenceInspector(props: Props) {
                 {props.item.evidence.extractor.version}
               </span>
             </p>
-            <pre className="evidence-text">{props.item.text}</pre>
+            <pre className="evidence-text" tabIndex={0}>
+              {props.item.text}
+            </pre>
             <p className="caption">
               Exact verified evidence excerpt; this is not the complete file.
             </p>

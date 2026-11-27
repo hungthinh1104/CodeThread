@@ -623,12 +623,6 @@ pre {
   }
 }
 
-@media (min-width: 761px) and (max-width: 1120px) {
-  .inspector {
-    grid-column: 1 / -1;
-  }
-}
-
 @media (max-width: 900px) {
   .inspector-drawer.is-open {
     position: fixed;

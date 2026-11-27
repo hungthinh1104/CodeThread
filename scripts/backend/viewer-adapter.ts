@@ -19,12 +19,19 @@ const VIEWER_TTL_MS = 30 * 60 * 1000;
 export class PersistentViewerManager {
   private readonly active = new Map<string, Promise<ActiveViewer>>();
   private readonly db: Database;
+  private closed = false;
 
   constructor(db: Database) {
     this.db = db;
   }
 
   async open(jobId: string): Promise<{ url: string; expiresAt: string }> {
+    if (this.closed)
+      throw new ServiceError(
+        503,
+        'VIEWER_UNAVAILABLE',
+        'Persistent viewer manager is shutting down.',
+      );
     const scanId = jobId.toLowerCase();
     const existing = this.active.get(scanId);
     let viewer: ActiveViewer;
@@ -32,7 +39,12 @@ export class PersistentViewerManager {
       viewer = await existing;
       const [retained] = await this.db`SELECT id FROM codethread.scan_job
         WHERE id=${scanId} AND state='succeeded'`;
-      if (!retained) throw new ServiceError(404, 'NOT_FOUND', 'Scan not found');
+      if (!retained) {
+        clearTimeout(viewer.timer);
+        if (this.active.get(scanId) === existing) this.active.delete(scanId);
+        await viewer.handle.close().catch(() => {});
+        throw new ServiceError(404, 'NOT_FOUND', 'Scan not found');
+      }
     } else {
       if (this.active.size >= MAX_VIEWERS)
         throw new ServiceError(
@@ -50,6 +62,15 @@ export class PersistentViewerManager {
         if (this.active.get(scanId) === opening) this.active.delete(scanId);
         throw error;
       }
+    }
+    if (this.closed) {
+      clearTimeout(viewer.timer);
+      await viewer.handle.close().catch(() => {});
+      throw new ServiceError(
+        503,
+        'VIEWER_UNAVAILABLE',
+        'Persistent viewer manager is shutting down.',
+      );
     }
     if (Date.now() >= viewer.expiresAt)
       throw new ServiceError(
@@ -79,7 +100,21 @@ export class PersistentViewerManager {
         );
       throw error;
     }
+    if (this.closed)
+      throw new ServiceError(
+        503,
+        'VIEWER_UNAVAILABLE',
+        'Persistent viewer manager is shutting down.',
+      );
     const handle = await createRepositoryViewer(session);
+    if (this.closed) {
+      await handle.close().catch(() => {});
+      throw new ServiceError(
+        503,
+        'VIEWER_UNAVAILABLE',
+        'Persistent viewer manager is shutting down.',
+      );
+    }
     const expiresAt = Date.now() + VIEWER_TTL_MS;
     const timer = setTimeout(() => {
       void handle
@@ -92,6 +127,7 @@ export class PersistentViewerManager {
   }
 
   async closeAll(): Promise<void> {
+    this.closed = true;
     const viewers = [...this.active.values()];
     this.active.clear();
     await Promise.all(

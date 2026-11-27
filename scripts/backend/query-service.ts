@@ -10,10 +10,12 @@ import {
   parseFindSymbolPathsResult,
   parseListSymbolsResult,
 } from '@codethread/contracts';
-import { createInvestigation } from '@codethread/trace-engine';
 import type { CoverageStatus } from '@codethread/code-model';
-import type { Database } from './database.ts';
-import { loadSnapshot } from './snapshot-persistence.ts';
+import { withScanRead, type Database } from './database.ts';
+import {
+  loadSnapshotContentsInTransaction,
+  protectSnapshotRead,
+} from './snapshot-persistence.ts';
 import { searchPublishedSymbols } from './symbol-search.ts';
 import { ServiceError } from './service.ts';
 import type { ScanService } from './service.ts';
@@ -69,15 +71,17 @@ export class BackendQueryService {
     projectId: string,
     input: unknown,
   ) {
-    const snapshotId = await this.scans.publishedSnapshot(jobId, projectId);
-    const request = listSymbolsRequestSchema.parse({
-      ...symbolSearchParameters.parse(input),
-      snapshotId,
-    });
-    return this.db.begin(async (transaction) => {
-      const db = transaction as unknown as Database;
-      await db`SELECT pg_advisory_xact_lock_shared(
-        1919606126,hashtext(${snapshotId}::text))`;
+    return withScanRead(this.db, jobId, async (db) => {
+      const snapshotId = await this.scans.publishedSnapshot(
+        jobId,
+        projectId,
+        db,
+      );
+      const request = listSymbolsRequestSchema.parse({
+        ...symbolSearchParameters.parse(input),
+        snapshotId,
+      });
+      await protectSnapshotRead(db, snapshotId);
       const [snapshotRows, capabilityRows] = await Promise.all([
         db`SELECT coverage FROM codethread.repository_snapshot
           WHERE id=${snapshotId} AND state='published'`,
@@ -155,26 +159,28 @@ export class BackendQueryService {
     kind: ProjectQuery,
     input: unknown,
   ) {
-    const expectedSnapshotId = await this.scans.publishedSnapshot(
-      jobId,
-      projectId,
-    );
-    const request =
-      kind === 'neighbors'
-        ? graphNeighborsRequestSchema.parse(input)
-        : kind === 'paths'
-          ? findSymbolPathsRequestSchema.parse(input)
-          : getSourceEvidenceRequestSchema.parse(input);
-    if (request.snapshotId !== expectedSnapshotId)
-      throw new ServiceError(
-        409,
-        'SNAPSHOT_MISMATCH',
-        'Query snapshot does not match the selected project.',
+    const snapshot = await withScanRead(this.db, jobId, async (db) => {
+      const expectedSnapshotId = await this.scans.publishedSnapshot(
+        jobId,
+        projectId,
+        db,
       );
-    const snapshot = await loadSnapshot(this.db, expectedSnapshotId);
-    const investigation = createInvestigation(snapshot.facts, snapshot.source, {
-      resourceProfile: 'repository',
+      const request =
+        kind === 'neighbors'
+          ? graphNeighborsRequestSchema.parse(input)
+          : kind === 'paths'
+            ? findSymbolPathsRequestSchema.parse(input)
+            : getSourceEvidenceRequestSchema.parse(input);
+      if (request.snapshotId !== expectedSnapshotId)
+        throw new ServiceError(
+          409,
+          'SNAPSHOT_MISMATCH',
+          'Query snapshot does not match the selected project.',
+        );
+      await protectSnapshotRead(db, expectedSnapshotId);
+      return loadSnapshotContentsInTransaction(db, expectedSnapshotId);
     });
+    const { investigation } = snapshot;
     if (kind === 'neighbors') {
       const neighbors = graphNeighborsRequestSchema.parse(input);
       return validateServerResult(() =>

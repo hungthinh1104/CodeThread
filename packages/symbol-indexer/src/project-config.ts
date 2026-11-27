@@ -5,6 +5,7 @@ import { PROJECT_SOURCE_ROOT } from './project-filesystem.js';
 import type { ProjectDiagnostic } from './analysis-types.js';
 
 const MAX_EXTENSIONS = 32;
+const MAX_EXTENSION_CHAIN = 64;
 const MAX_REFERENCES = 32;
 const MAX_SOURCE_PATHS = 1000;
 const MAX_GLOBS = 128;
@@ -17,40 +18,53 @@ export function projectConfigPath(input: string): string {
   return absolute.endsWith('.json') ? absolute : absolute + '/tsconfig.json';
 }
 
-export function parseProjectConfig(
+function isWithinSourceRoot(absolute: string, allowRoot = false): boolean {
+  return (
+    absolute.startsWith(PROJECT_SOURCE_ROOT + '/') ||
+    (allowRoot && absolute === PROJECT_SOURCE_ROOT)
+  );
+}
+
+function validateConfigTree(
   filesystem: ProjectFilesystem,
-  path: string,
-) {
-  const diagnostics: ProjectDiagnostic[] = [];
-  const absolute = projectConfigPath(path);
-  if (!absolute.startsWith(PROJECT_SOURCE_ROOT + '/')) {
+  absolute: string,
+  diagnostics: ProjectDiagnostic[],
+  visited: Set<string>,
+  checkpoint?: () => void,
+  isRoot = false,
+): boolean {
+  checkpoint?.();
+  if (visited.has(absolute)) return false;
+  if (visited.size >= MAX_EXTENSION_CHAIN) {
     diagnostics.push({
-      code: 'PROJECT_PATH_ESCAPE',
-      message: 'Configuration escapes the pinned repository.',
-      path,
+      code: 'PROJECT_CONFIG_LIMIT',
+      message: 'extends chain exceeds its configured file limit.',
+      path: absolute.slice(PROJECT_SOURCE_ROOT.length + 1),
     });
-    return { parsed: undefined, diagnostics };
+    return true;
   }
+  visited.add(absolute);
   const configPath = absolute.slice(PROJECT_SOURCE_ROOT.length + 1);
   const text = filesystem.host.readFile(absolute);
   if (text === undefined) {
-    diagnostics.push({
-      code: 'PROJECT_CONFIG_MISSING',
-      message: 'Pinned project configuration is unavailable.',
-      path: configPath,
-    });
-    return { parsed: undefined, diagnostics };
+    if (isRoot) {
+      diagnostics.push({
+        code: 'PROJECT_CONFIG_MISSING',
+        message: 'Pinned project configuration is unavailable.',
+        path: configPath,
+      });
+      return true;
+    }
+    return false;
   }
-  const onDiagnostic = (diagnostic: ts.Diagnostic) =>
-    diagnostics.push({
-      code: `TS_${diagnostic.code}`,
-      message: `TypeScript configuration diagnostic ${diagnostic.code}.`,
-      path: configPath,
-    });
   const json = ts.parseConfigFileTextToJson(absolute, text);
   if (json.error) {
-    onDiagnostic(json.error);
-    return { parsed: undefined, diagnostics };
+    diagnostics.push({
+      code: `TS_${json.error.code}`,
+      message: `TypeScript configuration diagnostic ${json.error.code}.`,
+      path: configPath,
+    });
+    return true;
   }
   const raw = json.config as Record<string, unknown> | undefined;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
@@ -59,7 +73,7 @@ export function parseProjectConfig(
       message: 'Project configuration must be a JSON object.',
       path: configPath,
     });
-    return { parsed: undefined, diagnostics };
+    return true;
   }
   let unsafe = false;
   const reject = (code: string, message: string) => {
@@ -93,6 +107,7 @@ export function parseProjectConfig(
           `${name} contains a non-string or oversized value.`,
         );
   };
+  const validParents: string[] = [];
   const extensions =
     typeof raw.extends === 'string'
       ? [raw.extends]
@@ -110,21 +125,25 @@ export function parseProjectConfig(
       if (
         typeof extension !== 'string' ||
         extension.length > MAX_CONFIG_PATH_LENGTH ||
+        extension.includes('\\') ||
         !/^\.\.?\//.test(extension)
       ) {
         reject(
           'EXTERNAL_CONFIG_UNAVAILABLE',
           'Only pinned relative configuration extensions are supported.',
         );
-      } else if (
-        !posix
-          .resolve(posix.dirname(absolute), extension)
-          .startsWith(PROJECT_SOURCE_ROOT + '/')
-      ) {
-        reject(
-          'PROJECT_PATH_ESCAPE',
-          'Configuration escapes the pinned repository.',
-        );
+      } else {
+        const target = posix.resolve(posix.dirname(absolute), extension);
+        if (!isWithinSourceRoot(target)) {
+          reject(
+            'PROJECT_PATH_ESCAPE',
+            'Configuration escapes the pinned repository.',
+          );
+        } else {
+          validParents.push(
+            target.endsWith('.json') ? target : target + '.json',
+          );
+        }
       }
     }
   }
@@ -168,11 +187,8 @@ export function parseProjectConfig(
           );
           continue;
         }
-        if (
-          !posix
-            .resolve(posix.dirname(absolute), reference.path)
-            .startsWith(PROJECT_SOURCE_ROOT + '/')
-        )
+        const target = posix.resolve(posix.dirname(absolute), reference.path);
+        if (!isWithinSourceRoot(target, true))
           reject(
             'PROJECT_PATH_ESCAPE',
             'A project reference escapes the pinned repository.',
@@ -230,7 +246,47 @@ export function parseProjectConfig(
       }
     }
   }
+  for (const parent of validParents)
+    if (
+      validateConfigTree(filesystem, parent, diagnostics, visited, checkpoint)
+    )
+      unsafe = true;
+  return unsafe;
+}
+
+export function parseProjectConfig(
+  filesystem: ProjectFilesystem,
+  path: string,
+  checkpoint?: () => void,
+) {
+  checkpoint?.();
+  const diagnostics: ProjectDiagnostic[] = [];
+  const absolute = projectConfigPath(path);
+  if (!isWithinSourceRoot(absolute)) {
+    diagnostics.push({
+      code: 'PROJECT_PATH_ESCAPE',
+      message: 'Configuration escapes the pinned repository.',
+      path,
+    });
+    return { parsed: undefined, diagnostics };
+  }
+  const configPath = absolute.slice(PROJECT_SOURCE_ROOT.length + 1);
+  const onDiagnostic = (diagnostic: ts.Diagnostic) =>
+    diagnostics.push({
+      code: `TS_${diagnostic.code}`,
+      message: `TypeScript configuration diagnostic ${diagnostic.code}.`,
+      path: configPath,
+    });
+  const unsafe = validateConfigTree(
+    filesystem,
+    absolute,
+    diagnostics,
+    new Set(),
+    checkpoint,
+    true,
+  );
   if (unsafe) return { parsed: undefined, diagnostics };
+  checkpoint?.();
   const parsed = ts.getParsedCommandLineOfConfigFile(
     absolute,
     {},
@@ -241,7 +297,7 @@ export function parseProjectConfig(
   );
   for (const diagnostic of parsed?.errors ?? []) onDiagnostic(diagnostic);
   for (const file of parsed?.fileNames ?? []) {
-    if (!file.startsWith(PROJECT_SOURCE_ROOT + '/'))
+    if (!isWithinSourceRoot(file))
       diagnostics.push({
         code: 'PROJECT_PATH_ESCAPE',
         message: 'A project source escapes the pinned repository.',
@@ -255,7 +311,7 @@ export function parseProjectConfig(
       });
   }
   for (const reference of parsed?.projectReferences ?? []) {
-    if (!reference.path.startsWith(PROJECT_SOURCE_ROOT + '/'))
+    if (!isWithinSourceRoot(reference.path, true))
       diagnostics.push({
         code: 'PROJECT_PATH_ESCAPE',
         message: 'A project reference escapes the pinned repository.',

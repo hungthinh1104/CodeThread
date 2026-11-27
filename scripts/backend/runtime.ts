@@ -51,6 +51,7 @@ export async function startBackend(config: RuntimeConfig) {
         } finally {
           clearTimeout(grace);
           activeServer.closeAllConnections();
+          await viewers.closeAll().catch(() => {});
           await db.end({ timeout: 1 });
         }
       })();
@@ -58,6 +59,7 @@ export async function startBackend(config: RuntimeConfig) {
       const timeout = new Promise<never>((_, reject) => {
         deadline = setTimeout(() => {
           activeServer.closeAllConnections();
+          void viewers.closeAll().catch(() => {});
           void activeLease.close();
           void db.end({ timeout: 0 });
           reject(new Error('Backend shutdown exceeded its deadline'));

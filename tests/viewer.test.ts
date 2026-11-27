@@ -340,4 +340,57 @@ describe('CT-VIEW-001 loopback viewer', () => {
       await viewer.close();
     }
   });
+
+  it('rejects non-ASCII 64-char tokens with 403, malformed URLs with 400, and makes close() idempotent', async () => {
+    const snapshot = await loadTinySnapshot();
+    const viewer = await createViewer(snapshot);
+    const url = new URL(viewer.origin);
+    try {
+      const nonAsciiStatus = await new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+          {
+            hostname: '127.0.0.1',
+            port: Number(url.port),
+            path: '/api/session',
+            method: 'POST',
+            headers: {
+              host: url.host,
+              origin: viewer.origin,
+              'content-type': 'application/json',
+              'x-codethread-token': '\u00ff' + '0'.repeat(63),
+            },
+          },
+          (response) => {
+            response.resume();
+            response.once('end', () => resolve(response.statusCode ?? 0));
+          },
+        );
+        req.once('error', reject);
+        req.end('{}');
+      });
+      expect(nonAsciiStatus).toBe(403);
+
+      const badUrlStatus = await new Promise<number>((resolve, reject) => {
+        const req = httpRequest(
+          {
+            hostname: '127.0.0.1',
+            port: Number(url.port),
+            path: '//[invalid',
+            method: 'GET',
+            headers: { host: url.host },
+          },
+          (response) => {
+            response.resume();
+            response.once('end', () => resolve(response.statusCode ?? 0));
+          },
+        );
+        req.once('error', reject);
+        req.end();
+      });
+      expect(badUrlStatus).toBe(400);
+    } finally {
+      await viewer.close();
+      await viewer.close();
+    }
+  });
 });

@@ -73,6 +73,7 @@ function TraceDiagram({ graph }: Props) {
       </p>
       <div
         className="trace-graph-scroll"
+        role="region"
         tabIndex={0}
         aria-label="Scrollable relationship diagram"
       >
@@ -94,6 +95,20 @@ function TraceDiagram({ graph }: Props) {
             >
               <path d="M0,0 L8,4 L0,8 Z" fill="var(--ct-accent)" />
             </marker>
+            {symbols.map((symbol, index) => {
+              const point = positions.get(symbol.id);
+              if (!point) return null;
+              return (
+                <clipPath key={symbol.id} id={`trace-node-clip-${index}`}>
+                  <rect
+                    x={point.x + 4}
+                    y={point.y + 4}
+                    width={nodeWidth - 8}
+                    height={nodeHeight - 8}
+                  />
+                </clipPath>
+              );
+            })}
           </defs>
           {visibleRelations.map((relation) => {
             const source = positions.get(relation.sourceSymbolId);
@@ -121,7 +136,7 @@ function TraceDiagram({ graph }: Props) {
               </g>
             );
           })}
-          {symbols.map((symbol) => {
+          {symbols.map((symbol, index) => {
             const point = positions.get(symbol.id);
             if (!point) return null;
             return (
@@ -133,21 +148,23 @@ function TraceDiagram({ graph }: Props) {
                   height={nodeHeight}
                   rx="6"
                 />
-                <text
-                  x={point.x + 9}
-                  y={point.y + 22}
-                  className="trace-node-name"
-                >
-                  {symbol.name.slice(0, 22)}
-                </text>
-                <text
-                  x={point.x + 9}
-                  y={point.y + 42}
-                  className="trace-node-location"
-                >
-                  {symbol.filePath.split('/').at(-1)?.slice(0, 22)}:
-                  {symbol.range.start.line}
-                </text>
+                <g clipPath={`url(#trace-node-clip-${index})`}>
+                  <text
+                    x={point.x + 9}
+                    y={point.y + 22}
+                    className="trace-node-name"
+                  >
+                    {symbol.name.slice(0, 22)}
+                  </text>
+                  <text
+                    x={point.x + 9}
+                    y={point.y + 42}
+                    className="trace-node-location"
+                  >
+                    {symbol.filePath.split('/').at(-1)?.slice(0, 22)}:
+                    {symbol.range.start.line}
+                  </text>
+                </g>
               </g>
             );
           })}

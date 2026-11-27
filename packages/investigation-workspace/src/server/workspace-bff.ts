@@ -12,6 +12,25 @@ const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5000;
 const MAX_SESSIONS = 4;
+const SESSION_REUSE_MARGIN_MS = 5_000;
+
+function isTimeoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'TimeoutError' || error.name === 'AbortError')
+  );
+}
+
+function isStaleViewerError(error: unknown): boolean {
+  if (!(error instanceof WorkspaceBffError)) return false;
+  return (
+    error.code === 'VIEWER_UNAVAILABLE' ||
+    error.code === 'UPSTREAM_INVALID_RESPONSE' ||
+    error.status === 401 ||
+    error.status === 403 ||
+    error.status === 404
+  );
+}
 export const workspaceScanIdSchema = z
   .uuid()
   .transform((id) => id.toLowerCase());
@@ -187,12 +206,14 @@ async function boundedJson(response: Response): Promise<unknown> {
     ?.split(';')[0]
     ?.trim()
     .toLowerCase();
-  if (mediaType !== 'application/json')
+  if (mediaType !== 'application/json') {
+    await response.body?.cancel();
     throw new WorkspaceBffError(
       502,
       'UPSTREAM_INVALID_RESPONSE',
       'Local service returned an invalid response.',
     );
+  }
   const length = Number(response.headers.get('content-length') ?? 0);
   if (length > MAX_RESPONSE_BYTES) {
     await response.body?.cancel();
@@ -267,19 +288,27 @@ async function backendRequest(
       redirect: 'manual',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (isTimeoutError(error))
+      throw new WorkspaceBffError(
+        504,
+        'BACKEND_TIMEOUT',
+        'The local CodeThread backend timed out.',
+      );
     throw new WorkspaceBffError(
       503,
       'BACKEND_UNAVAILABLE',
       'The local CodeThread backend is unavailable.',
     );
   }
-  if (response.status >= 300 && response.status < 400)
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
     throw new WorkspaceBffError(
       502,
       'UPSTREAM_REDIRECT_REJECTED',
       'The local backend returned an unexpected redirect.',
     );
+  }
   const value = await boundedJson(response);
   if (!response.ok) {
     const error = backendApiErrorResponseSchema.safeParse(value);
@@ -365,16 +394,21 @@ export async function openWorkspace(
   if (existingSessionId) {
     const existing = sessions.get(existingSessionId);
     if (existing?.metadata.scanId === scanId) {
-      try {
-        await forwardViewerOperation(existingSessionId, scanId, 'projects', {});
-        return { sessionId: existingSessionId, metadata: existing.metadata };
-      } catch (error) {
-        if (
-          !(error instanceof WorkspaceBffError) ||
-          error.code !== 'VIEWER_UNAVAILABLE'
-        )
-          throw error;
+      if (existing.expiresAt - Date.now() < SESSION_REUSE_MARGIN_MS) {
         sessions.delete(existingSessionId);
+      } else {
+        try {
+          await forwardViewerOperation(
+            existingSessionId,
+            scanId,
+            'projects',
+            {},
+          );
+          return { sessionId: existingSessionId, metadata: existing.metadata };
+        } catch (error) {
+          if (!isStaleViewerError(error)) throw error;
+          sessions.delete(existingSessionId);
+        }
       }
     }
   }
@@ -462,10 +496,7 @@ export async function workspaceMetadata(
   try {
     await forwardViewerOperation(sessionId, scanId, 'projects', {});
   } catch (error) {
-    if (
-      error instanceof WorkspaceBffError &&
-      error.code === 'VIEWER_UNAVAILABLE'
-    ) {
+    if (isStaleViewerError(error)) {
       if (sessionId) sessions.delete(sessionId);
       throw new WorkspaceBffError(
         401,
@@ -522,19 +553,27 @@ export async function forwardViewerOperation(
       redirect: 'manual',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (isTimeoutError(error))
+      throw new WorkspaceBffError(
+        504,
+        'VIEWER_TIMEOUT',
+        'The local snapshot viewer timed out.',
+      );
     throw new WorkspaceBffError(
       503,
       'VIEWER_UNAVAILABLE',
       'The local snapshot viewer is unavailable.',
     );
   }
-  if (response.status >= 300 && response.status < 400)
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
     throw new WorkspaceBffError(
       502,
       'UPSTREAM_REDIRECT_REJECTED',
       'The local viewer returned an unexpected redirect.',
     );
+  }
   const result = await boundedJson(response);
   if (!response.ok) {
     const error = backendApiErrorResponseSchema.safeParse(result);

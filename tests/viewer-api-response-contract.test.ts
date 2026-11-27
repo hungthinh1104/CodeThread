@@ -207,5 +207,101 @@ describe('viewer response schema negative controls', () => {
         candidates: [],
       }).success,
     ).toBe(false);
+    expect(
+      schema.safeParse({
+        projectId: 'selected',
+        snapshotId: id,
+        symbolId: id,
+        requiresChoice: true,
+        candidates: [candidate, candidate],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects inconsistent session coverage and cross-snapshot unknowns in viewer responses', () => {
+    const validIdentity = {
+      repositoryId: id,
+      sourceFingerprint: 'a'.repeat(64),
+      analyzerVersion: 'ct-index-001b/0.1.0;typescript/6.0.3',
+      analyzerBuildHash: 'b'.repeat(64),
+      configurationHash: 'c'.repeat(64),
+    };
+    const validCounts = {
+      files: 1,
+      declarations: 1,
+      callSites: 0,
+      exact: 0,
+      unresolved: 0,
+      ambiguous: 0,
+      unsupported: 0,
+      notAnalyzedInputs: 0,
+    };
+    expect(
+      viewerApiResponseSchemas['/api/session'].safeParse({
+        snapshotId: id,
+        identity: validIdentity,
+        counts: validCounts,
+        coverage: 'complete',
+        coverageByCapability: { 'direct_calls.v1': 'partial' },
+      }).success,
+    ).toBe(false);
+    expect(
+      viewerApiResponseSchemas['/api/session'].safeParse({
+        snapshotId: id,
+        identity: validIdentity,
+        counts: validCounts,
+        coverage: 'complete',
+        coverageByCapability: { unversioned: 'complete' },
+      }).success,
+    ).toBe(false);
+    expect(
+      viewerApiResponseSchemas['/api/neighbors'].safeParse({
+        graph: {
+          meta: {
+            snapshotId: id,
+            evidenceBasis: 'static',
+            coverage: 'partial',
+            coverageByCapability: { 'direct_calls.v1': 'partial' },
+            truncated: false,
+            truncationReasons: [],
+            appliedLimits: { nodes: 50, depth: 2 },
+          },
+          rootSymbolId: id,
+          symbols: [symbol],
+          relations: [],
+          evidenceRefs: [
+            {
+              id,
+              snapshotId: id,
+              fileId: id,
+              contentHash: 'a'.repeat(64),
+              range: symbol.range,
+              kind: 'declaration',
+              extractor: { name: 'ts', version: '1' },
+            },
+          ],
+          diagnostics: [],
+        },
+        unknowns: {
+          total: 1,
+          items: [
+            {
+              evidenceId: id,
+              status: 'unsupported',
+              diagnostic: {
+                id: otherId,
+                snapshotId: otherId,
+                code: 'CALL_UNSUPPORTED',
+                severity: 'warning',
+                message: 'Cross-snapshot diagnostic',
+                fileId: null,
+                filePath: null,
+                range: null,
+              },
+            },
+          ],
+        },
+      }).success,
+    ).toBe(false);
   });
 });

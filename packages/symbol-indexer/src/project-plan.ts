@@ -37,6 +37,8 @@ export function planRepositoryProjects(
   const filesystem = createProjectFilesystem(
     [...prepared.files, ...prepared.metadata],
     prepared.workspacePackages,
+    undefined,
+    checkpoint,
   );
   const prefix = PROJECT_SOURCE_ROOT + '/';
   const configPaths = prepared.metadata
@@ -82,7 +84,7 @@ export function planRepositoryProjects(
             posix.dirname(file.path),
             path,
           );
-          if (resolved.startsWith(prefix))
+          if (resolved === PROJECT_SOURCE_ROOT || resolved.startsWith(prefix))
             referenced.add(projectConfigPath(resolved).slice(prefix.length));
         }
       }
@@ -119,7 +121,11 @@ export function planRepositoryProjects(
       posix.basename(configPath) !== 'tsconfig.json'
     )
       continue;
-    const { parsed, diagnostics } = parseProjectConfig(filesystem, configPath);
+    const { parsed, diagnostics } = parseProjectConfig(
+      filesystem,
+      configPath,
+      checkpoint,
+    );
     checkpoint();
     const rootPaths = [
       ...new Set(

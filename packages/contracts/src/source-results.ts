@@ -46,6 +46,18 @@ export function parseGetDiagnosticsResult(
       key: diagnostic.id,
     })),
   );
+  for (const [index, diagnostic] of response.items.entries()) {
+    ensure(
+      (request.filters.severity === undefined ||
+        diagnostic.severity === request.filters.severity) &&
+        (request.filters.code === undefined ||
+          diagnostic.code === request.filters.code) &&
+        (request.filters.fileId === undefined ||
+          diagnostic.fileId === request.filters.fileId),
+      'Diagnostic does not match the requested filter',
+      ['items', index],
+    );
+  }
   return response;
 }
 
@@ -72,6 +84,9 @@ export function parseListSymbolsResult(
   ensure(
     (response.total >= end ||
       (response.items.length === 0 && request.offset >= response.total)) &&
+      (!hasMore ||
+        (response.items.length > 0 &&
+          response.items.length === request.limit)) &&
       response.nextOffset === (hasMore ? end : null) &&
       response.meta.truncated === hasMore &&
       response.meta.truncationReasons.join(',') ===

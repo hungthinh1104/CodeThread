@@ -9,7 +9,7 @@ export function workspaceOrigin(): string {
   const port = Number(rawPort);
   if (port < 1 || port > 65535)
     throw new Error('CODETHREAD_WORKSPACE_PORT is outside the valid range.');
-  return `http://127.0.0.1:${port}`;
+  return new URL(`http://127.0.0.1:${port}`).origin;
 }
 
 export function trustedLocalRequest(
@@ -21,7 +21,10 @@ export function trustedLocalRequest(
   const requestOrigin = request.headers.get('origin');
   if (requireOrigin && requestOrigin !== origin) return false;
   if (requestOrigin && requestOrigin !== origin) return false;
-  return request.headers.get('sec-fetch-site') !== 'cross-site';
+  const fetchSite = request.headers.get('sec-fetch-site');
+  return (
+    fetchSite === null || fetchSite === 'same-origin' || fetchSite === 'none'
+  );
 }
 
 export function sessionIdFromCookie(

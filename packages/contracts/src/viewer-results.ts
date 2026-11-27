@@ -1,8 +1,10 @@
 import {
+  coverageByCapabilitySchema,
   coverageSchema,
   diagnosticSchema,
   idSchema,
   snapshotIdentitySchema,
+  summarizeCoverage,
   symbolSchema,
 } from '@codethread/code-model';
 import { z } from 'zod';
@@ -33,13 +35,23 @@ const projectDiagnosticSchema = z.strictObject({
   path: z.string().optional(),
 });
 
-export const viewerSessionResponseSchema = z.strictObject({
-  snapshotId: idSchema,
-  identity: snapshotIdentitySchema,
-  counts: analysisCountsSchema,
-  coverage: coverageSchema,
-  coverageByCapability: z.record(z.string(), coverageSchema),
-});
+export const viewerSessionResponseSchema = z
+  .strictObject({
+    snapshotId: idSchema,
+    identity: snapshotIdentitySchema,
+    counts: analysisCountsSchema,
+    coverage: coverageSchema,
+    coverageByCapability: coverageByCapabilitySchema,
+  })
+  .superRefine((session, context) => {
+    if (session.coverage !== summarizeCoverage(session.coverageByCapability))
+      context.addIssue({
+        code: 'custom',
+        path: ['coverage'],
+        message:
+          'Session coverage must match summarizeCoverage(coverageByCapability).',
+      });
+  });
 
 export const viewerSymbolSearchResponseSchema = z
   .strictObject({
@@ -73,13 +85,34 @@ const unsupportedObservationSchema = z.strictObject({
   status: z.enum(['ambiguous', 'unresolved', 'unsupported']),
   diagnostic: diagnosticSchema.nullable(),
 });
-export const viewerGraphResponseSchema = z.strictObject({
-  graph: graphNeighborsResponseSchema,
-  unknowns: z.strictObject({
-    total: z.number().int().nonnegative(),
-    items: z.array(unsupportedObservationSchema).max(50),
-  }),
-});
+export const viewerGraphResponseSchema = z
+  .strictObject({
+    graph: graphNeighborsResponseSchema,
+    unknowns: z.strictObject({
+      total: z.number().int().nonnegative(),
+      items: z.array(unsupportedObservationSchema).max(50),
+    }),
+  })
+  .superRefine((response, context) => {
+    if (response.unknowns.items.length > response.unknowns.total)
+      context.addIssue({
+        code: 'custom',
+        path: ['unknowns', 'total'],
+        message: 'Unknown observation items cannot exceed unknowns.total.',
+      });
+    response.unknowns.items.forEach((item, index) => {
+      if (
+        item.diagnostic &&
+        item.diagnostic.snapshotId !== response.graph.meta.snapshotId
+      )
+        context.addIssue({
+          code: 'custom',
+          path: ['unknowns', 'items', index, 'diagnostic', 'snapshotId'],
+          message:
+            'Unknown observation diagnostic must belong to the graph snapshot.',
+        });
+    });
+  });
 
 const projectsResponseSchema = z.strictObject({
   mode: z.enum(['repository', 'selected']),
@@ -233,6 +266,17 @@ const followResponseSchema = z
         path: ['requiresChoice'],
         message: 'Choice requirement must match the candidate count.',
       });
+    const seen = new Set<string>();
+    response.candidates.forEach((candidate, index) => {
+      const key = `${candidate.projectId}:${candidate.snapshotId}:${candidate.symbolId}`;
+      if (seen.has(key))
+        context.addIssue({
+          code: 'custom',
+          path: ['candidates', index],
+          message: 'Follow candidates must be distinct.',
+        });
+      seen.add(key);
+    });
   });
 const projectEnvelope = <T extends z.ZodType>(result: T) =>
   z.strictObject({ projectId, result });

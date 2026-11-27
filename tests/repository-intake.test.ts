@@ -175,6 +175,56 @@ describe('whole pinned Git repository intake', () => {
     ).rejects.toMatchObject({ code: 'RESOURCE_LIMIT' });
   }, 60000);
 
+  it('ignores non-JSON tsconfig extends targets and resolves trailing-slash or root references', async () => {
+    const repository = await createGitRepository(
+      [
+        {
+          path: 'src/index.ts',
+          source: 'export function main() { return 1; }',
+        },
+        { path: '.env', source: 'API_SECRET=do-not-ingest' },
+        { path: 'secrets.pem', source: '-----BEGIN PRIVATE KEY-----' },
+        {
+          path: 'config/base.json',
+          source: '{"compilerOptions":{"target":"ES2023"}}',
+        },
+        {
+          path: 'packages/core/tsconfig.json',
+          source: '{"files":[],"references":[{"path":"../.."}]}',
+        },
+        {
+          path: 'tsconfig.json',
+          source: JSON.stringify({
+            extends: [
+              './.env',
+              './secrets.pem',
+              './src/index.ts',
+              './config/base',
+            ],
+            references: [{ path: './packages/core/' }],
+            include: ['src'],
+          }),
+        },
+      ],
+      temporaryDirectories,
+    );
+    const acquired = await acquireGitRepository({
+      repositoryPath: repository.directory,
+      repositoryId,
+      revision: repository.revision,
+    });
+    expect(acquired.files.map((file) => file.path)).toEqual(['src/index.ts']);
+    expect(acquired.metadata.map((file) => file.path)).toEqual([
+      'config/base.json',
+      'packages/core/tsconfig.json',
+      'tsconfig.json',
+    ]);
+    expect(acquired.metadata.some((file) => file.path === '.env')).toBe(false);
+    expect(acquired.metadata.some((file) => file.path === 'secrets.pem')).toBe(
+      false,
+    );
+  }, 30000);
+
   it('cancels before reading a repository', async () => {
     const controller = new AbortController();
     controller.abort();
