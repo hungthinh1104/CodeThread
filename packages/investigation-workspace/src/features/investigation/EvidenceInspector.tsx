@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from 'react';
 import { CodeExcerpt } from './CodeExcerpt.tsx';
 import type { EvidenceProjection } from './types.ts';
 
@@ -23,6 +30,13 @@ type Props = {
   onRetry: () => void;
   compact: boolean;
   open: boolean;
+  collapsed: boolean;
+  dockPosition: 'right' | 'bottom';
+  dockSize: number;
+  onToggleCollapse: () => void;
+  onResizePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onResizeKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onResetSize: () => void;
   onClose: () => void;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
 };
@@ -82,7 +96,7 @@ export function EvidenceInspector(props: Props) {
       ) : null}
       <aside
         id="evidence-inspector"
-        className={`region inspector${props.compact ? ' inspector-drawer' : ''}${props.open ? ' is-open' : ''}`}
+        className={`region inspector${props.compact ? ' inspector-drawer' : ''}${props.open ? ' is-open' : ''}${!props.compact && props.collapsed ? ' is-collapsed' : ''}`}
         aria-labelledby="evidence-heading"
         aria-hidden={props.compact ? !props.open : undefined}
         aria-modal={props.compact ? props.open : undefined}
@@ -90,11 +104,53 @@ export function EvidenceInspector(props: Props) {
         hidden={props.compact && !props.open}
         inert={props.compact && !props.open}
       >
+        {!props.compact && !props.collapsed ? (
+          <div
+            className={`pane-resizer ${props.dockPosition === 'bottom' ? 'resizer-top' : 'resizer-left'}`}
+            role="separator"
+            aria-orientation={
+              props.dockPosition === 'bottom' ? 'horizontal' : 'vertical'
+            }
+            aria-label="Resize evidence inspector"
+            aria-valuenow={props.dockSize}
+            aria-valuemin={props.dockPosition === 'bottom' ? 150 : 260}
+            aria-valuemax={props.dockPosition === 'bottom' ? 480 : 540}
+            tabIndex={0}
+            title="Drag to resize evidence dock (double-click to reset)"
+            onPointerDown={props.onResizePointerDown}
+            onKeyDown={props.onResizeKeyDown}
+            onDoubleClick={props.onResetSize}
+          />
+        ) : null}
         <div className="inspector-header pane-header">
-          <div>
+          <div className="pane-header-text">
             <p className="step-label">03 / Evidence</p>
             <h2 id="evidence-heading">Evidence inspector</h2>
           </div>
+          {!props.compact ? (
+            <button
+              className={`btn-ghost dock-collapse-btn${props.collapsed && props.dockPosition === 'right' ? ' pane-rail-btn' : ''}`}
+              type="button"
+              aria-expanded={!props.collapsed}
+              aria-label={
+                props.collapsed
+                  ? 'Expand evidence dock'
+                  : 'Collapse evidence dock'
+              }
+              title={
+                props.collapsed
+                  ? 'Expand evidence dock'
+                  : 'Collapse evidence dock'
+              }
+              onClick={props.onToggleCollapse}
+            >
+              {props.collapsed
+                ? props.dockPosition === 'right'
+                  ? 'Evidence'
+                  : 'Expand'
+                : 'Collapse'}
+            </button>
+          ) : null}
           <button
             id="close-inspector"
             ref={props.closeButtonRef}
@@ -106,7 +162,7 @@ export function EvidenceInspector(props: Props) {
             Close evidence
           </button>
         </div>
-        <div className="pane-body">
+        <div className="pane-body" hidden={!props.compact && props.collapsed}>
           <p className="muted small inspector-subtitle">
             Evidence is verified against the pinned snapshot. Static facts do
             not establish runtime execution.

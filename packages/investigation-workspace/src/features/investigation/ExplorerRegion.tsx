@@ -1,3 +1,4 @@
+import type { KeyboardEvent, PointerEvent } from 'react';
 import { ContextSection } from './ContextSection.tsx';
 import type {
   FilePage,
@@ -42,22 +43,50 @@ export type ExplorerModel = {
 
 type Props = {
   inert: boolean;
+  collapsed: boolean;
+  width: number;
+  onToggleCollapse: () => void;
+  onResizePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onResizeKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onResetWidth: () => void;
   model: ExplorerModel;
 };
 
-export function ExplorerRegion({ inert, model }: Props) {
+export function ExplorerRegion({
+  inert,
+  collapsed,
+  width,
+  onToggleCollapse,
+  onResizePointerDown,
+  onResizeKeyDown,
+  onResetWidth,
+  model,
+}: Props) {
   const { search } = model;
   return (
     <aside
-      className="region explorer"
+      className={`region explorer${collapsed ? ' is-collapsed' : ''}`}
       aria-labelledby="explorer-heading"
       inert={inert}
     >
       <div className="region-title pane-header">
-        <p className="step-label">01 / Explorer</p>
-        <h2 id="explorer-heading">Pinned context</h2>
+        <div className="pane-header-text">
+          <p className="step-label">01 / Explorer</p>
+          <h2 id="explorer-heading">Pinned context</h2>
+        </div>
+        {collapsed ? (
+          <button
+            className="btn-ghost pane-rail-btn"
+            type="button"
+            aria-label="Expand explorer pane"
+            title="Expand explorer pane"
+            onClick={onToggleCollapse}
+          >
+            Explorer
+          </button>
+        ) : null}
       </div>
-      <div className="pane-body">
+      <div className="pane-body" hidden={collapsed}>
         <ContextSection
           repositories={model.repositories}
           selectedRepositoryId={model.selectedRepositoryId}
@@ -286,6 +315,22 @@ export function ExplorerRegion({ inert, model }: Props) {
           </div>
         ) : null}
       </div>
+      {!collapsed ? (
+        <div
+          className="pane-resizer resizer-right"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize explorer pane"
+          aria-valuenow={width}
+          aria-valuemin={210}
+          aria-valuemax={440}
+          tabIndex={0}
+          title="Drag to resize explorer (double-click to reset)"
+          onPointerDown={onResizePointerDown}
+          onKeyDown={onResizeKeyDown}
+          onDoubleClick={onResetWidth}
+        />
+      ) : null}
     </aside>
   );
 }
