@@ -1,6 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   ApiFailure,
   openScan,
@@ -29,6 +35,9 @@ import {
   useWorkspaceHistory,
   type NavigationEntry,
 } from './useWorkspaceHistory.ts';
+
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 type Scope = { scanId: string; projectId: string; snapshotId: string };
 type SearchState = {
@@ -262,27 +271,33 @@ export function InvestigationWorkspace() {
   const inspectorTriggerRef = useRef<HTMLButtonElement>(null);
   const inspectorOpenerRef = useRef<HTMLButtonElement>(null);
   const inspectorCloseRef = useRef<HTMLButtonElement>(null);
+  const pendingInspectorFocusRestoreRef = useRef(false);
   const history = useWorkspaceHistory(restoreNavigation);
 
   function openInspector(trigger: HTMLButtonElement) {
     inspectorOpenerRef.current = trigger;
+    pendingInspectorFocusRestoreRef.current = false;
     setInspectorOpen(true);
   }
 
   const closeInspector = useCallback(() => {
+    pendingInspectorFocusRestoreRef.current = true;
     setInspectorOpen(false);
-    window.requestAnimationFrame(() => {
-      const opener = inspectorOpenerRef.current;
-      const target =
-        opener && !opener.isConnected && opener.id
-          ? document.getElementById(opener.id)
-          : opener;
-      if (target?.isConnected && !target.closest('[hidden]')) target.focus();
-      else if (opener?.id === 'inspect-declaration-evidence')
-        workspaceHeadingRef.current?.focus();
-      else inspectorTriggerRef.current?.focus();
-    });
   }, []);
+
+  useIsomorphicLayoutEffect(() => {
+    if (inspectorOpen || !pendingInspectorFocusRestoreRef.current) return;
+    pendingInspectorFocusRestoreRef.current = false;
+    const opener = inspectorOpenerRef.current;
+    const target =
+      opener && !opener.isConnected && opener.id
+        ? document.getElementById(opener.id)
+        : opener;
+    if (target?.isConnected && !target.closest('[hidden]')) target.focus();
+    else if (opener?.id === 'inspect-declaration-evidence')
+      workspaceHeadingRef.current?.focus();
+    else inspectorTriggerRef.current?.focus();
+  }, [inspectorOpen]);
 
   function reportWorkspaceError(message: string | null, retryable = false) {
     setWorkspaceError(message);
