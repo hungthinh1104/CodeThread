@@ -7,8 +7,17 @@ const useIsomorphicLayoutEffect =
 
 type EvidenceItem = EvidenceProjection['items'][number];
 
+type EvidenceRole = 'declaration' | 'occurrence' | 'observation';
+
+const EVIDENCE_ROLE_LABEL: Record<EvidenceRole, string> = {
+  declaration: 'Declaration evidence',
+  occurrence: 'Occurrence evidence',
+  observation: 'Observation evidence',
+};
+
 type Props = {
   item: EvidenceItem | null;
+  evidenceRole?: EvidenceRole | null;
   loading: boolean;
   error: string | null;
   onRetry: () => void;
@@ -109,6 +118,11 @@ export function EvidenceInspector(props: Props) {
         ) : null}
         {props.item?.status === 'available' ? (
           <div className="evidence-card">
+            {props.evidenceRole ? (
+              <p className={`evidence-role role-${props.evidenceRole}`}>
+                {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
+              </p>
+            ) : null}
             <dl className="evidence-meta">
               <div>
                 <dt>Source</dt>

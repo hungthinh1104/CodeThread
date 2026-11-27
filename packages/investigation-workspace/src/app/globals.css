@@ -215,9 +215,17 @@ pre {
   border-right-width: 0;
 }
 
-.history-controls button:last-child {
+.history-controls button:nth-of-type(2) {
   border-top-right-radius: var(--ct-radius-sm);
   border-bottom-right-radius: var(--ct-radius-sm);
+}
+
+.history-position {
+  margin-left: 8px;
+  color: var(--ct-muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .history-controls button:focus-visible {
@@ -419,6 +427,24 @@ pre {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid var(--ct-border);
+}
+
+.search-input-wrap {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.search-input-wrap input {
+  min-width: 0;
+  flex: 1;
+}
+
+.search-clear {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  font-size: 0.76rem;
+  color: var(--ct-muted);
 }
 
 .section-heading-row {
@@ -1041,6 +1067,23 @@ pre {
 .evidence-card {
   display: grid;
   gap: 8px;
+}
+
+.evidence-role {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ct-accent);
+}
+
+.evidence-role.role-occurrence {
+  color: var(--ct-calls);
+}
+
+.evidence-role.role-observation {
+  color: var(--ct-warning);
 }
 
 .evidence-meta {

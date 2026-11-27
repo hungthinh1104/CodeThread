@@ -260,16 +260,31 @@ export function ExplorerRegion(props: Props) {
         <label className="field-label" htmlFor="symbol-query">
           Name or source path
         </label>
-        <input
-          id="symbol-query"
-          value={props.searchQuery}
-          onChange={(event) =>
-            props.onSearchQueryChange(event.currentTarget.value)
-          }
-          maxLength={256}
-          autoComplete="off"
-          disabled={!props.searchEnabled}
-        />
+        <div className="search-input-wrap">
+          <input
+            id="symbol-query"
+            value={props.searchQuery}
+            onChange={(event) =>
+              props.onSearchQueryChange(event.currentTarget.value)
+            }
+            maxLength={256}
+            autoComplete="off"
+            disabled={!props.searchEnabled}
+          />
+          {props.searchEnabled && props.searchQuery.length > 0 ? (
+            <button
+              className="search-clear"
+              type="button"
+              aria-label="Clear symbol search"
+              onClick={() => {
+                props.onSearchQueryChange('');
+                document.getElementById('symbol-query')?.focus();
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
         <div className="result-heading" aria-live="polite">
           {props.searchLoading
             ? 'Searching the pinned snapshot…'

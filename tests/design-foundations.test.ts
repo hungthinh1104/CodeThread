@@ -115,9 +115,39 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
     for (const [name, canonical, workspace] of [
       ['light', light, workspaceLight],
       ['dark', dark, workspaceDark],
-    ] as const)
+    ] as const) {
       for (const key of required)
         expect(workspace.get(key), `${name}:${key}`).toBe(canonical.get(key));
+      for (const bg of ['surface', 'raised', 'canvas'] as const) {
+        for (const fg of [
+          'ink',
+          'muted',
+          'accent',
+          'focus',
+          'calls',
+          'references',
+          'error',
+          'warning',
+        ] as const) {
+          expect(
+            contrast(workspace.get(fg)!, workspace.get(bg)!),
+            `${name}:${fg} on ${bg}`,
+          ).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      for (const [fg, bg] of [
+        ['error', 'error-soft'],
+        ['warning', 'warning-soft'],
+        ['accent', 'accent-soft'],
+        ['ink', 'selected-bg'],
+        ['muted', 'selected-bg'],
+      ] as const) {
+        expect(
+          contrast(workspace.get(fg)!, workspace.get(bg)!),
+          `${name}:${fg} on ${bg}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
   });
 
   it('keeps component layers, semantic statuses and stale-response rules separate', () => {

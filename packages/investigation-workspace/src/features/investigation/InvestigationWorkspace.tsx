@@ -511,18 +511,27 @@ export function InvestigationWorkspace() {
     scope: Scope,
     kinds: ('calls' | 'references')[],
     requestedDirection: 'outgoing' | 'incoming' | 'both',
+    options?: { preserveDeclarationEvidence?: boolean },
   ): Promise<GraphProjection | null> {
     const generation = ++graphGeneration.current;
     const rootSymbolId = typeof root === 'string' ? root : root.id;
-    ++evidenceGeneration.current;
-    requestedEvidenceId.current = null;
+    const declarationId =
+      typeof root === 'string' ? null : root.declarationEvidenceId;
+    const keepDeclarationEvidence =
+      Boolean(options?.preserveDeclarationEvidence) &&
+      declarationId !== null &&
+      requestedEvidenceId.current === declarationId;
     setGraphLoading(true);
     setGraphError(null);
     setGraph(null);
     setSelectedRelationId(null);
-    setEvidence(null);
-    setEvidenceLoading(false);
-    setEvidenceError(null);
+    if (!keepDeclarationEvidence) {
+      ++evidenceGeneration.current;
+      requestedEvidenceId.current = null;
+      setEvidence(null);
+      setEvidenceLoading(false);
+      setEvidenceError(null);
+    }
     try {
       const projection = await readGraph(
         rootSymbolId,
@@ -640,15 +649,15 @@ export function InvestigationWorkspace() {
     }
   }
 
-  function focusSelectedDeclaration(generation: number) {
-    if (window.matchMedia('(max-width: 760px)').matches) {
-      window.requestAnimationFrame(() => {
-        if (generation !== selectionGeneration.current) return;
-        const heading = workspaceHeadingRef.current;
-        heading?.focus({ preventScroll: true });
-        heading?.closest('main')?.scrollIntoView({ block: 'start' });
-      });
-    }
+  function focusSelectedDeclaration(generation: number, alwaysFocus = false) {
+    const narrow = window.matchMedia('(max-width: 760px)').matches;
+    if (!narrow && !alwaysFocus) return;
+    window.requestAnimationFrame(() => {
+      if (generation !== selectionGeneration.current) return;
+      const heading = workspaceHeadingRef.current;
+      heading?.focus({ preventScroll: true });
+      if (narrow) heading?.closest('main')?.scrollIntoView({ block: 'start' });
+    });
   }
 
   async function chooseSymbol(item: SearchItem) {
@@ -753,7 +762,7 @@ export function InvestigationWorkspace() {
   }
 
   async function followSymbol(symbol: CodeSymbol) {
-    ++selectionGeneration.current;
+    const generation = ++selectionGeneration.current;
     const scope = scopeRef.current;
     if (!scope || symbol.snapshotId !== scope.snapshotId) {
       reportWorkspaceError(
@@ -780,6 +789,7 @@ export function InvestigationWorkspace() {
     });
     void loadGraph(symbol, scope, relationKinds, direction);
     void loadEvidence(symbol.declarationEvidenceId, scope);
+    focusSelectedDeclaration(generation, true);
   }
 
   async function chooseEvidence(
@@ -913,6 +923,8 @@ export function InvestigationWorkspace() {
     const scope = scopeRef.current;
     const root = selected;
     if (!scope || !root) return;
+    const keepDeclaration =
+      requestedEvidenceId.current === root.declarationEvidenceId;
     setActiveView('trace');
     pushNavigation({
       ...scope,
@@ -920,10 +932,12 @@ export function InvestigationWorkspace() {
       relationKinds: kinds,
       direction: newDirection,
       selectedRelationId: null,
-      selectedEvidenceId: null,
+      selectedEvidenceId: keepDeclaration ? root.declarationEvidenceId : null,
       view: 'trace',
     });
-    void loadGraph(root, scope, kinds, newDirection);
+    void loadGraph(root, scope, kinds, newDirection, {
+      preserveDeclarationEvidence: true,
+    });
   }
 
   async function restoreNavigation(entry: NavigationEntry, accept: () => void) {
@@ -1310,6 +1324,15 @@ export function InvestigationWorkspace() {
   }
 
   const inspectorModal = compactViewport && inspectorOpen;
+  const displayedEvidenceId = evidence ? evidenceId(evidence) : null;
+  const evidenceRole: 'declaration' | 'occurrence' | 'observation' | null =
+    !displayedEvidenceId
+      ? null
+      : selectedRelationId !== null
+        ? 'occurrence'
+        : selected?.declarationEvidenceId === displayedEvidenceId
+          ? 'declaration'
+          : 'observation';
   return (
     <div className="page-shell">
       <header className="page-header" inert={inspectorModal}>
@@ -1328,6 +1351,7 @@ export function InvestigationWorkspace() {
               type="button"
               onClick={() => history.move(-1)}
               disabled={!history.canBack}
+              title="Back to previous investigation step"
             >
               Back
             </button>
@@ -1335,9 +1359,19 @@ export function InvestigationWorkspace() {
               type="button"
               onClick={() => history.move(1)}
               disabled={!history.canForward}
+              title="Forward to next investigation step"
             >
               Forward
             </button>
+            {history.total > 1 ? (
+              <span
+                className="history-position"
+                aria-live="polite"
+                aria-label={`History step ${history.step} of ${history.total}`}
+              >
+                {history.step}/{history.total}
+              </span>
+            ) : null}
           </nav>
           <button
             id="inspector-toggle"
@@ -1440,6 +1474,7 @@ export function InvestigationWorkspace() {
         />
         <EvidenceInspector
           item={evidence}
+          evidenceRole={evidenceRole}
           loading={evidenceLoading}
           error={evidenceError}
           onRetry={retryEvidence}

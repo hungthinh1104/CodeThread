@@ -86,6 +86,10 @@ button {
   cursor: pointer;
 }
 
+button:hover:not(:disabled) {
+  border-color: var(--ct-accent);
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -142,7 +146,7 @@ p {
 
 h1 {
   margin-bottom: 0;
-  font-size: clamp(1.35rem, 3vw, 2rem);
+  font-size: clamp(1.2rem, 2.2vw, 1.55rem);
 }
 
 h2 {

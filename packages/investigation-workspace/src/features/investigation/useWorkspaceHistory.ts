@@ -56,6 +56,8 @@ export function useWorkspaceHistory(
   const [controls, setControls] = useState({
     canBack: false,
     canForward: false,
+    step: 0,
+    total: 0,
   });
 
   function updateControls() {
@@ -65,6 +67,8 @@ export function useWorkspaceHistory(
         !restoring.current &&
         cursor.current >= 0 &&
         cursor.current < entries.current.length - 1,
+      step: cursor.current >= 0 ? cursor.current + 1 : 0,
+      total: entries.current.length,
     });
   }
 
