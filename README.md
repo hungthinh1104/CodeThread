@@ -44,8 +44,11 @@ pnpm build && pnpm workspace:build
 pnpm stack:start -- --migrate
 ```
 
-Open `http://127.0.0.1:3000/` to investigate symbols (`/`), register and scan
-local repositories (`/repositories`), or monitor scan jobs (`/scans/[scanId]`).
+Open `http://127.0.0.1:3000/` to investigate symbols (`/`), browse indexed
+repositories and scan history (`/repositories`), or inspect scan records and
+project artifacts (`/scans/[scanId]`). Repository registration and scan
+submission remain backend API operations (`docs/backend.md`), keeping the
+Investigation Workspace BFF strictly read-only for repository and scan records.
 To run the two processes separately, start the backend with `pnpm backend:start`
 and in a second terminal set `CODETHREAD_API_TOKEN` to the same token and run
 `pnpm workspace:dev` (defaults to IPv4 loopback port 8765).

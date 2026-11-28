@@ -21,28 +21,69 @@ import { AiError } from './errors.ts';
 export const STATIC_AI_DISCLAIMER =
   'Generated static synthesis (unverified). Static relationships and source excerpts do not prove runtime execution or passing tests.';
 
-const NEGATED_RUNTIME_CLAUSE =
-  /\b(?:does\s+not|do\s+not|cannot|can't|never|not|without)\s+(?:prove|establish|guarantee|confirm|imply|mean|execute|run|pass)\b/i;
+const CLAUSE_SPLIT_PATTERN =
+  /(?<=[.!?])\s+|\n+|;\s*|[\u2014\u2013]\s*|\s+-\s+|,\s*(?=(?:but|however|yet|although|though|even\s+though|while|whereas|still|nevertheless|nonetheless|and|so)\b)|:\s+/i;
+
+const LEADING_CONCESSIVE_CLAUSE =
+  /^((?:although|though|even\s+though|while|whereas|despite\s+[^,]+|regardless\s+of\s+[^,]+)\b[^,]*),\s+(.+)$/i;
+
+const NEGATED_PREFIX_PATTERN =
+  /\b(?:does\s+not|do\s+not|did\s+not|cannot|can't|couldn't|won't|will\s+not|never|not|without|neither|nor|fails?\s+to|unable\s+to|no\s+proof(?:\s+that)?)\b/i;
+
+const CONTRASTIVE_CONJUNCTION =
+  /\b(?:but|however|yet|although|though|whereas|still|nevertheless|nonetheless)\b/i;
 
 const RUNTIME_OVERCLAIM_PATTERNS: readonly RegExp[] = [
-  /\b(?:executes?|runs?|invoked|called)\s+at\s+runtime\b/i,
-  /\b(?:guaranteed|proven|confirmed|definitely)\s+(?:to\s+)?(?:execute|run|be\s+called|pass)\b/i,
-  /\bruntime\s+(?:execution|behavior|call)\s+(?:is\s+)?(?:proven|confirmed|guaranteed)\b/i,
-  /\b(?:assertion|test|tests)\s+(?:passes|pass|passed|succeeded)\b/i,
+  /\b(?:executes?|runs?|invoked|called|triggered|fired)\s+(?:at\s+runtime|in\s+production)\b/i,
+  /\b(?:guaranteed|proven|confirmed|definitely|certainly|always)\s+(?:to\s+)?(?:execute|run|be\s+called|be\s+invoked|pass|succeed)\b/i,
+  /\bwill\s+(?:always|definitely|certainly|necessarily)\s+(?:execute|run|call|invoke|pass|succeed)\b/i,
+  /\bruntime\s+(?:execution|behavior|call|invocation)\s+(?:is\s+)?(?:proven|confirmed|guaranteed|certain)\b/i,
+  /\b(?:assertion|assertions|test|tests|test\s+suite)\s+(?:passes|pass|passed|succeeded|succeeds|is\s+passing|are\s+passing)\b/i,
 ];
 
+function splitClauses(text: string): string[] {
+  const initial = text
+    .split(CLAUSE_SPLIT_PATTERN)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const result: string[] = [];
+  for (const part of initial) {
+    const concessive = LEADING_CONCESSIVE_CLAUSE.exec(part);
+    if (concessive) {
+      result.push(concessive[1]!.trim(), concessive[2]!.trim());
+    } else {
+      result.push(part);
+    }
+  }
+  return result;
+}
+
+function isNegatedInSameClause(clause: string, matchIndex: number): boolean {
+  const prefix = clause.slice(0, matchIndex);
+  const negMatches = [
+    ...prefix.matchAll(new RegExp(NEGATED_PREFIX_PATTERN.source, 'gi')),
+  ];
+  if (negMatches.length === 0) return false;
+  const lastNeg = negMatches.at(-1)!;
+  const between = prefix.slice(lastNeg.index + lastNeg[0].length);
+  return !CONTRASTIVE_CONJUNCTION.test(between);
+}
+
 /**
- * Deterministic, English-only heuristic for unqualified claims that static
- * evidence proves runtime execution or passing tests. Negative disclaimers
- * ("does not prove runtime execution") are permitted. It is a secondary layer:
- * consumers must never present generated text as proof.
+ * Deterministic, English-only clause-level heuristic for unqualified claims
+ * that static evidence proves runtime execution or passing tests. Each clause
+ * is evaluated independently so a disclaimer in one clause ("does not prove X")
+ * cannot mask an unsupported positive runtime assertion in another clause
+ * ("but helper is guaranteed to execute at runtime").
  */
 export function hasRuntimeExecutionOverclaim(text: string): boolean {
-  const sentences = text.split(/(?<=[.!?])\s+|\n+/);
-  for (const sentence of sentences) {
-    if (NEGATED_RUNTIME_CLAUSE.test(sentence)) continue;
-    if (RUNTIME_OVERCLAIM_PATTERNS.some((pattern) => pattern.test(sentence))) {
-      return true;
+  for (const clause of splitClauses(text)) {
+    for (const pattern of RUNTIME_OVERCLAIM_PATTERNS) {
+      const match = pattern.exec(clause);
+      if (!match) continue;
+      if (!isNegatedInSameClause(clause, match.index)) {
+        return true;
+      }
     }
   }
   return false;
@@ -238,10 +279,16 @@ export function verifyAiModelOutput(
       rejectedItems.push({ kind: 'claim', index, reasons: deduped });
       return;
     }
-    if (verifiedClaims.length < checkedRequest.maxClaims) {
-      seenClaimTexts.add(normalizedText);
-      verifiedClaims.push(claim);
+    if (verifiedClaims.length >= checkedRequest.maxClaims) {
+      rejectedItems.push({
+        kind: 'claim',
+        index,
+        reasons: ['OUTPUT_CAP_EXCEEDED'],
+      });
+      return;
     }
+    seenClaimTexts.add(normalizedText);
+    verifiedClaims.push(claim);
   });
 
   const verifiedNextSteps: AiModelNextStep[] = [];
@@ -274,10 +321,16 @@ export function verifyAiModelOutput(
       rejectedItems.push({ kind: 'next_step', index, reasons: deduped });
       return;
     }
-    if (verifiedNextSteps.length < checkedRequest.maxNextSteps) {
-      seenStepSymbols.add(step.symbolId);
-      verifiedNextSteps.push(step);
+    if (verifiedNextSteps.length >= checkedRequest.maxNextSteps) {
+      rejectedItems.push({
+        kind: 'next_step',
+        index,
+        reasons: ['OUTPUT_CAP_EXCEEDED'],
+      });
+      return;
     }
+    seenStepSymbols.add(step.symbolId);
+    verifiedNextSteps.push(step);
   });
 
   const safeUncertainties = parsedRaw.data.uncertainties.filter(

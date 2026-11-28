@@ -193,11 +193,19 @@ export function makeApi(
         is('POST', 'v1', 'scans', '*', 'projects', '*', 'ai', 'synthesize')
       ) {
         assertQueryParameters(url);
-        result = await aiService.synthesize(
-          uuid.parse(p[2]),
-          p[4]!,
-          await readJson(req, MAX_AI_BODY),
-        );
+        const body = await readJson(req, MAX_AI_BODY);
+        const abort = new AbortController();
+        const onClose = () => {
+          if (!res.writableEnded) abort.abort();
+        };
+        req.once('close', onClose);
+        try {
+          result = await aiService.synthesize(uuid.parse(p[2]), p[4]!, body, {
+            signal: abort.signal,
+          });
+        } finally {
+          req.off('close', onClose);
+        }
         responseRoute = 'POST /v1/scans/:id/projects/:projectId/ai/synthesize';
       } else throw new ServiceError(404, 'NOT_FOUND', 'Endpoint not found');
       if (!responseRoute)

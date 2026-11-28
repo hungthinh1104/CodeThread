@@ -211,7 +211,7 @@ export class BackendQueryService {
   }
 
   private collectBoundedEvidenceIds(
-    symbols: readonly { declarationEvidenceId: string }[],
+    symbols: readonly { id: string; declarationEvidenceId: string }[],
     relations: readonly {
       siteEvidenceId: string;
       resolution: { evidenceIds: readonly string[] };
@@ -225,14 +225,16 @@ export class BackendQueryService {
       seen.add(id);
       ids.push(id);
     };
-    for (const sym of symbols) {
-      if (sym.declarationEvidenceId) add(sym.declarationEvidenceId);
-    }
+    const rootSymbol = symbols.find((sym) => sym.id === rootSymbolId);
+    if (rootSymbol?.declarationEvidenceId)
+      add(rootSymbol.declarationEvidenceId);
     for (const rel of relations) {
       add(rel.siteEvidenceId);
       for (const id of rel.resolution.evidenceIds) add(id);
     }
-    if (ids.length === 0) add(rootSymbolId);
+    for (const sym of symbols) {
+      if (sym.declarationEvidenceId) add(sym.declarationEvidenceId);
+    }
     return ids;
   }
 

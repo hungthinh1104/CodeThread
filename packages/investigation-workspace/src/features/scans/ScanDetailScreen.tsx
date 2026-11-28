@@ -2,10 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { ApiFailure, rememberWorkspaceScan } from '../investigation/api.ts';
 import { errorMessage } from '../investigation/scoped-api.ts';
 import {
-  cancelScanJob,
   readScanDetail,
   readScanFiles,
   readScanProjects,
@@ -16,6 +14,13 @@ import {
 import { AppHeader, AppStatusBar } from '../shared/AppChrome.tsx';
 import { ScanStateBadge, useStandaloneTheme } from '../shared/StatusChrome.tsx';
 import { ScanArtifactsPanel } from './ScanArtifactsPanel.tsx';
+
+const BASE_POLL_DELAY_MS = 1500;
+const MAX_POLL_DELAY_MS = 10_000;
+const MAX_CONSECUTIVE_POLL_FAILURES = 8;
+
+type FetchScanOutcome =
+  { kind: 'ok'; scan: ScanRecord } | { kind: 'error' } | { kind: 'stale' };
 
 function formatDateTime(iso: string): string {
   const date = new Date(iso);
@@ -30,14 +35,17 @@ function formatDateTime(iso: string): string {
   }).format(date);
 }
 
+function isScanActive(record: ScanRecord | null): boolean {
+  return record?.state === 'queued' || record?.state === 'running';
+}
+
 export function ScanDetailScreen({ scanId }: { scanId: string }) {
   const { theme, setTheme } = useStandaloneTheme();
   const [scan, setScan] = useState<ScanRecord | null>(null);
   const [scanLoading, setScanLoading] = useState(true);
   const [scanError, setScanError] = useState<string | null>(null);
-
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [pollPaused, setPollPaused] = useState(false);
+  const [pollEpoch, setPollEpoch] = useState(0);
 
   const [activeTab, setActiveTab] = useState<'projects' | 'files'>('projects');
   const [projects, setProjects] = useState<ScanProjectRecord[]>([]);
@@ -52,25 +60,32 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
   const scanGen = useRef(0);
   const artifactsGen = useRef(0);
   const filesGen = useRef(0);
+  const scanInFlight = useRef(false);
 
-  async function fetchScan(silent = false): Promise<ScanRecord | null> {
+  async function fetchScan(silent = false): Promise<FetchScanOutcome> {
+    if (silent && scanInFlight.current) return { kind: 'stale' };
     const gen = ++scanGen.current;
+    scanInFlight.current = true;
     if (!silent) {
       setScanLoading(true);
       setScanError(null);
+      setPollPaused(false);
     }
     try {
       const { scan: next } = await readScanDetail(scanId);
-      if (gen !== scanGen.current) return null;
-      rememberWorkspaceScan(next.id);
+      if (gen !== scanGen.current) return { kind: 'stale' };
       setScan(next);
       setScanError(null);
-      return next;
+      setPollPaused(false);
+      return { kind: 'ok', scan: next };
     } catch (error) {
       if (gen === scanGen.current) setScanError(errorMessage(error));
-      return null;
+      return gen === scanGen.current ? { kind: 'error' } : { kind: 'stale' };
     } finally {
-      if (gen === scanGen.current && !silent) setScanLoading(false);
+      if (gen === scanGen.current) {
+        scanInFlight.current = false;
+        if (!silent) setScanLoading(false);
+      }
     }
   }
 
@@ -105,62 +120,99 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
     }
   }
 
+  function handleManualRefresh() {
+    setPollPaused(false);
+    setPollEpoch((value) => value + 1);
+    void fetchScan(false);
+  }
+
   useEffect(() => {
     setScan(null);
     setProjects([]);
     setFiles(null);
     setFilesOffset(0);
-    setCancelError(null);
+    setPollPaused(false);
     void fetchScan(false);
+    return () => {
+      ++scanGen.current;
+      ++artifactsGen.current;
+      ++filesGen.current;
+      scanInFlight.current = false;
+    };
   }, [scanId]);
 
-  const isActiveState = scan?.state === 'queued' || scan?.state === 'running';
+  const isActiveState = isScanActive(scan);
 
   useEffect(() => {
     if (!isActiveState) return;
     let cancelled = false;
-    let delayMs = 1500;
+    let delayMs = BASE_POLL_DELAY_MS;
+    let consecutiveFailures = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const schedule = () => {
-      if (cancelled || document.visibilityState === 'hidden') return;
-      timer = setTimeout(() => {
-        void fetchScan(true).then((updated) => {
-          if (cancelled) return;
-          if (
-            updated &&
-            (updated.state === 'queued' || updated.state === 'running')
-          ) {
-            delayMs = Math.min(3000, delayMs + 500);
-            schedule();
-          }
-        });
-      }, delayMs);
-    };
-
-    const onVisibility = () => {
-      if (timer) clearTimeout(timer);
-      if (document.visibilityState === 'visible') {
-        delayMs = 1500;
-        void fetchScan(true).then((updated) => {
-          if (
-            !cancelled &&
-            updated &&
-            (updated.state === 'queued' || updated.state === 'running')
-          )
-            schedule();
-        });
+    const clearTimer = () => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
       }
     };
 
-    schedule();
+    const scheduleNext = () => {
+      clearTimer();
+      if (cancelled || document.visibilityState === 'hidden') return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void runPoll();
+      }, delayMs);
+    };
+
+    const runPoll = async () => {
+      if (cancelled) return;
+      const outcome = await fetchScan(true);
+      if (cancelled) return;
+      if (outcome.kind === 'ok') {
+        consecutiveFailures = 0;
+        if (isScanActive(outcome.scan)) {
+          delayMs = Math.min(3000, delayMs + 500);
+          scheduleNext();
+        }
+        return;
+      }
+      if (outcome.kind === 'error') {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          setPollPaused(true);
+          return;
+        }
+        delayMs = Math.min(
+          MAX_POLL_DELAY_MS,
+          Math.round(BASE_POLL_DELAY_MS * 1.6 ** consecutiveFailures),
+        );
+        scheduleNext();
+        return;
+      }
+      // Stale/skipped because a manual refresh is in flight: re-arm without backoff penalty.
+      scheduleNext();
+    };
+
+    const onVisibility = () => {
+      clearTimer();
+      if (document.visibilityState === 'visible' && !cancelled) {
+        delayMs = BASE_POLL_DELAY_MS;
+        consecutiveFailures = 0;
+        setPollPaused(false);
+        void runPoll();
+      }
+    };
+
+    scheduleNext();
     document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      clearTimer();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [isActiveState, scanId]);
+  }, [isActiveState, scanId, pollEpoch]);
 
   useEffect(() => {
     if (!scan) return;
@@ -173,23 +225,6 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
       void fetchFiles(0);
     }
   }, [scan?.id, scan?.state]);
-
-  async function handleCancel() {
-    if (!scan || !isActiveState) return;
-    setCancelling(true);
-    setCancelError(null);
-    try {
-      await cancelScanJob(scan.id);
-      await fetchScan(false);
-    } catch (error) {
-      if (error instanceof ApiFailure && error.status === 409) {
-        await fetchScan(false);
-      }
-      setCancelError(errorMessage(error));
-    } finally {
-      setCancelling(false);
-    }
-  }
 
   return (
     <div className="page-shell admin-shell">
@@ -218,7 +253,7 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
               className="btn-subtle"
               type="button"
               disabled={scanLoading}
-              onClick={() => void fetchScan(false)}
+              onClick={handleManualRefresh}
             >
               Refresh
             </button>
@@ -249,7 +284,7 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
             {scanError ? (
               <div className="notice error" role="alert">
                 <span>{scanError}</span>
-                <button type="button" onClick={() => void fetchScan(false)}>
+                <button type="button" onClick={handleManualRefresh}>
                   Retry status check
                 </button>
               </div>
@@ -272,22 +307,11 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
                 ) : null}
                 {isActiveState ? (
                   <div className="scan-actions">
-                    <button
-                      className="btn-subtle"
-                      type="button"
-                      disabled={cancelling}
-                      onClick={() => void handleCancel()}
-                    >
-                      {cancelling ? 'Cancelling…' : 'Cancel scan'}
-                    </button>
                     <span className="muted small" role="status">
-                      Polling status automatically while active…
+                      {pollPaused
+                        ? 'Automatic polling paused after repeated errors. Select Retry status check to resume.'
+                        : 'Polling status automatically while active…'}
                     </span>
-                  </div>
-                ) : null}
-                {cancelError ? (
-                  <div className="notice error" role="alert">
-                    <span>{cancelError}</span>
                   </div>
                 ) : null}
                 {scan.error_code || scan.error_message ? (
@@ -369,7 +393,9 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
       <AppStatusBar
         summary={
           isActiveState
-            ? 'Active scan · polling status'
+            ? pollPaused
+              ? 'Active scan · polling paused'
+              : 'Active scan · polling status'
             : 'Scan record · immutable snapshot'
         }
         theme={theme}

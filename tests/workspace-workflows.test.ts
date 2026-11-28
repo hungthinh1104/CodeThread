@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 import { describe, expect, it } from 'vitest';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
-import { startWorkspaceApp } from './browser/workspace-app.ts';
+import { secondaryScanId, startWorkspaceApp } from './browser/workspace-app.ts';
 
 const repositoryId = '83333333-3333-4333-8333-333333333333';
 const source = Buffer.from(
@@ -390,6 +390,137 @@ describe('Investigation Workspace UX workflows and accessibility regressions', (
         if (vp.width >= 768)
           expect(metrics.mainWidth).toBeGreaterThanOrEqual(300);
       }
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
+
+  it('keeps Repositories and ScanDetail read-only, recovers scan polling after transient 503 errors, and preserves Workspace A when viewing Scan B', async () => {
+    let phase: 'queued' | 'fail_once' | 'running' | 'succeeded' = 'queued';
+    let secondaryPollCount = 0;
+    const app = await startWorkspaceApp(snapshot, {
+      scanOverride: (requestedId, baseRecord) => {
+        if (requestedId !== secondaryScanId) return null;
+        secondaryPollCount += 1;
+        if (phase === 'queued') {
+          return {
+            status: 200,
+            body: { ...baseRecord, state: 'queued', activation_result: null },
+          };
+        }
+        if (phase === 'fail_once') {
+          phase = 'running';
+          return {
+            status: 503,
+            body: {
+              error: {
+                code: 'TRANSIENT_FAILURE',
+                message: 'Temporary backend hiccup.',
+              },
+            },
+          };
+        }
+        if (phase === 'running') {
+          phase = 'succeeded';
+          return {
+            status: 200,
+            body: { ...baseRecord, state: 'running', activation_result: null },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            ...baseRecord,
+            state: 'succeeded',
+            activation_result: 'activated',
+          },
+        };
+      },
+    });
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(20_000);
+
+    try {
+      // 1. Open Workspace A on / and confirm remembered scan A.
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      const rememberedBefore = await page.evaluate(() =>
+        sessionStorage.getItem('codethread-workspace-scan'),
+      );
+      expect(rememberedBefore).toBe('33333333-3333-4333-8333-333333333333');
+
+      // 2. Verify /repositories is strictly read-only (no registration or scan-trigger forms).
+      await page.click('#nav-repositories');
+      await page.waitForURL('**/repositories');
+      await page.locator('#repo-detail-heading').waitFor();
+      expect(await page.locator('#repo-locator-input').count()).toBe(0);
+      expect(await page.locator('#scan-revision-input').count()).toBe(0);
+      expect(
+        await page
+          .getByRole('button', { name: /Register repository|Run scan/i })
+          .count(),
+      ).toBe(0);
+
+      // 3. Navigate to Scan B (/scans/<secondaryScanId>): starts queued, hits transient 503,
+      //    continues polling automatically with backoff, transitions to running -> succeeded,
+      //    has NO Cancel scan mutation button, and NEVER overwrites remembered Workspace A!
+      await page.goto(`${app.origin}/scans/${secondaryScanId}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.locator('.scan-status-banner').getByText('queued').waitFor();
+      expect(
+        await page.getByRole('button', { name: /Cancel scan/i }).count(),
+      ).toBe(0);
+      // Inject a transient 503 on the next scheduled background poll.
+      phase = 'fail_once';
+      await page.getByText(/TRANSIENT_FAILURE/).waitFor();
+      // Polling must recover automatically after transient error and reach succeeded!
+      await page
+        .locator('.scan-status-banner')
+        .getByText('succeeded')
+        .waitFor({ timeout: 15_000 });
+      await page.getByRole('link', { name: 'Open context' }).waitFor();
+
+      const rememberedAfterViewingB = await page.evaluate(() =>
+        sessionStorage.getItem('codethread-workspace-scan'),
+      );
+      expect(rememberedAfterViewingB).toBe(rememberedBefore);
+
+      // Verify polling stopped after terminal state.
+      const pollsAtTerminal = secondaryPollCount;
+      await page.waitForTimeout(2_000);
+      expect(secondaryPollCount).toBe(pollsAtTerminal);
+
+      // 4. Navigate back to / (Investigate) and confirm Workspace A is restored intact!
+      await page.click('#nav-investigate');
+      await page.waitForURL(`${app.origin}/`);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      expect(
+        await page.evaluate(() =>
+          sessionStorage.getItem('codethread-workspace-scan'),
+        ),
+      ).toBe(rememberedBefore);
+
+      // 5. Simulate expired session / cleared cookie on refresh: remembered scan is cleaned up safely.
+      await context.clearCookies();
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => sessionStorage.getItem('codethread-workspace-scan') === null,
+      );
+      expect(await page.locator('.notice.error').count()).toBe(0);
     } finally {
       await context.close();
       await browser.close();

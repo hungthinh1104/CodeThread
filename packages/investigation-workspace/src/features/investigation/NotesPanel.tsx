@@ -298,7 +298,7 @@ export function NotesPanel(props: Props) {
             <div className="notes-result">
               <div className="coverage-summary">
                 <div className="coverage-status" role="status">
-                  <span>Generated static synthesis (unverified)</span>
+                  <span>Generated static notes (not proof)</span>
                   <span>
                     Verified {notes.verification.verifiedClaims} of{' '}
                     {notes.verification.verifiedClaims +

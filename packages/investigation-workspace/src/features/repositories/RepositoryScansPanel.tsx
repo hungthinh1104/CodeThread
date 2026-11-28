@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import type { FormEvent } from 'react';
 import type { RepositoryItem } from '../investigation/types.ts';
 import type { HealthStatus, ScanRecord } from '../shared/admin-api.ts';
 import { ScanStateBadge } from '../shared/StatusChrome.tsx';
@@ -18,13 +17,8 @@ function formatTimestamp(iso: string): string {
 
 type Props = {
   selectedRepo: RepositoryItem | undefined;
+  loadingRepositories?: boolean;
   health: HealthStatus | null;
-  revision: string;
-  onRevisionChange: (value: string) => void;
-  submittingScan: boolean;
-  onTriggerScan: (event: FormEvent) => void;
-  scanSubmitResult: { id: string; state: string; reused: boolean } | null;
-  scanSubmitError: string | null;
   scans: ScanRecord[];
   scansLoading: boolean;
   scansError: string | null;
@@ -49,7 +43,8 @@ export function RepositoryScansPanel(props: Props) {
             </p>
           ) : (
             <p className="muted">
-              Select a repository to run a scan or view scan history.
+              Select an indexed repository to inspect its scan history and open
+              a published snapshot.
             </p>
           )}
         </div>
@@ -75,63 +70,13 @@ export function RepositoryScansPanel(props: Props) {
         <div className="main-content">
           {selectedRepo ? (
             <>
-              <section
-                className="admin-panel"
-                aria-labelledby="trigger-scan-heading"
-              >
-                <h3 id="trigger-scan-heading">Run a scan</h3>
-                {props.health && props.health.worker !== 'ready' ? (
-                  <p className="notice warning" role="status">
-                    Background worker is currently unavailable. Queued scans
-                    will wait until worker readiness is restored.
-                  </p>
-                ) : null}
-                <form
-                  className="inline-scan-form"
-                  onSubmit={props.onTriggerScan}
-                >
-                  <label className="sr-only" htmlFor="scan-revision-input">
-                    Revision selector
-                  </label>
-                  <input
-                    id="scan-revision-input"
-                    value={props.revision}
-                    onChange={(event) =>
-                      props.onRevisionChange(event.currentTarget.value)
-                    }
-                    placeholder="HEAD, branch, tag, or commit OID"
-                    maxLength={1024}
-                    disabled={props.submittingScan}
-                  />
-                  <button
-                    className="btn-primary"
-                    type="submit"
-                    disabled={props.submittingScan}
-                  >
-                    {props.submittingScan ? 'Queueing…' : 'Run scan'}
-                  </button>
-                </form>
-                {props.scanSubmitResult ? (
-                  <div className="notice" role="status">
-                    <span>
-                      {props.scanSubmitResult.reused
-                        ? `Existing scan reused (${props.scanSubmitResult.state}).`
-                        : `Scan queued (${props.scanSubmitResult.state}).`}
-                    </span>
-                    <Link
-                      className="btn-link btn-primary"
-                      href={`/scans/${props.scanSubmitResult.id}`}
-                    >
-                      Open scan {props.scanSubmitResult.id.slice(0, 8)} →
-                    </Link>
-                  </div>
-                ) : null}
-                {props.scanSubmitError ? (
-                  <div className="notice error" role="alert">
-                    <span>{props.scanSubmitError}</span>
-                  </div>
-                ) : null}
-              </section>
+              {props.health && props.health.worker !== 'ready' ? (
+                <p className="notice warning" role="status">
+                  Background worker is unavailable. Existing published snapshots
+                  remain readable, while queued scans wait until worker
+                  readiness recovers.
+                </p>
+              ) : null}
 
               <section
                 className="admin-panel"
@@ -214,18 +159,22 @@ export function RepositoryScansPanel(props: Props) {
                   </ol>
                 ) : !props.scansLoading && !props.scansError ? (
                   <p className="empty-state">
-                    No scans recorded for this repository yet. Queue one above
-                    to produce a pinned snapshot.
+                    No scans recorded for this repository yet. Submit a scan via
+                    the local backend API to produce a pinned snapshot.
                   </p>
                 ) : null}
               </section>
             </>
+          ) : props.loadingRepositories ? (
+            <p className="empty-state" role="status">
+              Loading indexed repositories…
+            </p>
           ) : (
             <div className="empty-workbench">
               <p className="empty-state-lead">No repository selected</p>
               <p className="empty-state-body">
-                Select a registered repository from the sidebar to queue a scan
-                against a Git revision or inspect previous snapshots.
+                Select an indexed repository from the sidebar to inspect its
+                scan history and open published snapshots.
               </p>
             </div>
           )}

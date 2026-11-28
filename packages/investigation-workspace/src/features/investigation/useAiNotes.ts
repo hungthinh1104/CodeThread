@@ -118,10 +118,15 @@ export function useAiNotes(input: Input) {
         );
         if (gen !== requestGen.current) return;
         const result = unwrapScoped(response, scope);
-        if (result.snapshotId !== scope.snapshotId) {
+        if (
+          result.snapshotId !== scope.snapshotId ||
+          result.rootSymbolId !== root.id ||
+          result.task !== activeTask
+        ) {
           setError({
             code: 'SNAPSHOT_MISMATCH',
-            message: 'AI notes snapshot did not match the active project.',
+            message:
+              'AI notes response did not match the active snapshot, symbol, or task.',
             retryable: false,
           });
           return;

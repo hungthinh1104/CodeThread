@@ -10,9 +10,16 @@ import { createAiProviderFromConfig } from './providers.ts';
 import type { AiProvider, FetchLike } from './providers.ts';
 import { verifyAiModelOutput } from './verifier.ts';
 
+export interface AiSynthesizeCallOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface AiSynthesizer {
   readonly enabled: boolean;
-  synthesize(request: AiSynthesizeRequest): Promise<AiSynthesisResponse>;
+  synthesize(
+    request: AiSynthesizeRequest,
+    options?: AiSynthesizeCallOptions,
+  ): Promise<AiSynthesisResponse>;
 }
 
 export interface CreateAiSynthesizerOptions {
@@ -39,6 +46,7 @@ export function createAiSynthesizer(
     enabled: config.enabled,
     async synthesize(
       requestInput: AiSynthesizeRequest,
+      callOptions?: AiSynthesizeCallOptions,
     ): Promise<AiSynthesisResponse> {
       if (!config.enabled || provider === null) {
         throw new AiError(
@@ -59,6 +67,7 @@ export function createAiSynthesizer(
       const rawOutput = await provider.generateJson({
         systemPrompt: prompt.systemPrompt,
         userPrompt: prompt.userPrompt,
+        ...(callOptions?.signal ? { signal: callOptions.signal } : {}),
       });
       return verifyAiModelOutput(request, rawOutput, {
         provider: provider.kind,

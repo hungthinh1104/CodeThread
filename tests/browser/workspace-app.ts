@@ -16,6 +16,7 @@ import {
 
 const backendToken = 'workspace-browser-backend-token';
 const activeScanId = '33333333-3333-4333-8333-333333333333';
+export const secondaryScanId = '55555555-5555-4555-8555-555555555555';
 const inactiveRepositoryId = '44444444-4444-4444-8444-444444444444';
 
 type Gate = {
@@ -90,11 +91,17 @@ export type WorkspaceAppAiMock = {
   synthesize?: (body: unknown) => Promise<unknown> | unknown;
 };
 
+export type WorkspaceScanOverride = (
+  scanId: string,
+  defaultScan: Record<string, unknown>,
+) => { status?: number; body: unknown } | null;
+
 function backendServer(
   viewer: ViewerHandle,
   holdScanRead: boolean,
   snapshot: AnalysisSnapshot,
   aiMock?: WorkspaceAppAiMock,
+  scanOverride?: WorkspaceScanOverride,
 ) {
   const repositoryId = snapshot.facts.identity.repositoryId;
   const projectId = 'workspace-test-project';
@@ -170,15 +177,33 @@ function backendServer(
       }
       if (
         request.method === 'GET' &&
-        url.pathname === `/v1/scans/${activeScanId}`
+        (url.pathname === `/v1/scans/${activeScanId}` ||
+          url.pathname === `/v1/scans/${secondaryScanId}`)
       ) {
-        if (holdScanRead) await gate.wait();
-        sendJson(response, scan);
+        const requestedId = url.pathname.split('/').at(-1)!;
+        const baseRecord =
+          requestedId === activeScanId
+            ? scan
+            : {
+                ...scan,
+                id: secondaryScanId,
+                revision_selector: 'secondary-rev',
+              };
+        if (scanOverride) {
+          const custom = scanOverride(requestedId, baseRecord);
+          if (custom) {
+            sendJson(response, custom.body, custom.status ?? 200);
+            return;
+          }
+        }
+        if (holdScanRead && requestedId === activeScanId) await gate.wait();
+        sendJson(response, baseRecord);
         return;
       }
       if (
         request.method === 'GET' &&
-        url.pathname === `/v1/scans/${activeScanId}/projects`
+        (url.pathname === `/v1/scans/${activeScanId}/projects` ||
+          url.pathname === `/v1/scans/${secondaryScanId}/projects`)
       ) {
         sendJson(response, [
           {
@@ -193,7 +218,8 @@ function backendServer(
       }
       if (
         request.method === 'GET' &&
-        url.pathname === `/v1/scans/${activeScanId}/files`
+        (url.pathname === `/v1/scans/${activeScanId}/files` ||
+          url.pathname === `/v1/scans/${secondaryScanId}/files`)
       ) {
         const offset = Number(url.searchParams.get('offset') ?? '0');
         const allFiles = snapshot.facts.files.map((file) => ({
@@ -502,7 +528,11 @@ export async function startWorkspaceFrontend(
 
 export async function startWorkspaceApp(
   snapshot: AnalysisSnapshot,
-  options: { holdScanRead?: boolean; ai?: WorkspaceAppAiMock } = {},
+  options: {
+    holdScanRead?: boolean;
+    ai?: WorkspaceAppAiMock;
+    scanOverride?: WorkspaceScanOverride;
+  } = {},
 ): Promise<WorkspaceApp> {
   const viewer = await createRepositoryViewer(repositorySession(snapshot));
   const backend = backendServer(
@@ -510,6 +540,7 @@ export async function startWorkspaceApp(
     options.holdScanRead ?? false,
     snapshot,
     options.ai,
+    options.scanOverride,
   );
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();

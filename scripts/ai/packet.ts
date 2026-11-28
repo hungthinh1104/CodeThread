@@ -16,6 +16,7 @@ import type {
   GetSourceEvidenceResponse,
   GraphNeighborsResponse,
 } from '@codethread/contracts';
+import { AiError } from './errors.ts';
 import { redactSecrets } from './redact.ts';
 
 export const AI_PROMPT_VERSION = 'ct-ai-prompt-v2';
@@ -53,6 +54,12 @@ export function buildAiContextPacketFromProjection(
   graph: GraphNeighborsResponse,
   evidenceBatch: GetSourceEvidenceResponse,
 ): AiContextPacket {
+  if (evidenceBatch.meta.snapshotId !== graph.meta.snapshotId) {
+    throw new AiError(
+      'AI_INVALID_REQUEST',
+      'Evidence batch snapshot does not match projection snapshot',
+    );
+  }
   const ordered = [
     ...graph.symbols.filter((sym) => sym.id === graph.rootSymbolId),
     ...graph.symbols.filter((sym) => sym.id !== graph.rootSymbolId),

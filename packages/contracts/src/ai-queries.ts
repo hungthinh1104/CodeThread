@@ -48,6 +48,7 @@ export const aiRejectionReasonSchema = z.enum([
   'UNANCHORED_FACT',
   'RUNTIME_EXECUTION_OVERCLAIM',
   'DUPLICATE_CLAIM',
+  'OUTPUT_CAP_EXCEEDED',
 ]);
 export type AiRejectionReason = z.infer<typeof aiRejectionReasonSchema>;
 

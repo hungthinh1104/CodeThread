@@ -7,15 +7,12 @@ import {
   workspaceMetadata,
 } from '../packages/investigation-workspace/src/server/workspace-bff.ts';
 import {
-  cancelBackendScan,
   listBackendRepositoryScans,
   queryBackendProjectPaths,
   readBackendAiStatus,
   readBackendHealth,
   readBackendScanFiles,
   readBackendScanProjects,
-  registerBackendRepository,
-  submitBackendScan,
   synthesizeBackendProjectAi,
 } from '../packages/investigation-workspace/src/server/backend-client.ts';
 import {
@@ -23,6 +20,8 @@ import {
   trustedLocalRequest,
 } from '../packages/investigation-workspace/src/server/http.ts';
 import { GET as aiStatusRoute } from '../packages/investigation-workspace/src/app/api/ai/status/route.ts';
+import * as repositoriesRoute from '../packages/investigation-workspace/src/app/api/repositories/route.ts';
+import * as repositoryScansRoute from '../packages/investigation-workspace/src/app/api/repositories/[id]/scans/route.ts';
 import { POST as workspaceOperation } from '../packages/investigation-workspace/src/app/api/workspace/[...path]/route.ts';
 
 const scanId = '11111111-1111-4111-8111-111111111111';
@@ -508,23 +507,14 @@ describe('local Investigation Workspace BFF', () => {
       },
     });
 
-    const registered = await registerBackendRepository({
-      locator: '/private/root/demo-repo',
-    });
-    expect(registered).toEqual({ id: repositoryId, label: 'demo-repo' });
-    expect(JSON.stringify(registered)).not.toContain('/private/root');
+    // Repository administration and scan-management mutations are gated out of the BFF.
+    expect('GET' in repositoriesRoute).toBe(true);
+    expect('POST' in repositoriesRoute).toBe(false);
+    expect('GET' in repositoryScansRoute).toBe(true);
+    expect('POST' in repositoryScansRoute).toBe(false);
 
     const scans = await listBackendRepositoryScans(repositoryId);
     expect(scans.items).toHaveLength(1);
-
-    const submitted = await submitBackendScan(repositoryId, {
-      revision: 'HEAD',
-      idempotencyKey: 'key-1',
-    });
-    expect(submitted).toMatchObject({ id: scanId, state: 'queued' });
-
-    const cancelled = await cancelBackendScan(scanId);
-    expect(cancelled).toEqual({ id: scanId, state: 'cancelled' });
 
     const projects = await readBackendScanProjects(scanId);
     expect(projects.items[0]?.project_id).toBe('tsconfig.json');
@@ -664,5 +654,19 @@ describe('local Investigation Workspace BFF', () => {
         request: { task: 'explain_path' },
       }),
     ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
+
+    // Reject upstream AI responses whose snapshot/symbol/task drift from the request.
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: {
+          task: 'explain_unknowns',
+          neighbors: { snapshotId: scanId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
   });
 });

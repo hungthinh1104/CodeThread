@@ -9,6 +9,7 @@ import { AiError } from './errors.ts';
 export interface AiProviderInput {
   readonly systemPrompt: string;
   readonly userPrompt: string;
+  readonly signal?: AbortSignal;
 }
 
 export interface AiProvider {
@@ -21,6 +22,16 @@ export type FetchLike = (
   input: string,
   init?: RequestInit,
 ) => Promise<Response>;
+
+function buildRequestSignal(
+  timeoutMs: number,
+  externalSignal?: AbortSignal,
+): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return externalSignal
+    ? AbortSignal.any([timeoutSignal, externalSignal])
+    : timeoutSignal;
+}
 
 async function readBoundedText(
   response: Response,
@@ -71,7 +82,14 @@ async function readBoundedText(
     combined.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder('utf-8', { fatal: true }).decode(combined);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(combined);
+  } catch {
+    throw new AiError(
+      'AI_INVALID_MODEL_OUTPUT',
+      'Provider returned invalid UTF-8 response',
+    );
+  }
 }
 
 export function extractJsonObject(rawText: string): unknown {
@@ -104,13 +122,86 @@ function classifyFetchError(error: unknown, providerLabel: string): AiError {
   ) {
     return new AiError(
       'AI_PROVIDER_TIMEOUT',
-      `${providerLabel} request timed out`,
+      `${providerLabel} request timed out or was cancelled`,
     );
   }
   return new AiError(
     'AI_PROVIDER_ERROR',
     `${providerLabel} request failed: ${error instanceof Error ? error.message : 'network error'}`,
   );
+}
+
+function isJsonContentType(contentType: string | null): boolean {
+  if (contentType === null) return true;
+  const media = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return (
+    media === '' || media === 'application/json' || media.endsWith('+json')
+  );
+}
+
+/**
+ * Shared hardened HTTP POST transport for every AI provider adapter.
+ * Enforces `redirect: 'manual'` and rejects all 3xx/opaqueredirect responses
+ * so prompt bodies, source excerpts, and API credentials can never be forwarded
+ * to an unapproved redirect target.
+ */
+async function postProviderJson(options: {
+  readonly fetchImpl: FetchLike;
+  readonly endpoint: string;
+  readonly headers: Record<string, string>;
+  readonly body: unknown;
+  readonly timeoutMs: number;
+  readonly maxResponseBytes: number;
+  readonly providerLabel: string;
+  readonly signal?: AbortSignal;
+}): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await options.fetchImpl(options.endpoint, {
+      method: 'POST',
+      headers: options.headers,
+      body: JSON.stringify(options.body),
+      redirect: 'manual',
+      signal: buildRequestSignal(options.timeoutMs, options.signal),
+    });
+  } catch (error) {
+    throw classifyFetchError(error, options.providerLabel);
+  }
+
+  if (
+    response.type === 'opaqueredirect' ||
+    (response.status >= 300 && response.status < 400)
+  ) {
+    await response.body?.cancel().catch(() => {});
+    throw new AiError(
+      'AI_PROVIDER_ERROR',
+      `${options.providerLabel} returned redirect HTTP ${response.status}; redirects are forbidden`,
+    );
+  }
+
+  const rawBody = await readBoundedText(response, options.maxResponseBytes);
+  if (!response.ok) {
+    throw new AiError(
+      'AI_PROVIDER_ERROR',
+      `${options.providerLabel} API returned HTTP ${response.status}`,
+    );
+  }
+
+  if (!isJsonContentType(response.headers.get('content-type'))) {
+    throw new AiError(
+      'AI_INVALID_MODEL_OUTPUT',
+      `${options.providerLabel} API returned unexpected content type`,
+    );
+  }
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    throw new AiError(
+      'AI_INVALID_MODEL_OUTPUT',
+      `${options.providerLabel} API returned malformed JSON envelope`,
+    );
+  }
 }
 
 /**
@@ -182,44 +273,27 @@ export function createGeminiProvider(
     kind: 'gemini',
     model: config.model,
     async generateJson(input: AiProviderInput): Promise<unknown> {
-      let response: Response;
-      try {
-        response = await fetchImpl(endpoint, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-goog-api-key': config.apiKey,
+      const envelope = await postProviderJson({
+        fetchImpl,
+        endpoint,
+        headers: {
+          'content-type': 'application/json',
+          'x-goog-api-key': config.apiKey,
+        },
+        body: {
+          systemInstruction: { parts: [{ text: input.systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: input.userPrompt }] }],
+          generationConfig: {
+            temperature: 0,
+            responseMimeType: 'application/json',
+            responseSchema: GEMINI_RESPONSE_SCHEMA,
           },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: input.systemPrompt }] },
-            contents: [{ role: 'user', parts: [{ text: input.userPrompt }] }],
-            generationConfig: {
-              temperature: 0,
-              responseMimeType: 'application/json',
-              responseSchema: GEMINI_RESPONSE_SCHEMA,
-            },
-          }),
-          signal: AbortSignal.timeout(config.timeoutMs),
-        });
-      } catch (error) {
-        throw classifyFetchError(error, 'Gemini');
-      }
-      const rawBody = await readBoundedText(response, config.maxResponseBytes);
-      if (!response.ok) {
-        throw new AiError(
-          'AI_PROVIDER_ERROR',
-          `Gemini API returned HTTP ${response.status}`,
-        );
-      }
-      let envelope: unknown;
-      try {
-        envelope = JSON.parse(rawBody);
-      } catch {
-        throw new AiError(
-          'AI_INVALID_MODEL_OUTPUT',
-          'Gemini API returned malformed JSON envelope',
-        );
-      }
+        },
+        timeoutMs: config.timeoutMs,
+        maxResponseBytes: config.maxResponseBytes,
+        providerLabel: 'Gemini',
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
       const candidates =
         envelope !== null &&
         typeof envelope === 'object' &&
@@ -259,41 +333,24 @@ export function createOpenAiCompatibleProvider(
       if (config.apiKey !== null) {
         headers['authorization'] = `Bearer ${config.apiKey}`;
       }
-      let response: Response;
-      try {
-        response = await fetchImpl(endpoint, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            model: config.model,
-            temperature: 0,
-            response_format: { type: 'json_object' },
-            messages: [
-              { role: 'system', content: input.systemPrompt },
-              { role: 'user', content: input.userPrompt },
-            ],
-          }),
-          signal: AbortSignal.timeout(config.timeoutMs),
-        });
-      } catch (error) {
-        throw classifyFetchError(error, 'OpenAI-compatible');
-      }
-      const rawBody = await readBoundedText(response, config.maxResponseBytes);
-      if (!response.ok) {
-        throw new AiError(
-          'AI_PROVIDER_ERROR',
-          `OpenAI-compatible API returned HTTP ${response.status}`,
-        );
-      }
-      let envelope: unknown;
-      try {
-        envelope = JSON.parse(rawBody);
-      } catch {
-        throw new AiError(
-          'AI_INVALID_MODEL_OUTPUT',
-          'OpenAI-compatible API returned malformed JSON envelope',
-        );
-      }
+      const envelope = await postProviderJson({
+        fetchImpl,
+        endpoint,
+        headers,
+        body: {
+          model: config.model,
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: input.systemPrompt },
+            { role: 'user', content: input.userPrompt },
+          ],
+        },
+        timeoutMs: config.timeoutMs,
+        maxResponseBytes: config.maxResponseBytes,
+        providerLabel: 'OpenAI-compatible',
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
       const choices =
         envelope !== null &&
         typeof envelope === 'object' &&

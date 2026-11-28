@@ -13,15 +13,6 @@ const MAX_AI_RESPONSE_BYTES = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
 const AI_REQUEST_TIMEOUT_MS = 30_000;
 
-export const registerRepositoryBodySchema = z.strictObject({
-  locator: z.string().trim().min(1).max(4096),
-});
-
-export const triggerScanBodySchema = z.strictObject({
-  revision: z.string().trim().min(1).max(1024),
-  idempotencyKey: z.string().trim().min(1).max(128),
-});
-
 export const workspacePathsBodySchema = z.strictObject({
   projectId: z.string().min(1).max(256),
   request: findSymbolPathsRequestSchema,
@@ -264,26 +255,6 @@ export async function readBackendHealth() {
   return { status, health: data };
 }
 
-export async function registerBackendRepository(rawBody: unknown) {
-  const parsed = registerRepositoryBodySchema.safeParse(rawBody);
-  if (!parsed.success)
-    throw new WorkspaceBffError(
-      400,
-      'INVALID_REQUEST',
-      'Provide a valid repository path inside the permitted root.',
-    );
-  const { data } = await callBackend(
-    'POST /v1/repositories',
-    '/v1/repositories',
-    'POST',
-    { body: parsed.data },
-  );
-  return {
-    id: data.id,
-    label: sanitizeRepositoryLabel(data.locator),
-  };
-}
-
 export async function readBackendRepository(repositoryId: string) {
   const id = parseUuidParam(repositoryId, 'repository identity');
   const { data } = await callBackend(
@@ -309,43 +280,12 @@ export async function listBackendRepositoryScans(repositoryId: string) {
   return { items: data };
 }
 
-export async function submitBackendScan(
-  repositoryId: string,
-  rawBody: unknown,
-) {
-  const id = parseUuidParam(repositoryId, 'repository identity');
-  const parsed = triggerScanBodySchema.safeParse(rawBody);
-  if (!parsed.success)
-    throw new WorkspaceBffError(
-      400,
-      'INVALID_REQUEST',
-      'Provide a valid revision and idempotency key.',
-    );
-  const { data } = await callBackend(
-    'POST /v1/repositories/:id/scans',
-    `/v1/repositories/${id}/scans`,
-    'POST',
-    { body: parsed.data },
-  );
-  return data;
-}
-
 export async function readBackendScan(scanId: string) {
   const id = parseUuidParam(scanId, 'scan identity');
   const { data } = await callBackend(
     'GET /v1/scans/:id',
     `/v1/scans/${id}`,
     'GET',
-  );
-  return data;
-}
-
-export async function cancelBackendScan(scanId: string) {
-  const id = parseUuidParam(scanId, 'scan identity');
-  const { data } = await callBackend(
-    'POST /v1/scans/:id/cancel',
-    `/v1/scans/${id}/cancel`,
-    'POST',
   );
   return data;
 }
@@ -433,6 +373,14 @@ export async function synthesizeBackendProjectAi(
       'AI synthesis request failed contract validation.',
     );
   const { projectId, request } = parsed.data;
+  const expectedSnapshotId =
+    request.task === 'explain_path'
+      ? request.paths!.snapshotId
+      : request.neighbors!.snapshotId;
+  const expectedRootSymbolId =
+    request.task === 'explain_path'
+      ? request.paths!.fromSymbolId
+      : request.neighbors!.symbolId;
   const { data } = await callBackend(
     'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
     `/v1/scans/${id}/projects/${encodeURIComponent(projectId)}/ai/synthesize`,
@@ -443,5 +391,16 @@ export async function synthesizeBackendProjectAi(
       maxResponseBytes: MAX_AI_RESPONSE_BYTES,
     },
   );
+  if (
+    data.snapshotId !== expectedSnapshotId ||
+    data.rootSymbolId !== expectedRootSymbolId ||
+    data.task !== request.task
+  ) {
+    throw new WorkspaceBffError(
+      502,
+      'UPSTREAM_CONTRACT_MISMATCH',
+      'The AI synthesis response did not match the requested snapshot, symbol, or task.',
+    );
+  }
   return { projectId, result: data };
 }

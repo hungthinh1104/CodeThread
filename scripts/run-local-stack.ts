@@ -13,6 +13,172 @@ type StackOptions = {
   mode: 'dev' | 'start';
 };
 
+export type BackendHealthSnapshot = {
+  readonly api: 'ready';
+  readonly database: 'ready' | 'unavailable';
+  readonly worker: 'ready' | 'unavailable';
+  readonly ready: boolean;
+};
+
+export type BackendStartupState = {
+  readonly ready: boolean;
+  readonly degraded: boolean;
+  readonly health: BackendHealthSnapshot;
+};
+
+export type HealthFetchLike = (
+  input: string,
+  init?: RequestInit,
+) => Promise<Response>;
+
+function parseHealthSnapshot(value: unknown): BackendHealthSnapshot | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record['api'] === 'ready' &&
+    (record['database'] === 'ready' || record['database'] === 'unavailable') &&
+    (record['worker'] === 'ready' || record['worker'] === 'unavailable') &&
+    typeof record['ready'] === 'boolean'
+  ) {
+    return {
+      api: 'ready',
+      database: record['database'],
+      worker: record['worker'],
+      ready: record['ready'],
+    };
+  }
+  return null;
+}
+
+export async function probeBackendHealth(
+  origin: string,
+  token: string,
+  fetchImpl: HealthFetchLike = fetch,
+): Promise<BackendHealthSnapshot | null> {
+  try {
+    const response = await fetchImpl(`${origin}/v1/health`, {
+      headers: { authorization: `Bearer ${token}` },
+      redirect: 'manual',
+    });
+    if (response.status !== 200 && response.status !== 503) return null;
+    const body: unknown = await response.json();
+    return parseHealthSnapshot(body);
+  } catch {
+    return null;
+  }
+}
+
+export interface WaitForBackendOptions {
+  readonly timeoutMs?: number;
+  readonly workerGraceMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly fetchImpl?: HealthFetchLike;
+  readonly now?: () => number;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Waits for the backend API and PostgreSQL database to become available.
+ * Separates API/database availability from worker readiness:
+ * - Full readiness (`ready === true`) returns immediately.
+ * - Degraded worker (`api === 'ready' && database === 'ready' && worker === 'unavailable'`)
+ *   allows startup after `workerGraceMs` so read-only investigation can launch
+ *   while clearly reporting degraded worker state.
+ * - Database or API unavailability continues waiting until `timeoutMs` and fails
+ *   explicitly without confusing database failure with worker unavailability.
+ */
+export async function waitForBackendReady(
+  origin: string,
+  token: string,
+  backend: Pick<ChildProcess, 'exitCode' | 'signalCode'>,
+  options: WaitForBackendOptions = {},
+): Promise<BackendStartupState> {
+  const timeoutMs = options.timeoutMs ?? 25_000;
+  const workerGraceMs = options.workerGraceMs ?? 3_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 250;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? ((ms: number) => delay(ms));
+
+  const deadline = now() + timeoutMs;
+  let coreReadySince: number | null = null;
+  let lastHealth: BackendHealthSnapshot | null = null;
+
+  while (now() < deadline) {
+    if (backend.exitCode !== null || backend.signalCode !== null)
+      throw new Error('Backend process exited before becoming ready.');
+    const health = await probeBackendHealth(origin, token, fetchImpl);
+    if (health) {
+      lastHealth = health;
+      if (
+        health.ready &&
+        health.database === 'ready' &&
+        health.worker === 'ready'
+      ) {
+        return { ready: true, degraded: false, health };
+      }
+      if (health.api === 'ready' && health.database === 'ready') {
+        coreReadySince ??= now();
+        if (now() - coreReadySince >= workerGraceMs) {
+          return { ready: false, degraded: true, health };
+        }
+      } else {
+        coreReadySince = null;
+      }
+    } else {
+      coreReadySince = null;
+    }
+    await sleep(pollIntervalMs);
+  }
+  if (lastHealth && lastHealth.database === 'unavailable') {
+    throw new Error(
+      `Backend database at ${origin} remained unavailable after ${timeoutMs}ms.`,
+    );
+  }
+  throw new Error(
+    `Backend API at ${origin} did not become available within ${timeoutMs}ms.`,
+  );
+}
+
+/**
+ * Watches a degraded worker in the background until it recovers to `ready`
+ * or the provided AbortSignal fires.
+ */
+export async function monitorWorkerRecovery(
+  origin: string,
+  token: string,
+  signal: AbortSignal,
+  onRecovered: (health: BackendHealthSnapshot) => void,
+  options: {
+    readonly pollIntervalMs?: number;
+    readonly fetchImpl?: HealthFetchLike;
+    readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  } = {},
+): Promise<boolean> {
+  const pollIntervalMs = options.pollIntervalMs ?? 2_000;
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const sleep =
+    options.sleep ??
+    (async (ms: number, abortSignal?: AbortSignal) => {
+      try {
+        await delay(ms, undefined, { signal: abortSignal });
+      } catch {
+        // Stop cleanly on abort.
+      }
+    });
+
+  while (!signal.aborted) {
+    await sleep(pollIntervalMs, signal);
+    if (signal.aborted) return false;
+    const health = await probeBackendHealth(origin, token, fetchImpl);
+    if (health && health.ready && health.worker === 'ready') {
+      onRecovered(health);
+      return true;
+    }
+  }
+  return false;
+}
+
 function parsePort(raw: string, flag: string): number {
   if (!/^\d{1,5}$/.test(raw))
     throw new Error(`${flag} must be a valid TCP port number.`);
@@ -95,34 +261,6 @@ function runCommand(
   });
 }
 
-async function waitForBackendReady(
-  origin: string,
-  token: string,
-  backend: ChildProcess,
-  timeoutMs = 25_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (backend.exitCode !== null || backend.signalCode !== null)
-      throw new Error('Backend process exited before becoming ready.');
-    try {
-      const response = await fetch(`${origin}/v1/health`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const body = (await response.json()) as { ready?: boolean };
-        if (body.ready === true) return;
-      }
-    } catch {
-      // Wait for listener bind.
-    }
-    await delay(250);
-  }
-  throw new Error(
-    `Backend at ${origin} did not become ready within ${timeoutMs}ms.`,
-  );
-}
-
 async function stopChild(child: ChildProcess | undefined): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null) return;
   child.kill('SIGTERM');
@@ -190,9 +328,11 @@ async function main(): Promise<void> {
 
   let workspace: ChildProcess | undefined;
   let shuttingDown = false;
+  const lifecycleAbort = new AbortController();
   const shutdown = async (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
+    lifecycleAbort.abort();
     await Promise.allSettled([stopChild(workspace), stopChild(backend)]);
     process.exit(exitCode);
   };
@@ -201,7 +341,7 @@ async function main(): Promise<void> {
   process.once('SIGTERM', () => void shutdown(0));
 
   try {
-    await waitForBackendReady(apiOrigin, token, backend);
+    const startup = await waitForBackendReady(apiOrigin, token, backend);
     const nextBin = resolve(workspaceDir, 'node_modules/next/dist/bin/next');
     workspace = spawn(
       process.execPath,
@@ -225,9 +365,25 @@ async function main(): Promise<void> {
         stdio: 'inherit',
       },
     );
-    console.log(
-      `CodeThread local stack ready: workspace=${webOrigin} api=${apiOrigin} mode=${options.mode}`,
-    );
+    if (startup.degraded) {
+      console.warn(
+        `CodeThread local stack started in degraded mode (worker unavailable; API and database ready): workspace=${webOrigin} api=${apiOrigin} mode=${options.mode}`,
+      );
+      void monitorWorkerRecovery(
+        apiOrigin,
+        token,
+        lifecycleAbort.signal,
+        () => {
+          console.log(
+            `CodeThread backend worker recovered and is now ready at ${apiOrigin}.`,
+          );
+        },
+      );
+    } else {
+      console.log(
+        `CodeThread local stack ready: workspace=${webOrigin} api=${apiOrigin} mode=${options.mode}`,
+      );
+    }
     backend.once('exit', (code) => {
       if (!shuttingDown) {
         console.error(`Backend exited unexpectedly with code ${code}.`);
@@ -246,7 +402,10 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const currentFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && resolve(process.argv[1]) === resolve(currentFile)) {
+  void main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

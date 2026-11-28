@@ -37,16 +37,17 @@ visual-separation boundaries.
      `POST /api/workspace/ai` (`30s` upstream timeout, `64 KiB` response cap,
      strict snapshot/symbol/task correspondence check).
    - Keep `CODETHREAD_API_TOKEN` and provider keys strictly server-side.
-3. **Editorial Workspace presentation (`04 / Generated notes`)**:
+3. **Editorial Workspace presentation (conditional `Notes` tab)**:
    - When `GET /api/ai/status` reports `{enabled: false}` (the default), render
      nothing so the default Investigation Workspace DOM and behavior remain
      identical to `ADR-0009`.
-   - When enabled, render a subordinate `04 / Generated notes` section at the
-     bottom of the Evidence Inspector using Warm Graphite tokens only—no chat
-     input, no sparkle icons, no auto-run on selection, explicit remote/local
-     disclosure, real relation kind/resolution badges derived from verified
-     facts, and clickable `path:line` evidence buttons wired into the existing
-     verified excerpt inspector.
+   - When enabled, render a conditional `Notes` tab
+     (`Source | Trace | Paths | Notes`) inside the main workbench region using
+     Warm Graphite tokens only—no chat input, no sparkle icons, no auto-run on
+     selection, explicit remote/local disclosure, real relation kind/resolution
+     badges derived from verified facts, and clickable `path:line` evidence
+     buttons that open verified `SHA-256` excerpts side-by-side in the Evidence
+     dock without leaving Notes.
 
 ## Consequences
 

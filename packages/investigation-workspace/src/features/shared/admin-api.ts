@@ -29,13 +29,6 @@ export type ScanRecord = {
   updated_at: string;
 };
 
-export type AcceptedScan = {
-  id: string;
-  repositoryId: string;
-  state: ScanState;
-  reused: boolean;
-};
-
 export type ScanProjectStatus =
   'ready' | 'solution' | 'invalid' | 'unsupported' | 'failed' | 'not_analyzed';
 
@@ -58,15 +51,14 @@ export type ScanFilesPage = {
   nextOffset: number | null;
 };
 
-async function requestAdminJson<T>(
+async function requestReadJson<T>(
   input: string,
-  init: RequestInit,
   acceptStatus: number[] = [],
 ): Promise<T> {
   let response: Response;
   try {
     response = await fetch(input, {
-      ...init,
+      method: 'GET',
       cache: 'no-store',
       credentials: 'same-origin',
     });
@@ -102,78 +94,32 @@ async function requestAdminJson<T>(
 }
 
 export function readHealth(): Promise<HealthStatus> {
-  return requestAdminJson<HealthStatus>(
-    '/api/health',
-    { method: 'GET' },
-    [503],
-  );
+  return requestReadJson<HealthStatus>('/api/health', [503]);
 }
 
 export function listAdminRepositories(): Promise<{ items: RepositoryItem[] }> {
-  return requestAdminJson<{ items: RepositoryItem[] }>('/api/repositories', {
-    method: 'GET',
-  });
-}
-
-export function registerAdminRepository(
-  locator: string,
-): Promise<{ repository: { id: string; label: string } }> {
-  return requestAdminJson<{ repository: { id: string; label: string } }>(
-    '/api/repositories',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ locator }),
-    },
-  );
+  return requestReadJson<{ items: RepositoryItem[] }>('/api/repositories');
 }
 
 export function readRepositoryScans(
   repositoryId: string,
 ): Promise<{ items: ScanRecord[] }> {
-  return requestAdminJson<{ items: ScanRecord[] }>(
+  return requestReadJson<{ items: ScanRecord[] }>(
     `/api/repositories/${encodeURIComponent(repositoryId)}/scans`,
-    { method: 'GET' },
-  );
-}
-
-export function triggerRepositoryScan(
-  repositoryId: string,
-  revision: string,
-  idempotencyKey: string,
-): Promise<{ scan: AcceptedScan }> {
-  return requestAdminJson<{ scan: AcceptedScan }>(
-    `/api/repositories/${encodeURIComponent(repositoryId)}/scans`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ revision, idempotencyKey }),
-    },
   );
 }
 
 export function readScanDetail(scanId: string): Promise<{ scan: ScanRecord }> {
-  return requestAdminJson<{ scan: ScanRecord }>(
+  return requestReadJson<{ scan: ScanRecord }>(
     `/api/scans/${encodeURIComponent(scanId)}`,
-    { method: 'GET' },
-  );
-}
-
-export function cancelScanJob(
-  scanId: string,
-): Promise<{ scan: { id: string; state: 'cancelled' } }> {
-  return requestAdminJson<{ scan: { id: string; state: 'cancelled' } }>(
-    `/api/scans/${encodeURIComponent(scanId)}/cancel`,
-    { method: 'POST' },
   );
 }
 
 export function readScanProjects(
   scanId: string,
 ): Promise<{ items: ScanProjectRecord[] }> {
-  return requestAdminJson<{ items: ScanProjectRecord[] }>(
+  return requestReadJson<{ items: ScanProjectRecord[] }>(
     `/api/scans/${encodeURIComponent(scanId)}/projects`,
-    { method: 'GET' },
   );
 }
 
@@ -181,8 +127,7 @@ export function readScanFiles(
   scanId: string,
   offset: number,
 ): Promise<ScanFilesPage> {
-  return requestAdminJson<ScanFilesPage>(
+  return requestReadJson<ScanFilesPage>(
     `/api/scans/${encodeURIComponent(scanId)}/files?offset=${offset}`,
-    { method: 'GET' },
   );
 }

@@ -140,6 +140,7 @@ export class BackendAiService {
     jobId: string,
     projectId: string,
     rawInput: unknown,
+    callOptions?: { readonly signal?: AbortSignal },
   ): Promise<AiSynthesisResponse> {
     const request = aiSynthesizeApiRequestSchema.parse(rawInput);
     if (!this.config.enabled || !this.provider) {
@@ -197,12 +198,15 @@ export class BackendAiService {
       const cached = this.readCache(cacheKey);
       if (cached) return cached;
 
-      const response = await this.synthesizer.synthesize({
-        task: request.task,
-        packet,
-        maxClaims: request.maxClaims,
-        maxNextSteps: request.maxNextSteps,
-      });
+      const response = await this.synthesizer.synthesize(
+        {
+          task: request.task,
+          packet,
+          maxClaims: request.maxClaims,
+          maxNextSteps: request.maxNextSteps,
+        },
+        callOptions,
+      );
       this.writeCache(cacheKey, response);
       return response;
     } catch (error) {

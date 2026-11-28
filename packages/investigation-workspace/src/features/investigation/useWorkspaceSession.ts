@@ -256,14 +256,15 @@ export function useWorkspaceSession(input: SessionInput) {
           setSelectedRepositoryId(recovered.workspace.repositoryId);
           await loadProjectContexts(recovered.workspace, resetWorkspace());
         } catch (error) {
+          if (!isCurrent()) return;
           if (
-            isCurrent() &&
-            !(
-              error instanceof ApiFailure &&
-              error.code === 'WORKSPACE_SESSION_EXPIRED'
-            )
-          )
+            error instanceof ApiFailure &&
+            error.code === 'WORKSPACE_SESSION_EXPIRED'
+          ) {
+            rememberWorkspaceScan(null);
+          } else {
             reportWorkspaceError(errorMessage(error), true);
+          }
         }
       } catch (error) {
         if (isCurrent()) reportWorkspaceError(errorMessage(error), true);
@@ -281,13 +282,13 @@ export function useWorkspaceSession(input: SessionInput) {
 
   async function chooseRepository(id: string) {
     const generation = resetWorkspace();
-    rememberWorkspaceScan(null);
+    if (!id) rememberWorkspaceScan(null);
     setSelectedRepositoryId(id);
     const repository = repositories.find((item) => item.id === id);
     if (!repository) return;
     if (!repository.activeScanId) {
       reportWorkspaceError(
-        'This repository has no active scan. Queue a scan from Repositories.',
+        'This repository has no active scan. Run a scan via the local backend API before opening it here.',
       );
       return;
     }

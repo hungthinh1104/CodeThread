@@ -1,14 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../investigation/scoped-api.ts';
 import type { RepositoryItem } from '../investigation/types.ts';
 import {
   listAdminRepositories,
   readHealth,
   readRepositoryScans,
-  registerAdminRepository,
-  triggerRepositoryScan,
   type HealthStatus,
   type ScanRecord,
 } from '../shared/admin-api.ts';
@@ -24,29 +22,10 @@ export function RepositoriesScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [locator, setLocator] = useState('');
-  const [registering, setRegistering] = useState(false);
-  const [registerError, setRegisterError] = useState<string | null>(null);
-  const [registerNotice, setRegisterNotice] = useState<string | null>(null);
-
   const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [scansLoading, setScansLoading] = useState(false);
   const [scansError, setScansError] = useState<string | null>(null);
-
-  const [revision, setRevision] = useState('HEAD');
-  const [idempotencyKey, setIdempotencyKey] = useState<string>(() =>
-    typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `scan-${Date.now()}`,
-  );
-  const [submittingScan, setSubmittingScan] = useState(false);
-  const [scanSubmitError, setScanSubmitError] = useState<string | null>(null);
-  const [scanSubmitResult, setScanSubmitResult] = useState<{
-    id: string;
-    state: string;
-    reused: boolean;
-  } | null>(null);
 
   const listGeneration = useRef(0);
   const scanListGeneration = useRef(0);
@@ -96,6 +75,10 @@ export function RepositoriesScreen() {
 
   useEffect(() => {
     void refreshAll();
+    return () => {
+      ++listGeneration.current;
+      ++scanListGeneration.current;
+    };
   }, []);
 
   useEffect(() => {
@@ -104,68 +87,8 @@ export function RepositoriesScreen() {
       setScansError(null);
       return;
     }
-    setScanSubmitError(null);
-    setScanSubmitResult(null);
-    setIdempotencyKey(crypto.randomUUID());
     void loadScans(selectedRepoId);
   }, [selectedRepoId]);
-
-  async function handleRegister(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = locator.trim();
-    if (!trimmed) {
-      setRegisterError(
-        'Enter a local repository path inside the allowed root.',
-      );
-      return;
-    }
-    setRegistering(true);
-    setRegisterError(null);
-    setRegisterNotice(null);
-    try {
-      const { repository } = await registerAdminRepository(trimmed);
-      setLocator('');
-      setRegisterNotice(`Registered repository "${repository.label}".`);
-      await refreshAll();
-      setSelectedRepoId(repository.id);
-    } catch (error) {
-      setRegisterError(errorMessage(error));
-    } finally {
-      setRegistering(false);
-    }
-  }
-
-  async function handleTriggerScan(event: FormEvent) {
-    event.preventDefault();
-    if (!selectedRepoId) return;
-    const trimmed = revision.trim();
-    if (!trimmed) {
-      setScanSubmitError('Enter a Git revision, branch, tag, or commit OID.');
-      return;
-    }
-    setSubmittingScan(true);
-    setScanSubmitError(null);
-    setScanSubmitResult(null);
-    try {
-      const { scan } = await triggerRepositoryScan(
-        selectedRepoId,
-        trimmed,
-        idempotencyKey,
-      );
-      setScanSubmitResult({
-        id: scan.id,
-        state: scan.state,
-        reused: scan.reused,
-      });
-      setIdempotencyKey(crypto.randomUUID());
-      void loadScans(selectedRepoId);
-      void refreshAll();
-    } catch (error) {
-      setScanSubmitError(errorMessage(error));
-    } finally {
-      setSubmittingScan(false);
-    }
-  }
 
   const selectedRepo = repositories.find((item) => item.id === selectedRepoId);
 
@@ -199,54 +122,10 @@ export function RepositoriesScreen() {
 
             <section
               className="explorer-section"
-              aria-labelledby="register-repo-heading"
-            >
-              <h3 id="register-repo-heading">Register local repository</h3>
-              <p className="muted small">
-                Local Git directory inside the configured root.
-              </p>
-              <form
-                className="stack-form"
-                onSubmit={(event) => void handleRegister(event)}
-              >
-                <label className="field-label" htmlFor="repo-locator-input">
-                  Repository path
-                </label>
-                <input
-                  id="repo-locator-input"
-                  value={locator}
-                  onChange={(event) => setLocator(event.currentTarget.value)}
-                  placeholder="/path/to/local/git-repo"
-                  maxLength={4096}
-                  autoComplete="off"
-                  disabled={registering}
-                />
-                <button
-                  className="btn-primary"
-                  type="submit"
-                  disabled={registering}
-                >
-                  {registering ? 'Registering…' : 'Register repository'}
-                </button>
-              </form>
-              {registerNotice ? (
-                <p className="notice" role="status">
-                  {registerNotice}
-                </p>
-              ) : null}
-              {registerError ? (
-                <div className="notice error" role="alert">
-                  <span>{registerError}</span>
-                </div>
-              ) : null}
-            </section>
-
-            <section
-              className="explorer-section"
               aria-labelledby="repo-list-heading"
             >
               <div className="section-heading-row">
-                <h3 id="repo-list-heading">Registered repositories</h3>
+                <h3 id="repo-list-heading">Indexed repositories</h3>
                 <span>{repositories.length} total</span>
               </div>
               {loadError ? (
@@ -282,8 +161,9 @@ export function RepositoriesScreen() {
                 </ul>
               ) : !loading && !loadError ? (
                 <p className="muted small">
-                  No repositories registered yet. Register one above to run your
-                  first pinned scan.
+                  No repositories indexed yet. Register and scan a local
+                  repository via the loopback backend API before inspecting it
+                  here.
                 </p>
               ) : null}
             </section>
@@ -292,16 +172,8 @@ export function RepositoriesScreen() {
 
         <RepositoryScansPanel
           selectedRepo={selectedRepo}
+          loadingRepositories={loading}
           health={health}
-          revision={revision}
-          onRevisionChange={(value) => {
-            setRevision(value);
-            setIdempotencyKey(crypto.randomUUID());
-          }}
-          submittingScan={submittingScan}
-          onTriggerScan={(event) => void handleTriggerScan(event)}
-          scanSubmitResult={scanSubmitResult}
-          scanSubmitError={scanSubmitError}
           scans={scans}
           scansLoading={scansLoading}
           scansError={scansError}
@@ -310,7 +182,7 @@ export function RepositoriesScreen() {
       </div>
 
       <AppStatusBar
-        summary="Local loopback service"
+        summary="Read-only repository and scan inventory"
         theme={theme}
         onThemeChange={setTheme}
       />

@@ -124,9 +124,11 @@ export function ScanArtifactsPanel(props: Props) {
                 </ol>
               ) : !props.projectsLoading && !props.projectsError ? (
                 <p className="empty-state">
-                  {isActiveState
-                    ? 'Project contexts will appear once the scan completes.'
-                    : 'No project contexts were recorded for this scan.'}
+                  {!scan
+                    ? 'Loading scan details…'
+                    : isActiveState
+                      ? 'Project contexts will appear once the scan completes.'
+                      : 'No project contexts were recorded for this scan.'}
                 </p>
               ) : null}
             </section>
@@ -197,9 +199,11 @@ export function ScanArtifactsPanel(props: Props) {
                 </>
               ) : !props.filesLoading && !props.filesError ? (
                 <p className="empty-state">
-                  {isActiveState
-                    ? 'Pinned input files will appear once acquisition completes.'
-                    : 'No input files were recorded for this scan.'}
+                  {!scan
+                    ? 'Loading scan details…'
+                    : isActiveState
+                      ? 'Pinned input files will appear once acquisition completes.'
+                      : 'No input files were recorded for this scan.'}
                 </p>
               ) : null}
             </section>
