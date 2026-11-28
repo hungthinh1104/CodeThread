@@ -105,6 +105,10 @@ export function makeApi(
         assertQueryParameters(url);
         result = await service.repository(uuid.parse(p[2]));
         responseRoute = 'GET /v1/repositories/:id';
+      } else if (is('GET', 'v1', 'repositories', '*', 'scans')) {
+        assertQueryParameters(url);
+        result = await service.repositoryScans(uuid.parse(p[2]));
+        responseRoute = 'GET /v1/repositories/:id/scans';
       } else if (is('POST', 'v1', 'repositories', '*', 'scans')) {
         assertQueryParameters(url);
         const input = requestScan.parse(await readJson(req));

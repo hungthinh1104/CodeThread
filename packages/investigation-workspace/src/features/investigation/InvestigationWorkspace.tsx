@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { EvidenceInspector } from './EvidenceInspector.tsx';
 import { ExplorerRegion } from './ExplorerRegion.tsx';
 import { MainRegion } from './MainRegion.tsx';
@@ -38,9 +39,10 @@ export function InvestigationWorkspace() {
     id: string,
     trigger: HTMLButtonElement,
     relationId?: string,
+    verifiedFromPath?: boolean,
   ) => {
     layout.expandInspector();
-    mainModel.onSelectEvidence(id, trigger, relationId);
+    mainModel.onSelectEvidence(id, trigger, relationId, verifiedFromPath);
   };
 
   return (
@@ -157,6 +159,19 @@ export function InvestigationWorkspace() {
       </div>
       <footer className="page-footer" inert={inspector.inspectorModal}>
         <div className="status-left">
+          <nav className="dock-controls" aria-label="Workspace navigation">
+            <Link className="status-btn status-link" href="/repositories">
+              Repositories
+            </Link>
+            {workspace ? (
+              <Link
+                className="status-btn status-link"
+                href={`/scans/${workspace.scanId}`}
+              >
+                Scan detail
+              </Link>
+            ) : null}
+          </nav>
           {!inspector.compactViewport ? (
             <div className="dock-controls" aria-label="Workbench layout">
               <button

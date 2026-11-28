@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { PathsPanel } from './PathsPanel.tsx';
 import { SourcePanel } from './SourcePanel.tsx';
 import { TracePanel } from './TracePanel.tsx';
 import type {
@@ -6,10 +7,12 @@ import type {
   EvidenceProjection,
   FollowContextProjection,
   GraphProjection,
+  Scope,
   SessionProjection,
 } from './types.ts';
 
 export type MainModel = {
+  scope: Scope | null;
   selected: CodeSymbol | null;
   evidence: EvidenceProjection['items'][number] | null;
   evidenceLoading: boolean;
@@ -18,20 +21,21 @@ export type MainModel = {
   graphLoading: boolean;
   graphError: string | null;
   session: SessionProjection | null;
-  activeView: 'source' | 'trace';
+  activeView: 'source' | 'trace' | 'paths';
   relationKinds: ('calls' | 'references')[];
   direction: 'outgoing' | 'incoming' | 'both';
   selectedRelationId: string | null;
   contextCandidates: FollowContextProjection['candidates'];
   contextSearchLoading: boolean;
   contextSearchMessage: string | null;
-  onViewChange: (view: 'source' | 'trace') => void;
+  onViewChange: (view: 'source' | 'trace' | 'paths') => void;
   onRelationKindsChange: (value: ('calls' | 'references')[]) => void;
   onDirectionChange: (value: 'outgoing' | 'incoming' | 'both') => void;
   onSelectEvidence: (
     id: string,
     trigger: HTMLButtonElement,
     relationId?: string,
+    verifiedFromPath?: boolean,
   ) => void;
   onFollowSymbol: (symbol: CodeSymbol) => void;
   onRetryGraph: () => void;
@@ -83,7 +87,13 @@ export function MainRegion({ inert, headingRef, model }: Props) {
           onKeyDown={(event) => {
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
             event.preventDefault();
-            const next = model.activeView === 'source' ? 'trace' : 'source';
+            const order = ['source', 'trace', 'paths'] as const;
+            const currentIndex = order.indexOf(model.activeView);
+            const nextIndex =
+              event.key === 'ArrowRight'
+                ? (currentIndex + 1) % order.length
+                : (currentIndex - 1 + order.length) % order.length;
+            const next = order[nextIndex]!;
             model.onViewChange(next);
             document.getElementById(`${next}-tab`)?.focus();
           }}
@@ -109,6 +119,17 @@ export function MainRegion({ inert, headingRef, model }: Props) {
             onClick={() => model.onViewChange('trace')}
           >
             Trace
+          </button>
+          <button
+            id="paths-tab"
+            type="button"
+            role="tab"
+            aria-selected={model.activeView === 'paths'}
+            aria-controls="paths-panel"
+            tabIndex={model.activeView === 'paths' ? 0 : -1}
+            onClick={() => model.onViewChange('paths')}
+          >
+            Paths
           </button>
         </div>
       </div>
@@ -141,6 +162,15 @@ export function MainRegion({ inert, headingRef, model }: Props) {
           direction={model.direction}
           onDirectionChange={model.onDirectionChange}
           selectedRelationId={model.selectedRelationId}
+          onSelectEvidence={model.onSelectEvidence}
+          onFollowSymbol={model.onFollowSymbol}
+        />
+
+        <PathsPanel
+          hidden={model.activeView !== 'paths'}
+          root={root}
+          scope={model.scope}
+          relationKinds={model.relationKinds}
           onSelectEvidence={model.onSelectEvidence}
           onFollowSymbol={model.onFollowSymbol}
         />

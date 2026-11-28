@@ -182,6 +182,31 @@ export function createBackendApiContractCases(dependencies: Dependencies) {
       },
     },
     {
+      route: 'GET /v1/repositories/:id/scans',
+      positive: async () => {
+        const body = (await success(
+          'GET /v1/repositories/:id/scans',
+          `/v1/repositories/${ctx().repositoryId}/scans`,
+        )) as unknown as Array<{ id: string; repository_id: string }>;
+        expect(body.some((scan) => scan.id === ctx().scanId)).toBe(true);
+        expect(
+          body.every((scan) => scan.repository_id === ctx().repositoryId),
+        ).toBe(true);
+      },
+      negative: async () => {
+        await failure(
+          '/v1/repositories/not-a-uuid/scans',
+          400,
+          'INVALID_REQUEST',
+        );
+        await failure(
+          `/v1/repositories/${randomUUID()}/scans`,
+          404,
+          'NOT_FOUND',
+        );
+      },
+    },
+    {
       route: 'POST /v1/repositories/:id/scans',
       positive: async () => {
         const key = `api-contract-${randomUUID()}`,

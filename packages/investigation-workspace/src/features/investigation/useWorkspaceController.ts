@@ -257,11 +257,13 @@ export function useWorkspaceController() {
     id: string,
     trigger: HTMLButtonElement,
     relationId: string | null = null,
+    verifiedFromPath = false,
   ) {
     const scope = scopeRef.current;
     if (
       !scope ||
-      (!proj.graph?.graph.evidenceRefs.some((item) => item.id === id) &&
+      (!verifiedFromPath &&
+        !proj.graph?.graph.evidenceRefs.some((item) => item.id === id) &&
         !proj.graph?.unknowns.items.some((item) => item.evidenceId === id) &&
         proj.selected?.declarationEvidenceId !== id)
     ) {
@@ -406,6 +408,7 @@ export function useWorkspaceController() {
       onRetryWorkspace: () => void ws.retryWorkspace(),
     },
     mainModel: {
+      scope: scopeRef.current,
       selected: proj.selected,
       evidence: proj.evidence,
       evidenceLoading: proj.evidenceLoading,
@@ -430,7 +433,14 @@ export function useWorkspaceController() {
         id: string,
         trigger: HTMLButtonElement,
         relationId?: string,
-      ) => void chooseEvidence(id, trigger, relationId ?? null),
+        verifiedFromPath?: boolean,
+      ) =>
+        void chooseEvidence(
+          id,
+          trigger,
+          relationId ?? null,
+          Boolean(verifiedFromPath),
+        ),
       onFollowSymbol: followSymbol,
       onRetryGraph: proj.retryGraph,
       onRetryEvidence: proj.readDeclarationEvidence,

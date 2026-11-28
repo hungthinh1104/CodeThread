@@ -3,6 +3,7 @@ import type {
   EvidenceProjection,
   FollowContextProjection,
   GraphProjection,
+  PathsProjection,
   ProjectContexts,
   Scope,
   SearchState,
@@ -166,6 +167,32 @@ export async function readFollowContexts(
     {
       projectId: scope.projectId,
       request: { snapshotId: scope.snapshotId, symbolId },
+    },
+  );
+  return unwrapScoped(response, scope);
+}
+
+export async function readSymbolPaths(
+  fromSymbolId: string,
+  toSymbolId: string,
+  scope: Scope,
+  relationKinds: ('calls' | 'references')[],
+  depth: number,
+): Promise<PathsProjection> {
+  const response = await readViewer<ApiResponse<PathsProjection>>(
+    scope.scanId,
+    'paths',
+    {
+      projectId: scope.projectId,
+      request: {
+        snapshotId: scope.snapshotId,
+        fromSymbolId,
+        toSymbolId,
+        relationKinds,
+        depth,
+        nodeLimit: 200,
+        pathLimit: 20,
+      },
     },
   );
   return unwrapScoped(response, scope);

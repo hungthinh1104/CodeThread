@@ -56,7 +56,9 @@ export function useProjectionState({
   const [contextSearchMessage, setContextSearchMessage] = useState<
     string | null
   >(null);
-  const [activeView, setActiveView] = useState<'source' | 'trace'>('source');
+  const [activeView, setActiveView] = useState<'source' | 'trace' | 'paths'>(
+    'source',
+  );
 
   const graphGeneration = useRef(0);
   const evidenceGeneration = useRef(0);

@@ -7,6 +7,16 @@ import {
   workspaceMetadata,
 } from '../packages/investigation-workspace/src/server/workspace-bff.ts';
 import {
+  cancelBackendScan,
+  listBackendRepositoryScans,
+  queryBackendProjectPaths,
+  readBackendHealth,
+  readBackendScanFiles,
+  readBackendScanProjects,
+  registerBackendRepository,
+  submitBackendScan,
+} from '../packages/investigation-workspace/src/server/backend-client.ts';
+import {
   sessionCookie,
   trustedLocalRequest,
 } from '../packages/investigation-workspace/src/server/http.ts';
@@ -413,5 +423,119 @@ describe('local Investigation Workspace BFF', () => {
       }
       clock.mockRestore();
     }
+  });
+
+  it('validates health, repository registration, scan lifecycle, and path query BFF operations', async () => {
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (url === 'http://127.0.0.1:8765/v1/health')
+          return json(
+            {
+              api: 'ready',
+              database: 'ready',
+              worker: 'unavailable',
+              ready: false,
+            },
+            503,
+          );
+        if (
+          method === 'POST' &&
+          url === 'http://127.0.0.1:8765/v1/repositories'
+        )
+          return json({
+            id: repositoryId,
+            locator: '/private/root/demo-repo',
+          });
+        if (
+          method === 'GET' &&
+          url === `http://127.0.0.1:8765/v1/repositories/${repositoryId}/scans`
+        )
+          return json([scanResponse()]);
+        if (
+          method === 'POST' &&
+          url === `http://127.0.0.1:8765/v1/repositories/${repositoryId}/scans`
+        )
+          return json({
+            id: scanId,
+            repositoryId,
+            state: 'queued',
+            reused: false,
+          });
+        if (
+          method === 'POST' &&
+          url === `http://127.0.0.1:8765/v1/scans/${scanId}/cancel`
+        )
+          return json({ id: scanId, state: 'cancelled' });
+        if (
+          method === 'GET' &&
+          url === `http://127.0.0.1:8765/v1/scans/${scanId}/projects`
+        )
+          return json([
+            {
+              project_id: 'tsconfig.json',
+              project_label: 'tsconfig.json',
+              status: 'ready',
+              snapshot_id: scanId,
+              diagnostics: [],
+            },
+          ]);
+        if (
+          method === 'GET' &&
+          url === `http://127.0.0.1:8765/v1/scans/${scanId}/files?offset=0`
+        )
+          return json({ items: [], total: 0, nextOffset: null });
+        return json(
+          { error: { code: 'NOT_FOUND', message: 'Not found.' } },
+          404,
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const health = await readBackendHealth();
+    expect(health).toEqual({
+      status: 503,
+      health: {
+        api: 'ready',
+        database: 'ready',
+        worker: 'unavailable',
+        ready: false,
+      },
+    });
+
+    const registered = await registerBackendRepository({
+      locator: '/private/root/demo-repo',
+    });
+    expect(registered).toEqual({ id: repositoryId, label: 'demo-repo' });
+    expect(JSON.stringify(registered)).not.toContain('/private/root');
+
+    const scans = await listBackendRepositoryScans(repositoryId);
+    expect(scans.items).toHaveLength(1);
+
+    const submitted = await submitBackendScan(repositoryId, {
+      revision: 'HEAD',
+      idempotencyKey: 'key-1',
+    });
+    expect(submitted).toMatchObject({ id: scanId, state: 'queued' });
+
+    const cancelled = await cancelBackendScan(scanId);
+    expect(cancelled).toEqual({ id: scanId, state: 'cancelled' });
+
+    const projects = await readBackendScanProjects(scanId);
+    expect(projects.items[0]?.project_id).toBe('tsconfig.json');
+
+    const files = await readBackendScanFiles(scanId, '0');
+    expect(files.total).toBe(0);
+
+    await expect(readBackendScanFiles(scanId, '-1')).rejects.toMatchObject({
+      status: 400,
+      code: 'INVALID_REQUEST',
+    });
+
+    await expect(
+      queryBackendProjectPaths(scanId, { projectId: 'p', request: {} }),
+    ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
   });
 });

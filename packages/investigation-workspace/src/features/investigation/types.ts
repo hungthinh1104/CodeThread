@@ -1,5 +1,8 @@
 import type { infer as Infer } from 'zod';
-import type { viewerApiResponseSchemas } from '@codethread/contracts';
+import type {
+  FindSymbolPathsResponse,
+  viewerApiResponseSchemas,
+} from '@codethread/contracts';
 
 type ProjectResult<T> = T extends { projectId: string; result: infer Result }
   ? Result
@@ -69,3 +72,5 @@ export type SearchState = {
 };
 
 export type EvidenceRole = 'declaration' | 'occurrence' | 'observation';
+
+export type PathsProjection = FindSymbolPathsResponse;

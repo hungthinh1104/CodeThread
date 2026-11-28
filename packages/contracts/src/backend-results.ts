@@ -124,6 +124,7 @@ export const backendApiResponseSchemas = {
   'POST /v1/repositories': registeredRepositorySchema,
   'GET /v1/repositories': z.array(backendRepositoryResponseSchema).max(50),
   'GET /v1/repositories/:id': backendRepositoryResponseSchema,
+  'GET /v1/repositories/:id/scans': z.array(backendScanResponseSchema).max(25),
   'POST /v1/repositories/:id/scans': acceptedScanSchema,
   'GET /v1/scans/:id': backendScanResponseSchema,
   'POST /v1/scans/:id/viewer': viewerSchema,

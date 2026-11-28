@@ -163,6 +163,7 @@ key returns the original terminal job.
 | `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                                                                                                |
 | `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                                            |
 | `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                                                                                                 |
+| `GET /v1/repositories/:id/scans`                   | Lists up to 25 recent scan jobs for a repository, newest first, or 404.                                                                                                                                                          |
 | `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                                                                                                        |
 | `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                                                                                                   |
 | `POST /v1/scans/:id/cancel`                        | Requires an empty body; cancels queued/running work; missing or terminal jobs return 409.                                                                                                                                        |
@@ -186,7 +187,7 @@ the documented `offset` and `query` keys are accepted on the paginated GET
 routes. Repeated or unknown keys return 400, and offsets must be unsigned
 base-10 integers.
 
-All 14 persistent routes validate successful responses through the route-keyed
+All 15 persistent routes validate successful responses through the route-keyed
 schemas in `scripts/backend/http-contracts.ts`. Repository and scan queries are
 projected into explicit public DTOs, including ISO timestamps and decimal
 generation strings, so database driver rows are not the wire contract. Health

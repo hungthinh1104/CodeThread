@@ -41,7 +41,7 @@ const allowed: Record<string, readonly string[]> = {
   ],
 };
 const publicSubpaths: Record<string, readonly string[]> = {
-  '@codethread/investigation-workspace': ['next/server'],
+  '@codethread/investigation-workspace': ['next/server', 'next/link'],
 };
 const applicationPackages = new Set(['@codethread/investigation-workspace']);
 const nodeBuiltins: Record<string, readonly string[]> = {

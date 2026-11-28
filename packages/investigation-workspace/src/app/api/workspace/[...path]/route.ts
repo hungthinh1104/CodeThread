@@ -6,7 +6,9 @@ import {
   sessionIdFromCookie,
   trustedLocalRequest,
 } from '../../../../server/http.ts';
+import { queryBackendProjectPaths } from '../../../../server/backend-client.ts';
 import {
+  assertWorkspaceSession,
   forwardViewerOperation,
   parseRequestJson,
   WorkspaceBffError,
@@ -67,6 +69,10 @@ export async function POST(
       return jsonResponse({
         workspace: await workspaceMetadata(sessionId, scan.data),
       });
+    }
+    if (path[0] === 'paths') {
+      assertWorkspaceSession(sessionId, scan.data);
+      return jsonResponse(await queryBackendProjectPaths(scan.data, payload));
     }
     return jsonResponse(
       await forwardViewerOperation(sessionId, scan.data, path[0]!, payload),

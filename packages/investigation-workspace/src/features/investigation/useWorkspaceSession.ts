@@ -167,6 +167,7 @@ export function useWorkspaceSession(input: SessionInput) {
   async function loadProjectContexts(
     metadata: WorkspaceMetadata,
     generation: number,
+    preferredProjectId?: string | null,
   ) {
     try {
       const result = await readViewer<ProjectContexts>(
@@ -194,7 +195,11 @@ export function useWorkspaceSession(input: SessionInput) {
         (item) => item.status === 'ready' && item.snapshotId !== null,
       );
       const initial =
-        ready.find((item) => item.id === result.initialProjectId) ?? ready[0];
+        (preferredProjectId
+          ? ready.find((item) => item.id === preferredProjectId)
+          : undefined) ??
+        ready.find((item) => item.id === result.initialProjectId) ??
+        ready[0];
       if (!initial) {
         reportWorkspaceError(
           'This scan has no ready project context. Failed and unsupported contexts remain listed with their diagnostics.',
@@ -221,6 +226,30 @@ export function useWorkspaceSession(input: SessionInput) {
         const repositoryResult = await readRepositories();
         if (!isCurrent()) return;
         setRepositories(repositoryResult.items);
+        const params = new URLSearchParams(window.location.search);
+        const deepScanId = params.get('scanId');
+        const deepProjectId = params.get('projectId');
+        if (
+          deepScanId &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            deepScanId,
+          )
+        ) {
+          try {
+            const opened = await openScan(deepScanId);
+            if (!isCurrent()) return;
+            setSelectedRepositoryId(opened.workspace.repositoryId);
+            await loadProjectContexts(
+              opened.workspace,
+              resetWorkspace(),
+              deepProjectId,
+            );
+            return;
+          } catch (error) {
+            if (isCurrent()) reportWorkspaceError(errorMessage(error), true);
+            return;
+          }
+        }
         try {
           const recovered = await readWorkspaceMetadata();
           if (!recovered || !isCurrent()) return;

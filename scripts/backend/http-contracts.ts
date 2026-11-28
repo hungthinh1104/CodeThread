@@ -61,6 +61,17 @@ export function parseBackendResponse(
         return backendRepositoryResponseSchema.parse(
           repositoryRowSchema.parse(value),
         );
+      case 'GET /v1/repositories/:id/scans': {
+        const rows = z.array(scanJobRowSchema).max(25).parse(value);
+        return backendApiResponseSchemas[route].parse(
+          rows.map((row) => ({
+            ...row,
+            generation: String(row.generation),
+            created_at: timestampSchema.parse(row.created_at),
+            updated_at: timestampSchema.parse(row.updated_at),
+          })),
+        );
+      }
       case 'GET /v1/scans/:id': {
         const row = scanJobRowSchema.parse(value);
         return backendScanResponseSchema.parse({
