@@ -198,13 +198,13 @@ export function makeApi(
         const onClose = () => {
           if (!res.writableEnded) abort.abort();
         };
-        req.once('close', onClose);
+        res.once('close', onClose);
         try {
           result = await aiService.synthesize(uuid.parse(p[2]), p[4]!, body, {
             signal: abort.signal,
           });
         } finally {
-          req.off('close', onClose);
+          res.off('close', onClose);
         }
         responseRoute = 'POST /v1/scans/:id/projects/:projectId/ai/synthesize';
       } else throw new ServiceError(404, 'NOT_FOUND', 'Endpoint not found');

@@ -259,7 +259,8 @@ export function useWorkspaceSession(input: SessionInput) {
           if (!isCurrent()) return;
           if (
             error instanceof ApiFailure &&
-            error.code === 'WORKSPACE_SESSION_EXPIRED'
+            (error.code === 'WORKSPACE_SESSION_EXPIRED' ||
+              error.code === 'WORKSPACE_SCAN_MISMATCH')
           ) {
             rememberWorkspaceScan(null);
           } else {

@@ -171,9 +171,12 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
       const outcome = await fetchScan(true);
       if (cancelled) return;
       if (outcome.kind === 'ok') {
+        const hadFailures = consecutiveFailures > 0;
         consecutiveFailures = 0;
         if (isScanActive(outcome.scan)) {
-          delayMs = Math.min(3000, delayMs + 500);
+          delayMs = hadFailures
+            ? BASE_POLL_DELAY_MS
+            : Math.min(3000, delayMs + 500);
           scheduleNext();
         }
         return;
@@ -375,6 +378,8 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
 
         <ScanArtifactsPanel
           scan={scan}
+          scanLoading={scanLoading}
+          scanError={scanError}
           isActiveState={isActiveState}
           activeTab={activeTab}
           onTabChange={setActiveTab}

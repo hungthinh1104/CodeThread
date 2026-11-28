@@ -1,6 +1,8 @@
+import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import {
   monitorWorkerRecovery,
+  probeBackendHealth,
   waitForBackendReady,
   type BackendHealthSnapshot,
   type HealthFetchLike,
@@ -165,5 +167,119 @@ describe('run-local-stack backend health and degraded worker startup', () => {
         { fetchImpl: async () => new Response('', { status: 500 }) },
       ),
     ).rejects.toThrow(/Backend process exited before becoming ready/);
+  });
+
+  it('still returns degraded mode when API and database become ready close to timeoutMs (< workerGraceMs remaining)', async () => {
+    let clock = 0;
+    const fetchImpl: HealthFetchLike = async () => {
+      if (clock < 800) {
+        return jsonResponse(
+          {
+            api: 'ready',
+            database: 'unavailable',
+            worker: 'unavailable',
+            ready: false,
+          },
+          503,
+        );
+      }
+      return jsonResponse(
+        {
+          api: 'ready',
+          database: 'ready',
+          worker: 'unavailable',
+          ready: false,
+        },
+        503,
+      );
+    };
+    const state = await waitForBackendReady(origin, token, aliveProcess, {
+      fetchImpl,
+      timeoutMs: 1_000,
+      workerGraceMs: 500,
+      pollIntervalMs: 100,
+      now: () => clock,
+      sleep: async (ms) => {
+        clock += ms;
+      },
+    });
+    expect(state).toEqual({
+      ready: false,
+      degraded: true,
+      health: {
+        api: 'ready',
+        database: 'ready',
+        worker: 'unavailable',
+        ready: false,
+      },
+    });
+  });
+
+  it('enforces probeTimeoutMs against hung sockets and verifies real HTTP degraded-to-ready transitions', async () => {
+    let mode: 'hang' | 'degraded' | 'ready' = 'hang';
+    const server = createServer((_req, res) => {
+      if (mode === 'hang') {
+        // Intentionally leave socket open to test probeTimeoutMs.
+        return;
+      }
+      const ready = mode === 'ready';
+      res.writeHead(ready ? 200 : 503, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          api: 'ready',
+          database: 'ready',
+          worker: ready ? 'ready' : 'unavailable',
+          ready,
+        }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve),
+    );
+    const port = (server.address() as { port: number }).port;
+    const realOrigin = `http://127.0.0.1:${port}`;
+    try {
+      const hung = await probeBackendHealth(realOrigin, token, fetch, 120);
+      expect(hung).toBeNull();
+
+      mode = 'degraded';
+      const degraded = await waitForBackendReady(
+        realOrigin,
+        token,
+        aliveProcess,
+        {
+          timeoutMs: 3_000,
+          workerGraceMs: 80,
+          pollIntervalMs: 40,
+          probeTimeoutMs: 500,
+        },
+      );
+      expect(degraded).toMatchObject({ ready: false, degraded: true });
+
+      let recoveredHealth: BackendHealthSnapshot | null = null;
+      const abort = new AbortController();
+      setTimeout(() => {
+        mode = 'ready';
+      }, 60);
+      const recovered = await monitorWorkerRecovery(
+        realOrigin,
+        token,
+        abort.signal,
+        (health) => {
+          recoveredHealth = health;
+        },
+        { pollIntervalMs: 30 },
+      );
+      expect(recovered).toBe(true);
+      expect(recoveredHealth).toEqual({
+        api: 'ready',
+        database: 'ready',
+        worker: 'ready',
+        ready: true,
+      });
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

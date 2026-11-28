@@ -7,6 +7,8 @@ import type {
 
 type Props = {
   scan: ScanRecord | null;
+  scanLoading: boolean;
+  scanError: string | null;
   isActiveState: boolean;
   activeTab: 'projects' | 'files';
   onTabChange: (tab: 'projects' | 'files') => void;
@@ -125,7 +127,11 @@ export function ScanArtifactsPanel(props: Props) {
               ) : !props.projectsLoading && !props.projectsError ? (
                 <p className="empty-state">
                   {!scan
-                    ? 'Loading scan details…'
+                    ? props.scanLoading
+                      ? 'Loading scan details…'
+                      : props.scanError
+                        ? 'Scan metadata could not be loaded. Retry the status check to inspect project contexts.'
+                        : 'No scan selected.'
                     : isActiveState
                       ? 'Project contexts will appear once the scan completes.'
                       : 'No project contexts were recorded for this scan.'}
@@ -200,7 +206,11 @@ export function ScanArtifactsPanel(props: Props) {
               ) : !props.filesLoading && !props.filesError ? (
                 <p className="empty-state">
                   {!scan
-                    ? 'Loading scan details…'
+                    ? props.scanLoading
+                      ? 'Loading scan details…'
+                      : props.scanError
+                        ? 'Scan metadata could not be loaded. Retry the status check to inspect input files.'
+                        : 'No scan selected.'
                     : isActiveState
                       ? 'Pinned input files will appear once acquisition completes.'
                       : 'No input files were recorded for this scan.'}

@@ -22,59 +22,42 @@ export const STATIC_AI_DISCLAIMER =
   'Generated static synthesis (unverified). Static relationships and source excerpts do not prove runtime execution or passing tests.';
 
 const CLAUSE_SPLIT_PATTERN =
-  /(?<=[.!?])\s+|\n+|;\s*|[\u2014\u2013]\s*|\s+-\s+|,\s*(?=(?:but|however|yet|although|though|even\s+though|while|whereas|still|nevertheless|nonetheless|and|so)\b)|:\s+/i;
+  /(?<=[.!?])\s+|\n+|;\s*|[\u2014\u2013]\s*|\s+-\s+|:\s+|,\s+|(?:\s+(?:but|however|yet|whereas|although|though|still|nevertheless|nonetheless)\s+)|(?:\s+and\s+(?=(?:(?:[a-z_][\w$.]*|the\s+[a-z_][\w$.]*)\s+)?(?:is\b|are\b|was\b|were\b|will\b|executes?\b|executed\b|runs?\b|passes?\b|passed\b|succeeded\b|definitely\b|always\b|certainly\b|guaranteed\b|proven\b|confirmed\b)))/i;
 
-const LEADING_CONCESSIVE_CLAUSE =
-  /^((?:although|though|even\s+though|while|whereas|despite\s+[^,]+|regardless\s+of\s+[^,]+)\b[^,]*),\s+(.+)$/i;
+const EPISTEMIC_OR_RUNTIME_NEGATION =
+  /\b(?:(?:does\s+not|do\s+not|did\s+not|cannot|can't|couldn't|won't|will\s+not|never|fails?\s+to|unable\s+to|without)\s+(?:prove|establish|guarantee|confirm|imply|mean|show|demonstrate|indicate|ensure|verify|execute|run|invoke|call|pass|succeed)|(?:is\s+not|are\s+not|was\s+not|were\s+not|not|never)\s+(?:proven|established|guaranteed|confirmed|known|certain|shown|verified)|no\s+proof(?:\s+that)?)\b/i;
 
-const NEGATED_PREFIX_PATTERN =
-  /\b(?:does\s+not|do\s+not|did\s+not|cannot|can't|couldn't|won't|will\s+not|never|not|without|neither|nor|fails?\s+to|unable\s+to|no\s+proof(?:\s+that)?)\b/i;
-
-const CONTRASTIVE_CONJUNCTION =
-  /\b(?:but|however|yet|although|though|whereas|still|nevertheless|nonetheless)\b/i;
+const DIRECT_LOCAL_NEGATION =
+  /\b(?:not|never|cannot|can't|won't|will\s+not|does\s+not|do\s+not)\s+(?:be\s+)?$/i;
 
 const RUNTIME_OVERCLAIM_PATTERNS: readonly RegExp[] = [
-  /\b(?:executes?|runs?|invoked|called|triggered|fired)\s+(?:at\s+runtime|in\s+production)\b/i,
-  /\b(?:guaranteed|proven|confirmed|definitely|certainly|always)\s+(?:to\s+)?(?:execute|run|be\s+called|be\s+invoked|pass|succeed)\b/i,
-  /\bwill\s+(?:always|definitely|certainly|necessarily)\s+(?:execute|run|call|invoke|pass|succeed)\b/i,
+  /\b(?:executes?|executed|runs?|run|invoked|called|triggered|fired)\s+(?:at\s+runtime|in\s+production)\b/i,
+  /\b(?:guaranteed|proven|confirmed|definitely|certainly|always)\s+(?:to\s+)?(?:execute|be\s+executed|run|be\s+run|be\s+called|be\s+invoked|pass|succeed)\b/i,
+  /\bwill\s+(?:always|definitely|certainly|necessarily)\s+(?:execute|be\s+executed|run|be\s+run|call|invoke|pass|succeed)\b/i,
   /\bruntime\s+(?:execution|behavior|call|invocation)\s+(?:is\s+)?(?:proven|confirmed|guaranteed|certain)\b/i,
   /\b(?:assertion|assertions|test|tests|test\s+suite)\s+(?:passes|pass|passed|succeeded|succeeds|is\s+passing|are\s+passing)\b/i,
 ];
 
 function splitClauses(text: string): string[] {
-  const initial = text
+  return text
     .split(CLAUSE_SPLIT_PATTERN)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
-  const result: string[] = [];
-  for (const part of initial) {
-    const concessive = LEADING_CONCESSIVE_CLAUSE.exec(part);
-    if (concessive) {
-      result.push(concessive[1]!.trim(), concessive[2]!.trim());
-    } else {
-      result.push(part);
-    }
-  }
-  return result;
 }
 
 function isNegatedInSameClause(clause: string, matchIndex: number): boolean {
   const prefix = clause.slice(0, matchIndex);
-  const negMatches = [
-    ...prefix.matchAll(new RegExp(NEGATED_PREFIX_PATTERN.source, 'gi')),
-  ];
-  if (negMatches.length === 0) return false;
-  const lastNeg = negMatches.at(-1)!;
-  const between = prefix.slice(lastNeg.index + lastNeg[0].length);
-  return !CONTRASTIVE_CONJUNCTION.test(between);
+  if (DIRECT_LOCAL_NEGATION.test(prefix)) return true;
+  return EPISTEMIC_OR_RUNTIME_NEGATION.test(prefix);
 }
 
 /**
  * Deterministic, English-only clause-level heuristic for unqualified claims
  * that static evidence proves runtime execution or passing tests. Each clause
- * is evaluated independently so a disclaimer in one clause ("does not prove X")
- * cannot mask an unsupported positive runtime assertion in another clause
- * ("but helper is guaranteed to execute at runtime").
+ * is evaluated independently and only epistemic/runtime negations or direct
+ * local negations immediately governing the runtime phrase suppress a match,
+ * so unrelated negations ("not null", "not deprecated", "does not cover X")
+ * or disclaimers in another clause cannot mask a positive runtime overclaim.
  */
 export function hasRuntimeExecutionOverclaim(text: string): boolean {
   for (const clause of splitClauses(text)) {
@@ -343,10 +326,11 @@ export function verifyAiModelOutput(
       ? null
       : parsedRaw.data.summary;
 
-  const rejectedClaims = rejectedItems.filter(
+  const returnedRejected = rejectedItems.slice(0, 20);
+  const rejectedClaims = returnedRejected.filter(
     (item) => item.kind === 'claim',
   ).length;
-  const rejectedNextSteps = rejectedItems.filter(
+  const rejectedNextSteps = returnedRejected.filter(
     (item) => item.kind === 'next_step',
   ).length;
 
@@ -368,7 +352,7 @@ export function verifyAiModelOutput(
       rejectedClaims,
       verifiedNextSteps: verifiedNextSteps.length,
       rejectedNextSteps,
-      rejectedItems: rejectedItems.slice(0, 20),
+      rejectedItems: returnedRejected,
     },
   });
 }

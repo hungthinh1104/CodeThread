@@ -250,5 +250,50 @@ describe('CT-AI-001 BackendAiService', () => {
     expect(pathResult.task).toBe('explain_path');
     expect(pathResult.claims).toHaveLength(1);
     expect(heavyDuringProvider).toBe(0);
+
+    // Aborted signal cancels in-flight provider work and immediately frees activeSynthesisCount.
+    const disconnectAbort = new AbortController();
+    let seenAborted = false;
+    const abortableProvider = createMockProvider(
+      (input) =>
+        new Promise((_resolve, reject) => {
+          input.signal?.addEventListener('abort', () => {
+            seenAborted = true;
+            const err = new Error('client disconnected');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+      'abort-test-v1',
+    );
+    const abortService = new BackendAiService(
+      harness.reader,
+      {
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: null,
+        model: 'abort-test-v1',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        timeoutMs: 5_000,
+        maxResponseBytes: 65_536,
+      },
+      { provider: abortableProvider },
+    );
+    const pendingAbort = abortService.synthesize(
+      '00000000-0000-4000-8000-000000000001',
+      'project:root',
+      reqBody,
+      { signal: disconnectAbort.signal },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(abortService.activeSynthesisCount).toBe(1);
+    disconnectAbort.abort();
+    await expect(pendingAbort).rejects.toMatchObject({
+      status: 504,
+      code: 'AI_PROVIDER_TIMEOUT',
+    });
+    expect(seenAborted).toBe(true);
+    expect(abortService.activeSynthesisCount).toBe(0);
   });
 });

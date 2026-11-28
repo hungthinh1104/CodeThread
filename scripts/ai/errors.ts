@@ -12,9 +12,13 @@ export class AiError extends Error {
 
 export function sanitizeAiMessage(message: string): string {
   const compact = message
+    .replace(
+      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g,
+      '[REDACTED_PRIVATE_KEY]',
+    )
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
     .replace(
-      /(?:api[_-]?key|x-goog-api-key|authorization)\s*[:=]\s*[^\s,;]+/gi,
+      /(?:api[_-]?key|x-goog-api-key|authorization|password|passwd|pwd|secret|token|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi,
       '[REDACTED]',
     )
     .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g, '[REDACTED]')

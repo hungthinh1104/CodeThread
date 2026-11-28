@@ -40,6 +40,9 @@ function parseHealthSnapshot(value: unknown): BackendHealthSnapshot | null {
     (record['worker'] === 'ready' || record['worker'] === 'unavailable') &&
     typeof record['ready'] === 'boolean'
   ) {
+    const expectedReady =
+      record['database'] === 'ready' && record['worker'] === 'ready';
+    if (record['ready'] !== expectedReady) return null;
     return {
       api: 'ready',
       database: record['database'],
@@ -54,13 +57,18 @@ export async function probeBackendHealth(
   origin: string,
   token: string,
   fetchImpl: HealthFetchLike = fetch,
+  probeTimeoutMs = 2_000,
 ): Promise<BackendHealthSnapshot | null> {
   try {
     const response = await fetchImpl(`${origin}/v1/health`, {
       headers: { authorization: `Bearer ${token}` },
       redirect: 'manual',
+      signal: AbortSignal.timeout(probeTimeoutMs),
     });
-    if (response.status !== 200 && response.status !== 503) return null;
+    if (response.status !== 200 && response.status !== 503) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
     const body: unknown = await response.json();
     return parseHealthSnapshot(body);
   } catch {
@@ -72,6 +80,7 @@ export interface WaitForBackendOptions {
   readonly timeoutMs?: number;
   readonly workerGraceMs?: number;
   readonly pollIntervalMs?: number;
+  readonly probeTimeoutMs?: number;
   readonly fetchImpl?: HealthFetchLike;
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -82,8 +91,9 @@ export interface WaitForBackendOptions {
  * Separates API/database availability from worker readiness:
  * - Full readiness (`ready === true`) returns immediately.
  * - Degraded worker (`api === 'ready' && database === 'ready' && worker === 'unavailable'`)
- *   allows startup after `workerGraceMs` so read-only investigation can launch
- *   while clearly reporting degraded worker state.
+ *   allows startup after `workerGraceMs` (or when `timeoutMs` elapses while API+DB
+ *   are already ready) so read-only investigation can launch while clearly
+ *   reporting degraded worker state.
  * - Database or API unavailability continues waiting until `timeoutMs` and fails
  *   explicitly without confusing database failure with worker unavailability.
  */
@@ -96,6 +106,7 @@ export async function waitForBackendReady(
   const timeoutMs = options.timeoutMs ?? 25_000;
   const workerGraceMs = options.workerGraceMs ?? 3_000;
   const pollIntervalMs = options.pollIntervalMs ?? 250;
+  const probeTimeoutMs = options.probeTimeoutMs ?? 2_000;
   const fetchImpl = options.fetchImpl ?? fetch;
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => delay(ms));
@@ -107,7 +118,12 @@ export async function waitForBackendReady(
   while (now() < deadline) {
     if (backend.exitCode !== null || backend.signalCode !== null)
       throw new Error('Backend process exited before becoming ready.');
-    const health = await probeBackendHealth(origin, token, fetchImpl);
+    const health = await probeBackendHealth(
+      origin,
+      token,
+      fetchImpl,
+      probeTimeoutMs,
+    );
     if (health) {
       lastHealth = health;
       if (
@@ -129,6 +145,13 @@ export async function waitForBackendReady(
       coreReadySince = null;
     }
     await sleep(pollIntervalMs);
+  }
+  if (
+    lastHealth &&
+    lastHealth.api === 'ready' &&
+    lastHealth.database === 'ready'
+  ) {
+    return { ready: false, degraded: true, health: lastHealth };
   }
   if (lastHealth && lastHealth.database === 'unavailable') {
     throw new Error(

@@ -45,6 +45,37 @@ function validateServerResult<T>(read: () => T): T {
   }
 }
 
+/**
+ * Selects up to 60 unique evidence IDs for an AI projection, always placing
+ * the root symbol's declaration evidence first so packet caps never drop it.
+ */
+export function selectBoundedEvidenceIds(
+  symbols: readonly { id: string; declarationEvidenceId: string }[],
+  relations: readonly {
+    siteEvidenceId: string;
+    resolution: { evidenceIds: readonly string[] };
+  }[],
+  rootSymbolId: string,
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    if (ids.length >= 60 || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  const rootSymbol = symbols.find((sym) => sym.id === rootSymbolId);
+  if (rootSymbol?.declarationEvidenceId) add(rootSymbol.declarationEvidenceId);
+  for (const rel of relations) {
+    add(rel.siteEvidenceId);
+    for (const id of rel.resolution.evidenceIds) add(id);
+  }
+  for (const sym of symbols) {
+    if (sym.declarationEvidenceId) add(sym.declarationEvidenceId);
+  }
+  return ids;
+}
+
 /** Application boundary for snapshot-scoped API reads. */
 export class BackendQueryService {
   private readonly db: Database;
@@ -218,24 +249,7 @@ export class BackendQueryService {
     }[],
     rootSymbolId: string,
   ): string[] {
-    const ids: string[] = [];
-    const seen = new Set<string>();
-    const add = (id: string) => {
-      if (ids.length >= 60 || seen.has(id)) return;
-      seen.add(id);
-      ids.push(id);
-    };
-    const rootSymbol = symbols.find((sym) => sym.id === rootSymbolId);
-    if (rootSymbol?.declarationEvidenceId)
-      add(rootSymbol.declarationEvidenceId);
-    for (const rel of relations) {
-      add(rel.siteEvidenceId);
-      for (const id of rel.resolution.evidenceIds) add(id);
-    }
-    for (const sym of symbols) {
-      if (sym.declarationEvidenceId) add(sym.declarationEvidenceId);
-    }
-    return ids;
+    return selectBoundedEvidenceIds(symbols, relations, rootSymbolId);
   }
 
   /**

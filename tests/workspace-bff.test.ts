@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   forwardViewerOperation,
@@ -512,6 +514,14 @@ describe('local Investigation Workspace BFF', () => {
     expect('POST' in repositoriesRoute).toBe(false);
     expect('GET' in repositoryScansRoute).toBe(true);
     expect('POST' in repositoryScansRoute).toBe(false);
+    expect(
+      existsSync(
+        resolve(
+          process.cwd(),
+          'packages/investigation-workspace/src/app/api/scans/[id]/cancel/route.ts',
+        ),
+      ),
+    ).toBe(false);
 
     const scans = await listBackendRepositoryScans(repositoryId);
     expect(scans.items).toHaveLength(1);
@@ -655,13 +665,75 @@ describe('local Investigation Workspace BFF', () => {
       }),
     ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
 
-    // Reject upstream AI responses whose snapshot/symbol/task drift from the request.
+    // Reject upstream AI responses whose task, snapshotId, or rootSymbolId drift from the request.
+    const otherUuid = '99999999-9999-4999-8999-999999999999';
     await expect(
       synthesizeBackendProjectAi(scanId, {
         projectId: 'tsconfig.json',
         request: {
           task: 'explain_unknowns',
           neighbors: { snapshotId: scanId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId: otherUuid, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId: scanId, symbolId: otherUuid },
+        },
+      }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: 'UPSTREAM_CONTRACT_MISMATCH',
+    });
+
+    // Verify explain_path correspondence checks both pass and reject drift.
+    const pathResponse = { ...sampleResponse, task: 'explain_path' as const };
+    fetcher.mockImplementationOnce(async () => json(pathResponse));
+    const pathOk = await synthesizeBackendProjectAi(scanId, {
+      projectId: 'tsconfig.json',
+      request: {
+        task: 'explain_path',
+        paths: {
+          snapshotId: scanId,
+          fromSymbolId: symbolId,
+          toSymbolId: otherUuid,
+        },
+      },
+    });
+    expect(pathOk).toEqual({
+      projectId: 'tsconfig.json',
+      result: pathResponse,
+    });
+
+    fetcher.mockImplementationOnce(async () => json(pathResponse));
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: {
+          task: 'explain_path',
+          paths: {
+            snapshotId: scanId,
+            fromSymbolId: otherUuid,
+            toSymbolId: symbolId,
+          },
         },
       }),
     ).rejects.toMatchObject({

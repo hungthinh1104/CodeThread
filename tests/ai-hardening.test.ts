@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
 import { createInvestigation } from '@codethread/trace-engine';
@@ -21,6 +22,7 @@ import {
   verifyAiModelOutput,
 } from '../scripts/ai/index.ts';
 import type { FetchLike } from '../scripts/ai/index.ts';
+import { selectBoundedEvidenceIds } from '../scripts/backend/query-service.ts';
 
 const FAKE_UUID = '00000000-0000-4000-8000-ffffffffffff';
 const PROVENANCE = {
@@ -436,10 +438,73 @@ describe('CT-AI-001 redirect security across all providers', () => {
       expect(ollamaCalls[0]?.redirect).toBe('manual');
     });
   }
+
+  it('blocks real Node fetch redirects (301/302/303/307/308) between two loopback HTTP servers with zero target hits and zero credential leak', async () => {
+    let targetHits = 0;
+    const targetServer = createServer((_req, res) => {
+      targetHits += 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"choices":[{"message":{"content":"{}"}}]}');
+    });
+    await new Promise<void>((resolve) =>
+      targetServer.listen(0, '127.0.0.1', resolve),
+    );
+    const targetPort = (targetServer.address() as { port: number }).port;
+
+    let currentStatus = 307;
+    const providerServer = createServer((_req, res) => {
+      res.writeHead(currentStatus, {
+        location: `http://127.0.0.1:${targetPort}/stolen`,
+      });
+      res.end();
+    });
+    await new Promise<void>((resolve) =>
+      providerServer.listen(0, '127.0.0.1', resolve),
+    );
+    const providerPort = (providerServer.address() as { port: number }).port;
+
+    try {
+      const provider = createOpenAiCompatibleProvider({
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: 'sk-real-redirect-secret-abcdef123456',
+        model: 'qwen2.5-coder:7b',
+        baseUrl: `http://127.0.0.1:${providerPort}/v1`,
+        timeoutMs: 5_000,
+        maxResponseBytes: 16_384,
+      });
+      for (const status of redirectCodes) {
+        currentStatus = status;
+        let caught: unknown;
+        try {
+          await provider.generateJson({
+            systemPrompt: 'sys',
+            userPrompt: 'sensitive source excerpt',
+          });
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(AiError);
+        expect((caught as AiError).code).toBe('AI_PROVIDER_ERROR');
+        expect((caught as AiError).message).toContain(`HTTP ${status}`);
+        expect((caught as AiError).message).not.toContain('stolen');
+        expect((caught as AiError).message).not.toContain('sk-real-redirect');
+      }
+      expect(targetHits).toBe(0);
+    } finally {
+      providerServer.closeAllConnections();
+      targetServer.closeAllConnections();
+      await Promise.all([
+        new Promise<void>((resolve) => providerServer.close(() => resolve())),
+        new Promise<void>((resolve) => targetServer.close(() => resolve())),
+      ]);
+    }
+  });
 });
 
 describe('CT-AI-001 clause-level mixed runtime overclaim detection', () => {
-  it('rejects unsupported runtime assertions even when combined with a negative disclaimer in the same sentence', () => {
+  it('rejects unsupported runtime assertions even when combined with disclaimers, unrelated negations, or passive voice', () => {
     const adversarialOverclaims = [
       'Static analysis does not prove everything, but helper is guaranteed to execute at runtime.',
       'Although tests do not run here, entry runs at runtime and the assertion passes.',
@@ -448,6 +513,12 @@ describe('CT-AI-001 clause-level mixed runtime overclaim detection', () => {
       'Static analysis cannot prove branch coverage, yet entry definitely runs at runtime.',
       'This does not mean helper fails — entry will always execute helper in production.',
       'Static syntax is bounded: tests are passing for this handler.',
+      'This is not a dynamic dispatch, helper executes at runtime.',
+      'The handler is not deprecated and executes at runtime.',
+      'Static analysis does not cover dynamic calls and helper runs at runtime.',
+      'Because the input is not null, helper executes at runtime.',
+      'helper is executed at runtime.',
+      'helper will be executed at runtime.',
     ];
     for (const text of adversarialOverclaims) {
       expect(hasRuntimeExecutionOverclaim(text), text).toBe(true);
@@ -458,6 +529,8 @@ describe('CT-AI-001 clause-level mixed runtime overclaim detection', () => {
     const validStaticStatements = [
       'entry statically calls helper; static evidence does not prove runtime execution or passing tests.',
       'Static analysis does not confirm that helper executes at runtime.',
+      'Static analysis does not prove that helper is executed at runtime.',
+      'helper is not guaranteed to execute at runtime.',
       'entry statically references ctrl.handle, though this does not guarantee that tests pass.',
       'This call site is unresolved statically and cannot confirm runtime execution.',
       'entry statically calls helper in src/app.ts.',
@@ -557,6 +630,7 @@ describe('CT-AI-001 output cap accounting and cross-snapshot/provider failure ha
       },
       { ...PROVENANCE, packetHash: hashAiContextPacket(packet) },
     );
+    expect(capped.summary).toBe('entry statically calls multiple helpers.');
     expect(capped.claims).toHaveLength(2);
     expect(capped.verification.verifiedClaims).toBe(2);
     expect(capped.verification.rejectedClaims).toBe(2);
@@ -567,6 +641,49 @@ describe('CT-AI-001 output cap accounting and cross-snapshot/provider failure ha
       { kind: 'claim', index: 2, reasons: ['UNKNOWN_EVIDENCE_ID'] },
       { kind: 'claim', index: 3, reasons: ['OUTPUT_CAP_EXCEEDED'] },
       { kind: 'next_step', index: 1, reasons: ['OUTPUT_CAP_EXCEEDED'] },
+    ]);
+
+    // Invalid claim BEFORE cap does not consume the cap; valid excess after cap is still accounted.
+    const invalidBeforeCap = verifyAiModelOutput(
+      { ...request(packet), maxClaims: 1, maxNextSteps: 1 },
+      {
+        summary: 'entry statically calls helpers.',
+        claims: [
+          {
+            ...makeClaim(0, 'hallucinated before cap.'),
+            evidenceIds: [FAKE_UUID],
+          },
+          makeClaim(0, 'entry statically calls a.'),
+          makeClaim(1, 'entry statically calls b.'),
+        ],
+        nextSteps: [
+          {
+            symbolId: FAKE_UUID,
+            reason: 'Hallucinated next step.',
+            supportingEvidenceIds: [rels[0]!.siteEvidenceId],
+          },
+          {
+            symbolId: rels[0]!.targetSymbolId!,
+            reason: 'Inspect a.',
+            supportingEvidenceIds: [rels[0]!.siteEvidenceId],
+          },
+          {
+            symbolId: rels[1]!.targetSymbolId!,
+            reason: 'Inspect b.',
+            supportingEvidenceIds: [rels[1]!.siteEvidenceId],
+          },
+        ],
+        uncertainties: [],
+      },
+      { ...PROVENANCE, packetHash: hashAiContextPacket(packet) },
+    );
+    expect(invalidBeforeCap.claims).toHaveLength(1);
+    expect(invalidBeforeCap.nextSteps).toHaveLength(1);
+    expect(invalidBeforeCap.verification.rejectedItems).toEqual([
+      { kind: 'claim', index: 0, reasons: ['UNKNOWN_EVIDENCE_ID'] },
+      { kind: 'claim', index: 2, reasons: ['OUTPUT_CAP_EXCEEDED'] },
+      { kind: 'next_step', index: 0, reasons: ['UNKNOWN_SYMBOL_ID'] },
+      { kind: 'next_step', index: 2, reasons: ['OUTPUT_CAP_EXCEEDED'] },
     ]);
   });
 
@@ -611,6 +728,7 @@ describe('CT-AI-001 output cap accounting and cross-snapshot/provider failure ha
       /snapshot does not match/i,
     );
 
+    // Non-tautological content-type check: body is valid JSON, so ONLY isJsonContentType rejects it!
     const htmlProvider = createOpenAiCompatibleProvider(
       {
         enabled: true,
@@ -623,14 +741,22 @@ describe('CT-AI-001 output cap accounting and cross-snapshot/provider failure ha
         maxResponseBytes: 16_384,
       },
       async () =>
-        new Response('<html>login</html>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        }),
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"summary":"ok","claims":[]}' } }],
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'text/html; charset=utf-8' },
+          },
+        ),
     );
     await expect(
       htmlProvider.generateJson({ systemPrompt: 's', userPrompt: 'u' }),
-    ).rejects.toMatchObject({ code: 'AI_INVALID_MODEL_OUTPUT' });
+    ).rejects.toMatchObject({
+      code: 'AI_INVALID_MODEL_OUTPUT',
+      message: expect.stringMatching(/unexpected content type/i),
+    });
 
     const badUtf8Provider = createOpenAiCompatibleProvider(
       {
@@ -684,10 +810,21 @@ describe('CT-AI-001 output cap accounting and cross-snapshot/provider failure ha
     ).rejects.toMatchObject({ code: 'AI_PROVIDER_TIMEOUT' });
 
     const sanitized = sanitizeAiMessage(
-      'Failed AKIAIOSFODNN7EXAMPLE ghp_1234567890abcdef1234567890abcdef1234 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdef123456',
+      'Failed AKIAIOSFODNN7EXAMPLE ghp_1234567890abcdef1234567890abcdef1234 eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdef123456 password=supersecretvalue -----BEGIN PRIVATE KEY-----abc-----END PRIVATE KEY-----',
     );
     expect(sanitized).not.toContain('AKIAIOSFODNN7EXAMPLE');
     expect(sanitized).not.toContain('ghp_123456');
     expect(sanitized).not.toContain('eyJhbGci');
+    expect(sanitized).not.toContain('supersecretvalue');
+    expect(sanitized).not.toContain('BEGIN PRIVATE KEY');
+
+    // Root symbol declaration evidence is always prioritized first even with >60 symbols.
+    const manySymbols = Array.from({ length: 75 }, (_, i) => ({
+      id: `sym-${i}`,
+      declarationEvidenceId: `ev-${i}`,
+    }));
+    const selected = selectBoundedEvidenceIds(manySymbols, [], 'sym-70');
+    expect(selected).toHaveLength(60);
+    expect(selected[0]).toBe('ev-70');
   });
 });

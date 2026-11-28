@@ -60,6 +60,16 @@ interface CacheEntry {
 
 function mapAiFailure(error: unknown): never {
   if (error instanceof ServiceError) throw error;
+  if (
+    error instanceof Error &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  ) {
+    throw new ServiceError(
+      504,
+      'AI_PROVIDER_TIMEOUT',
+      'AI synthesis request timed out or was cancelled.',
+    );
+  }
   if (error instanceof AiError) {
     switch (error.code) {
       case 'AI_DISABLED':
