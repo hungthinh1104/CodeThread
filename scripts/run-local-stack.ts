@@ -59,6 +59,8 @@ function parseArgs(
           'Optional environment variables:',
           '  CODETHREAD_API_TOKEN            32+ char token (ephemeral random token generated if omitted)',
           '  CODETHREAD_MIGRATION_DATABASE_URL  Used when --migrate is passed (defaults to CODETHREAD_DATABASE_URL)',
+          '  CODETHREAD_AI_ENABLED=1         Opt in to optional evidence-bound AI notes (off by default)',
+          '  CODETHREAD_AI_PROVIDER=gemini   Use Gemini API (also requires CODETHREAD_AI_ALLOW_REMOTE=1 and GEMINI_API_KEY)',
         ].join('\n'),
       );
       process.exit(0);

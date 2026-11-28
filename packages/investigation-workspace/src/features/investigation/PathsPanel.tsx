@@ -26,6 +26,8 @@ type Props = {
     verifiedFromPath?: boolean,
   ) => void;
   onFollowSymbol: (symbol: CodeSymbol) => void;
+  aiEnabled?: boolean;
+  onExplainPath?: (target: CodeSymbol, depth: number) => void;
 };
 
 export function PathsPanel(props: Props) {
@@ -282,6 +284,15 @@ export function PathsPanel(props: Props) {
                       : 'Query not truncated'}
                   </span>
                   <span>{result.paths.length} exact path(s)</span>
+                  {props.aiEnabled && props.onExplainPath && target ? (
+                    <button
+                      type="button"
+                      className="small-btn"
+                      onClick={() => props.onExplainPath?.(target, depth)}
+                    >
+                      Explain path
+                    </button>
+                  ) : null}
                 </div>
               </div>
               {result.paths.length ? (

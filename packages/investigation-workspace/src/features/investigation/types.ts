@@ -1,5 +1,8 @@
 import type { infer as Infer } from 'zod';
 import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+  AiTaskKind,
   FindSymbolPathsResponse,
   viewerApiResponseSchemas,
 } from '@codethread/contracts';
@@ -74,3 +77,4 @@ export type SearchState = {
 export type EvidenceRole = 'declaration' | 'occurrence' | 'observation';
 
 export type PathsProjection = FindSymbolPathsResponse;
+export type { AiStatusResponse, AiSynthesisResponse, AiTaskKind };

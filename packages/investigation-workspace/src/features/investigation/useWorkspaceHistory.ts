@@ -10,7 +10,7 @@ export type NavigationEntry = {
   direction: 'outgoing' | 'incoming' | 'both';
   selectedRelationId: string | null;
   selectedEvidenceId: string | null;
-  view: 'source' | 'trace' | 'paths';
+  view: 'source' | 'trace' | 'paths' | 'notes';
 };
 
 type StoredEntry = {

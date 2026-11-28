@@ -10,16 +10,19 @@ import {
   cancelBackendScan,
   listBackendRepositoryScans,
   queryBackendProjectPaths,
+  readBackendAiStatus,
   readBackendHealth,
   readBackendScanFiles,
   readBackendScanProjects,
   registerBackendRepository,
   submitBackendScan,
+  synthesizeBackendProjectAi,
 } from '../packages/investigation-workspace/src/server/backend-client.ts';
 import {
   sessionCookie,
   trustedLocalRequest,
 } from '../packages/investigation-workspace/src/server/http.ts';
+import { GET as aiStatusRoute } from '../packages/investigation-workspace/src/app/api/ai/status/route.ts';
 import { POST as workspaceOperation } from '../packages/investigation-workspace/src/app/api/workspace/[...path]/route.ts';
 
 const scanId = '11111111-1111-4111-8111-111111111111';
@@ -536,6 +539,130 @@ describe('local Investigation Workspace BFF', () => {
 
     await expect(
       queryBackendProjectPaths(scanId, { projectId: 'p', request: {} }),
+    ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
+  });
+
+  it('forwards optional AI status and synthesis safely and validates request/response contracts', async () => {
+    const symbolId = '33333333-3333-4333-8333-333333333333';
+    const sampleResponse = {
+      version: 1,
+      task: 'explain_trace',
+      snapshotId: scanId,
+      rootSymbolId: symbolId,
+      evidenceBasis: 'static_generated_unverified',
+      disclaimer:
+        'Generated static note verified against bounded snapshot citations only.',
+      provenance: {
+        provider: 'gemini',
+        model: 'gemini-2.5-flash',
+        packetHash: 'a'.repeat(64),
+        promptVersion: 'ct-ai-prompt-v1',
+      },
+      summary: null,
+      claims: [],
+      nextSteps: [],
+      uncertainties: [],
+      context: {
+        truncated: false,
+        truncationReasons: [],
+        omitted: { symbols: 0, relations: 0, excerpts: 0, diagnostics: 0 },
+        redactedExcerpts: 0,
+      },
+      verification: {
+        verifiedClaims: 0,
+        rejectedClaims: 0,
+        verifiedNextSteps: 0,
+        rejectedNextSteps: 0,
+        rejectedItems: [],
+      },
+    };
+    let enabledStatus = false;
+    const fetcher = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? 'GET';
+        if (method === 'GET' && url === 'http://127.0.0.1:8765/v1/ai/status') {
+          return json(
+            enabledStatus
+              ? {
+                  enabled: true,
+                  provider: 'gemini',
+                  locality: 'remote',
+                  model: 'gemini-2.5-flash',
+                }
+              : { enabled: false },
+          );
+        }
+        if (
+          method === 'POST' &&
+          url ===
+            `http://127.0.0.1:8765/v1/scans/${scanId}/projects/tsconfig.json/ai/synthesize`
+        ) {
+          if (!enabledStatus) {
+            return json(
+              { error: { code: 'AI_DISABLED', message: 'AI is disabled.' } },
+              503,
+            );
+          }
+          return json(sampleResponse);
+        }
+        return json(
+          { error: { code: 'NOT_FOUND', message: 'Not found.' } },
+          404,
+        );
+      },
+    );
+    vi.stubGlobal('fetch', fetcher);
+
+    const statusOff = await readBackendAiStatus();
+    expect(statusOff).toEqual({ enabled: false });
+
+    const routeRes = await aiStatusRoute(
+      new Request('http://127.0.0.1:3000/api/ai/status', {
+        method: 'GET',
+        headers: { host: '127.0.0.1:3000' },
+      }),
+    );
+    expect(routeRes.status).toBe(200);
+    expect(routeRes.headers.get('cache-control')).toBe('no-store');
+    expect(await routeRes.json()).toEqual({ enabled: false });
+
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: {
+          task: 'explain_trace',
+          neighbors: { snapshotId: scanId, symbolId },
+        },
+      }),
+    ).rejects.toMatchObject({ status: 503, code: 'AI_DISABLED' });
+
+    enabledStatus = true;
+    const statusOn = await readBackendAiStatus();
+    expect(statusOn).toEqual({
+      enabled: true,
+      provider: 'gemini',
+      locality: 'remote',
+      model: 'gemini-2.5-flash',
+    });
+
+    const synthesized = await synthesizeBackendProjectAi(scanId, {
+      projectId: 'tsconfig.json',
+      request: {
+        task: 'explain_trace',
+        neighbors: { snapshotId: scanId, symbolId },
+      },
+    });
+    expect(synthesized).toEqual({
+      projectId: 'tsconfig.json',
+      result: sampleResponse,
+    });
+
+    await expect(
+      synthesizeBackendProjectAi(scanId, {
+        projectId: 'tsconfig.json',
+        request: { task: 'explain_path' },
+      }),
     ).rejects.toMatchObject({ status: 400, code: 'INVALID_REQUEST' });
   });
 });

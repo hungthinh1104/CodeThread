@@ -6,7 +6,10 @@ import {
   sessionIdFromCookie,
   trustedLocalRequest,
 } from '../../../../server/http.ts';
-import { queryBackendProjectPaths } from '../../../../server/backend-client.ts';
+import {
+  queryBackendProjectPaths,
+  synthesizeBackendProjectAi,
+} from '../../../../server/backend-client.ts';
 import {
   assertWorkspaceSession,
   forwardViewerOperation,
@@ -73,6 +76,10 @@ export async function POST(
     if (path[0] === 'paths') {
       assertWorkspaceSession(sessionId, scan.data);
       return jsonResponse(await queryBackendProjectPaths(scan.data, payload));
+    }
+    if (path[0] === 'ai') {
+      assertWorkspaceSession(sessionId, scan.data);
+      return jsonResponse(await synthesizeBackendProjectAi(scan.data, payload));
     }
     return jsonResponse(
       await forwardViewerOperation(sessionId, scan.data, path[0]!, payload),

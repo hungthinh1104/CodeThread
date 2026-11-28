@@ -6,6 +6,7 @@ import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join, resolve } from 'node:path';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
+import type { AiStatusResponse } from '@codethread/contracts';
 import { createInvestigation } from '@codethread/trace-engine';
 import type { RepositoryInvestigationSession } from '../../scripts/investigation/repository-session.ts';
 import {
@@ -84,10 +85,16 @@ function readJsonBody(
   });
 }
 
+export type WorkspaceAppAiMock = {
+  status: AiStatusResponse;
+  synthesize?: (body: unknown) => Promise<unknown> | unknown;
+};
+
 function backendServer(
   viewer: ViewerHandle,
   holdScanRead: boolean,
   snapshot: AnalysisSnapshot,
+  aiMock?: WorkspaceAppAiMock,
 ) {
   const repositoryId = snapshot.facts.identity.repositoryId;
   const projectId = 'workspace-test-project';
@@ -213,6 +220,27 @@ function backendServer(
           typeof investigation.paths
         >[0];
         sendJson(response, investigation.paths(body));
+        return;
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/ai/status') {
+        sendJson(response, aiMock?.status ?? { enabled: false });
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname ===
+          `/v1/scans/${activeScanId}/projects/${projectId}/ai/synthesize`
+      ) {
+        if (!aiMock?.status.enabled || !aiMock.synthesize) {
+          sendJson(
+            response,
+            { error: { code: 'AI_DISABLED', message: 'AI is disabled.' } },
+            503,
+          );
+          return;
+        }
+        const body = await readJsonBody(request);
+        sendJson(response, await aiMock.synthesize(body));
         return;
       }
       if (
@@ -474,13 +502,14 @@ export async function startWorkspaceFrontend(
 
 export async function startWorkspaceApp(
   snapshot: AnalysisSnapshot,
-  options: { holdScanRead?: boolean } = {},
+  options: { holdScanRead?: boolean; ai?: WorkspaceAppAiMock } = {},
 ): Promise<WorkspaceApp> {
   const viewer = await createRepositoryViewer(repositorySession(snapshot));
   const backend = backendServer(
     viewer,
     options.holdScanRead ?? false,
     snapshot,
+    options.ai,
   );
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();

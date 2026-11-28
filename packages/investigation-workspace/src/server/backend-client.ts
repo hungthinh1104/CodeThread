@@ -1,4 +1,5 @@
 import {
+  aiSynthesizeApiRequestSchema,
   backendApiErrorResponseSchema,
   backendApiResponseSchemas,
   findSymbolPathsRequestSchema,
@@ -8,7 +9,9 @@ import { WorkspaceBffError, workspaceScanIdSchema } from './workspace-bff.ts';
 
 const DEFAULT_BACKEND_ORIGIN = 'http://127.0.0.1:8765';
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_AI_RESPONSE_BYTES = 64 * 1024;
 const REQUEST_TIMEOUT_MS = 10_000;
+const AI_REQUEST_TIMEOUT_MS = 30_000;
 
 export const registerRepositoryBodySchema = z.strictObject({
   locator: z.string().trim().min(1).max(4096),
@@ -22,6 +25,11 @@ export const triggerScanBodySchema = z.strictObject({
 export const workspacePathsBodySchema = z.strictObject({
   projectId: z.string().min(1).max(256),
   request: findSymbolPathsRequestSchema,
+});
+
+export const workspaceAiBodySchema = z.strictObject({
+  projectId: z.string().min(1).max(256),
+  request: aiSynthesizeApiRequestSchema,
 });
 
 function isTimeoutError(error: unknown): boolean {
@@ -75,7 +83,10 @@ export function sanitizeRepositoryLabel(locator: string): string {
   );
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
+async function readBoundedJson(
+  response: Response,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<unknown> {
   const mediaType = response.headers
     .get('content-type')
     ?.split(';')[0]
@@ -90,7 +101,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
     );
   }
   const length = Number(response.headers.get('content-length') ?? 0);
-  if (length > MAX_RESPONSE_BYTES) {
+  if (length > maxBytes) {
     await response.body?.cancel();
     throw new WorkspaceBffError(
       502,
@@ -112,7 +123,7 @@ async function readBoundedJson(response: Response): Promise<unknown> {
       const { done, value } = await reader.read();
       if (done) break;
       used += value.byteLength;
-      if (used > MAX_RESPONSE_BYTES) {
+      if (used > maxBytes) {
         await reader.cancel();
         throw new WorkspaceBffError(
           502,
@@ -146,7 +157,12 @@ async function callBackend<R extends keyof typeof backendApiResponseSchemas>(
   route: R,
   path: string,
   method: 'GET' | 'POST',
-  options?: { body?: unknown; acceptStatus?: number[] },
+  options?: {
+    body?: unknown;
+    acceptStatus?: number[];
+    timeoutMs?: number;
+    maxResponseBytes?: number;
+  },
 ): Promise<{
   status: number;
   data: z.infer<(typeof backendApiResponseSchemas)[R]>;
@@ -175,7 +191,7 @@ async function callBackend<R extends keyof typeof backendApiResponseSchemas>(
       headers,
       ...(encodedBody === undefined ? {} : { body: encodedBody }),
       redirect: 'manual',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options?.timeoutMs ?? REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
     if (isTimeoutError(error))
@@ -198,7 +214,7 @@ async function callBackend<R extends keyof typeof backendApiResponseSchemas>(
       'The local backend returned an unexpected redirect.',
     );
   }
-  const value = await readBoundedJson(response);
+  const value = await readBoundedJson(response, options?.maxResponseBytes);
   const accepted =
     response.ok || (options?.acceptStatus?.includes(response.status) ?? false);
   if (!accepted) {
@@ -391,6 +407,41 @@ export async function queryBackendProjectPaths(
     `/v1/scans/${id}/projects/${encodeURIComponent(projectId)}/paths`,
     'POST',
     { body: request },
+  );
+  return { projectId, result: data };
+}
+
+export async function readBackendAiStatus() {
+  const { data } = await callBackend(
+    'GET /v1/ai/status',
+    '/v1/ai/status',
+    'GET',
+  );
+  return data;
+}
+
+export async function synthesizeBackendProjectAi(
+  scanId: string,
+  rawBody: unknown,
+) {
+  const id = parseUuidParam(scanId, 'scan identity');
+  const parsed = workspaceAiBodySchema.safeParse(rawBody);
+  if (!parsed.success)
+    throw new WorkspaceBffError(
+      400,
+      'INVALID_REQUEST',
+      'AI synthesis request failed contract validation.',
+    );
+  const { projectId, request } = parsed.data;
+  const { data } = await callBackend(
+    'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+    `/v1/scans/${id}/projects/${encodeURIComponent(projectId)}/ai/synthesize`,
+    'POST',
+    {
+      body: request,
+      timeoutMs: AI_REQUEST_TIMEOUT_MS,
+      maxResponseBytes: MAX_AI_RESPONSE_BYTES,
+    },
   );
   return { projectId, result: data };
 }

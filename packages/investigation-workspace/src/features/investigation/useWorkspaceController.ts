@@ -12,6 +12,7 @@ import type {
   SearchItem,
 } from './types.ts';
 import { useExplorerData } from './useExplorerData.ts';
+import { useAiNotes } from './useAiNotes.ts';
 import { useInspectorFocus } from './useInspectorFocus.ts';
 import { useProjectionState } from './useProjectionState.ts';
 import {
@@ -82,6 +83,13 @@ export function useWorkspaceController() {
     resetInspector: inspector.resetInspector,
   });
   projRef.current = proj;
+
+  const aiNotes = useAiNotes({
+    scope: scopeRef.current,
+    root: proj.selected,
+    relationKinds: proj.relationKinds,
+    direction: proj.direction,
+  });
 
   function openScopedDeclaration(
     scope: Scope,
@@ -449,6 +457,13 @@ export function useWorkspaceController() {
       onChooseContext: (
         candidate: FollowContextProjection['candidates'][number],
       ) => void chooseContextCandidate(candidate),
+      ai: {
+        ...aiNotes,
+        onExplainPath: (target: CodeSymbol, depth: number) => {
+          proj.chooseView('notes');
+          aiNotes.onExplainPath(target, depth);
+        },
+      },
     },
     inspectorModel: {
       item: proj.evidence,

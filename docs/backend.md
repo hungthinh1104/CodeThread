@@ -155,39 +155,55 @@ job fails with `RETRY_LIMIT_EXCEEDED`; to analyze the same source again, submit
 its recorded `git_commit_oid` with a new idempotency key. Reusing the original
 key returns the original terminal job.
 
+## Optional AI synthesis (`CT-AI-001`)
+
+AI synthesis is **disabled by default** (`GET /v1/ai/status` returns
+`{enabled: false}` and `POST .../ai/synthesize` fails closed with
+`503 AI_DISABLED` without hydrating snapshots or making outbound requests). When
+`CODETHREAD_AI_ENABLED=1` is set, the backend defaults to a local loopback
+OpenAI-compatible / Ollama endpoint (`http://127.0.0.1:11434/v1`). To use remote
+Gemini (`gemini-2.5-flash` default, override via `CODETHREAD_AI_MODEL`), set
+`CODETHREAD_AI_PROVIDER=gemini`, `CODETHREAD_AI_ALLOW_REMOTE=1`, and
+`GEMINI_API_KEY` (key sent only via `x-goog-api-key`, never in query strings).
+Every AI claim is checked against the bounded verified `AiContextPacket`
+returned by `BackendQueryService` before transport (`ADR-0010`, `ADR-0011`).
+
 ## Routes
 
-| Request                                            | Behavior                                                                                                                                                                                                                         |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/health`                                   | No body; returns API/database/worker readiness and status 503 when not ready.                                                                                                                                                    |
-| `POST /v1/repositories`                            | Validates and registers a repository beneath the configured root.                                                                                                                                                                |
-| `GET /v1/repositories`                             | Lists up to 50 repository state rows.                                                                                                                                                                                            |
-| `GET /v1/repositories/:id`                         | Returns repository state or 404.                                                                                                                                                                                                 |
-| `GET /v1/repositories/:id/scans`                   | Lists up to 25 recent scan jobs for a repository, newest first, or 404.                                                                                                                                                          |
-| `POST /v1/repositories/:id/scans`                  | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                                                                                                        |
-| `GET /v1/scans/:id`                                | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                                                                                                   |
-| `POST /v1/scans/:id/cancel`                        | Requires an empty body; cancels queued/running work; missing or terminal jobs return 409.                                                                                                                                        |
-| `POST /v1/scans/:id/viewer`                        | Requires an empty body; opens a viewer from a succeeded, pinned scan; missing scan returns 404, a non-ready scan returns 409 `VIEWER_NOT_READY`, capacity returns 429 `VIEWER_CAPACITY`, and an unavailable adapter returns 503. |
-| `GET /v1/scans/:id/projects`                       | Lists up to 32 project readiness rows and diagnostics.                                                                                                                                                                           |
-| `GET /v1/scans/:id/files?offset=0`                 | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                                                                                                  |
-| `GET /v1/scans/:id/projects/:projectId/symbols`    | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                                                                                                             |
-| `POST /v1/scans/:id/projects/:projectId/neighbors` | Validated bounded graph-neighbor projection.                                                                                                                                                                                     |
-| `POST /v1/scans/:id/projects/:projectId/paths`     | Validated bounded exact-symbol path projection.                                                                                                                                                                                  |
-| `POST /v1/scans/:id/projects/:projectId/evidence`  | Verified source excerpts for requested evidence IDs.                                                                                                                                                                             |
+| Request                                                | Behavior                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/health`                                       | No body; returns API/database/worker readiness and status 503 when not ready.                                                                                                                                                    |
+| `POST /v1/repositories`                                | Validates and registers a repository beneath the configured root.                                                                                                                                                                |
+| `GET /v1/repositories`                                 | Lists up to 50 repository state rows.                                                                                                                                                                                            |
+| `GET /v1/repositories/:id`                             | Returns repository state or 404.                                                                                                                                                                                                 |
+| `GET /v1/repositories/:id/scans`                       | Lists up to 25 recent scan jobs for a repository, newest first, or 404.                                                                                                                                                          |
+| `POST /v1/repositories/:id/scans`                      | Queues an idempotent revision request; global 32-job bound returns 429 `SCAN_QUEUE_FULL`.                                                                                                                                        |
+| `GET /v1/scans/:id`                                    | Returns scan state, pinned commit/tree, attempt and activation result, or 404.                                                                                                                                                   |
+| `POST /v1/scans/:id/cancel`                            | Requires an empty body; cancels queued/running work; missing or terminal jobs return 409.                                                                                                                                        |
+| `POST /v1/scans/:id/viewer`                            | Requires an empty body; opens a viewer from a succeeded, pinned scan; missing scan returns 404, a non-ready scan returns 409 `VIEWER_NOT_READY`, capacity returns 429 `VIEWER_CAPACITY`, and an unavailable adapter returns 503. |
+| `GET /v1/scans/:id/projects`                           | Lists up to 32 project readiness rows and diagnostics.                                                                                                                                                                           |
+| `GET /v1/scans/:id/files?offset=0`                     | Returns a deterministic page of 50 committed input files; offset range 0–1,256.                                                                                                                                                  |
+| `GET /v1/scans/:id/projects/:projectId/symbols`        | Snapshot-scoped 50-row search; query max 256, offset range 0–20,000.                                                                                                                                                             |
+| `POST /v1/scans/:id/projects/:projectId/neighbors`     | Validated bounded graph-neighbor projection.                                                                                                                                                                                     |
+| `POST /v1/scans/:id/projects/:projectId/paths`         | Validated bounded exact-symbol path projection.                                                                                                                                                                                  |
+| `POST /v1/scans/:id/projects/:projectId/evidence`      | Verified source excerpts for requested evidence IDs.                                                                                                                                                                             |
+| `GET /v1/ai/status`                                    | No body; returns opt-in AI availability (`enabled: false` by default, or `{enabled: true, provider, locality, model}` without secrets).                                                                                          |
+| `POST /v1/scans/:id/projects/:projectId/ai/synthesize` | Evidence-bound AI synthesis (`explain_trace`, `explain_path`, `explain_unknowns`, `suggest_next_steps`); 4 KiB request cap, 64 KiB response cap, 503 `AI_DISABLED` when off, 429 `AI_CAPACITY_EXCEEDED` above 2 in-flight calls. |
 
 Every route requires the bearer token and exact loopback `Host`; if `Origin` is
 present it must match the API origin. POST routes that consume JSON require
-`application/json`. Requests are capped at 64 KiB and responses at 1 MiB. Shared
-errors use `{error:{code,message}}`; status classes include 400 invalid input,
-401 missing/invalid token, 403 Host/Origin rejection, 404 missing route/entity,
-409 state/idempotency/snapshot conflicts, 413 size limits, 415 media type, 429
-queue/query admission, 500 sanitized internal failure and 503 unavailable
+`application/json`. Requests are capped at 64 KiB and responses at 1 MiB (AI
+synthesis uses stricter 4 KiB request and 64 KiB response caps). Shared errors
+use `{error:{code,message}}`; status classes include 400 invalid input, 401
+missing/invalid token, 403 Host/Origin rejection, 404 missing route/entity, 409
+state/idempotency/snapshot conflicts, 413 size limits, 415 media type, 429
+queue/query/AI admission, 500 sanitized internal failure and 503 unavailable
 service. Unknown paths or method/path combinations currently return 404. Only
 the documented `offset` and `query` keys are accepted on the paginated GET
 routes. Repeated or unknown keys return 400, and offsets must be unsigned
 base-10 integers.
 
-All 15 persistent routes validate successful responses through the route-keyed
+All 17 persistent routes validate successful responses through the route-keyed
 schemas in `scripts/backend/http-contracts.ts`. Repository and scan queries are
 projected into explicit public DTOs, including ISO timestamps and decimal
 generation strings, so database driver rows are not the wire contract. Health

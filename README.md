@@ -14,11 +14,12 @@ passing tests.
 
 The repository supplies Foundation validation/tooling, the DB-01 logical design,
 a bounded in-memory TypeScript semantic proof, pinned Git adapters for selected
-files and whole-repository `.ts` scope, independent project-context analysis,
-and an opt-in local PostgreSQL backend candidate with a persisted viewer adapter
-and the bounded Investigation Workspace. A general persistent frontend and
-Gemini integration remain gated. See `product.yaml` and `docs/architecture.md`
-for scope, ownership and gates.
+files and whole-repository `.ts` scope, independent project-context analysis, an
+opt-in local PostgreSQL backend candidate with a persisted viewer adapter, the
+bounded Investigation Workspace, and optional disabled-by-default evidence-bound
+AI notes (`CT-AI-001`, `ADR-0010`, `ADR-0011`). A general persistent frontend
+and deployment remain gated. See `product.yaml` and `docs/architecture.md` for
+scope, ownership and gates.
 
 ## PostgreSQL backend candidate (DB-02)
 
@@ -52,6 +53,17 @@ and in a second terminal set `CODETHREAD_API_TOKEN` to the same token and run
 The Workspace shows project-scoped static relationships, scan coverage and
 verified source excerpts. See its
 [scope and dependency risk](docs/design/investigation-workspace.md).
+
+Optional evidence-bound AI notes (`Notes` tab) stay disabled by default. To opt
+in with Gemini (default model `gemini-2.5-flash`), set these variables before
+starting the stack (never commit keys):
+
+```sh
+export CODETHREAD_AI_ENABLED=1
+export CODETHREAD_AI_PROVIDER=gemini
+export CODETHREAD_AI_ALLOW_REMOTE=1
+export GEMINI_API_KEY='your-gemini-api-key'
+```
 
 ## Developer setup
 

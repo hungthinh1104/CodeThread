@@ -1,5 +1,7 @@
 import { idSchema } from '@codethread/code-model';
 import { z } from 'zod';
+import { aiStatusResponseSchema } from './ai-api.js';
+import { aiSynthesisResponseSchema } from './ai-queries.js';
 import {
   findSymbolPathsResponseSchema,
   graphNeighborsResponseSchema,
@@ -137,6 +139,9 @@ export const backendApiResponseSchemas = {
   'POST /v1/scans/:id/projects/:projectId/paths': findSymbolPathsResponseSchema,
   'POST /v1/scans/:id/projects/:projectId/evidence':
     getSourceEvidenceResponseSchema,
+  'GET /v1/ai/status': aiStatusResponseSchema,
+  'POST /v1/scans/:id/projects/:projectId/ai/synthesize':
+    aiSynthesisResponseSchema,
 } as const;
 
 export type BackendApiRoute = keyof typeof backendApiResponseSchemas;

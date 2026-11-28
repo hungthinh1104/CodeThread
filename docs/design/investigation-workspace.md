@@ -2,7 +2,10 @@
 
 Status: implementation candidate on top of PR #38. This document authorizes one
 bounded local workspace; it does not authorize a general frontend, repository
-administration, public service, AI feature, or deployment.
+administration, public service, or deployment. Optional evidence-bound AI
+synthesis is disabled by default (`CT-AI-001`, `ADR-0010`, `ADR-0011`) and only
+renders the conditional `Notes` tab when explicitly opted in via environment
+variables.
 
 ## User journey
 

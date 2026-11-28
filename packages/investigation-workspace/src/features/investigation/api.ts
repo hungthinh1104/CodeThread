@@ -1,4 +1,5 @@
 import type {
+  AiStatusResponse,
   ApiErrorBody,
   RepositoryItem,
   WorkspaceMetadata,
@@ -108,4 +109,14 @@ export function readViewer<T>(
   body: unknown,
 ): Promise<T> {
   return post<T>(`/api/workspace/${operation}`, body, scanId);
+}
+
+export async function readAiStatus(): Promise<AiStatusResponse> {
+  try {
+    return await requestJson<AiStatusResponse>('/api/ai/status', {
+      method: 'GET',
+    });
+  } catch {
+    return { enabled: false };
+  }
 }

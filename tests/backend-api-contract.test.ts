@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { analyzerBuildHash } from '@codethread/symbol-indexer';
+import type { AiContextPacket } from '@codethread/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createMockProvider } from '../scripts/ai/index.ts';
 import {
   backendApiResponseSchemas,
   parseBackendErrorResponse,
@@ -218,7 +220,50 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
       consumerId: '',
       evidenceId: '',
     };
-    server = makeApi(apiDb, service, context.token, port, viewers);
+    const mockAiProvider = createMockProvider(async (input) => {
+      const packet = JSON.parse(
+        input.userPrompt.split('\n\n').at(-1)!,
+      ) as AiContextPacket;
+      const rel = packet.relations[0];
+      return {
+        summary: rel
+          ? 'consumer statically calls getValue.'
+          : 'No relations in packet.',
+        claims: rel
+          ? [
+              {
+                text: 'consumer statically calls getValue.',
+                claimType: 'observed_fact',
+                assertedRelation: 'exact_call',
+                evidenceIds: [rel.siteEvidenceId],
+                symbolIds: [rel.sourceSymbolId, rel.targetSymbolId!],
+                relationIds: [rel.id],
+                diagnosticIds: [],
+              },
+            ]
+          : [],
+        nextSteps: [],
+        uncertainties: [],
+      };
+    });
+    server = makeApi(
+      apiDb,
+      service,
+      context.token,
+      port,
+      viewers,
+      {
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: null,
+        model: 'mock-contract-v1',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        timeoutMs: 5_000,
+        maxResponseBytes: 65_536,
+      },
+      { provider: mockAiProvider },
+    );
     await new Promise<void>((resolve, reject) => {
       server!.once('error', reject);
       server!.listen(port, '127.0.0.1', resolve);

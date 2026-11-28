@@ -708,6 +708,115 @@ export function createBackendApiContractCases(dependencies: Dependencies) {
         );
       },
     },
+    {
+      route: 'GET /v1/ai/status',
+      positive: async () => {
+        const body = await success('GET /v1/ai/status', '/v1/ai/status');
+        expect(body).toEqual({
+          enabled: true,
+          provider: 'openai_compatible',
+          locality: 'local',
+          model: 'mock-contract-v1',
+        });
+      },
+      negative: async () => {
+        await failure('/v1/ai/status', 404, 'NOT_FOUND', { method: 'POST' });
+      },
+    },
+    {
+      route: 'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+      positive: async () => {
+        const traceBody = await success(
+          'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+          `${projectPath()}/ai/synthesize`,
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_trace',
+              neighbors: {
+                snapshotId: ctx().snapshotId,
+                symbolId: ctx().consumerId,
+                depth: 1,
+                nodeLimit: 20,
+                direction: 'outgoing',
+                relationKinds: ['calls'],
+              },
+            },
+          },
+        );
+        expect(traceBody).toMatchObject({
+          task: 'explain_trace',
+          snapshotId: ctx().snapshotId,
+          rootSymbolId: ctx().consumerId,
+        });
+        expect((traceBody.claims as unknown[]).length).toBeGreaterThan(0);
+
+        const pathBody = await success(
+          'POST /v1/scans/:id/projects/:projectId/ai/synthesize',
+          `${projectPath()}/ai/synthesize`,
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_path',
+              paths: {
+                snapshotId: ctx().snapshotId,
+                fromSymbolId: ctx().consumerId,
+                toSymbolId: ctx().getValueId,
+                depth: 1,
+                nodeLimit: 20,
+                pathLimit: 5,
+                relationKinds: ['calls'],
+              },
+            },
+          },
+        );
+        expect(pathBody).toMatchObject({
+          task: 'explain_path',
+          snapshotId: ctx().snapshotId,
+          rootSymbolId: ctx().consumerId,
+        });
+        expect((pathBody.claims as unknown[]).length).toBeGreaterThan(0);
+      },
+      negative: async () => {
+        await rejectStructuredBodyVariants(`${projectPath()}/ai/synthesize`, {
+          task: 'explain_trace',
+          neighbors: {
+            snapshotId: ctx().snapshotId,
+            symbolId: ctx().consumerId,
+          },
+        });
+        await failure(
+          `${projectPath()}/ai/synthesize`,
+          400,
+          'INVALID_REQUEST',
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_path',
+              neighbors: {
+                snapshotId: ctx().snapshotId,
+                symbolId: ctx().consumerId,
+              },
+            },
+          },
+        );
+        await failure(
+          `${projectPath()}/ai/synthesize`,
+          409,
+          'SNAPSHOT_MISMATCH',
+          {
+            method: 'POST',
+            body: {
+              task: 'explain_trace',
+              neighbors: {
+                snapshotId: randomUUID(),
+                symbolId: ctx().consumerId,
+              },
+            },
+          },
+        );
+      },
+    },
   ];
 
   return backendApiContractCases;

@@ -1,8 +1,13 @@
 import type { RefObject } from 'react';
+import { NotesPanel } from './NotesPanel.tsx';
 import { PathsPanel } from './PathsPanel.tsx';
 import { SourcePanel } from './SourcePanel.tsx';
 import { TracePanel } from './TracePanel.tsx';
+import type { AiNotesError } from './useAiNotes.ts';
 import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+  AiTaskKind,
   CodeSymbol,
   EvidenceProjection,
   FollowContextProjection,
@@ -21,14 +26,14 @@ export type MainModel = {
   graphLoading: boolean;
   graphError: string | null;
   session: SessionProjection | null;
-  activeView: 'source' | 'trace' | 'paths';
+  activeView: 'source' | 'trace' | 'paths' | 'notes';
   relationKinds: ('calls' | 'references')[];
   direction: 'outgoing' | 'incoming' | 'both';
   selectedRelationId: string | null;
   contextCandidates: FollowContextProjection['candidates'];
   contextSearchLoading: boolean;
   contextSearchMessage: string | null;
-  onViewChange: (view: 'source' | 'trace' | 'paths') => void;
+  onViewChange: (view: 'source' | 'trace' | 'paths' | 'notes') => void;
   onRelationKindsChange: (value: ('calls' | 'references')[]) => void;
   onDirectionChange: (value: 'outgoing' | 'incoming' | 'both') => void;
   onSelectEvidence: (
@@ -44,6 +49,20 @@ export type MainModel = {
   onChooseContext: (
     candidate: FollowContextProjection['candidates'][number],
   ) => void;
+  ai: {
+    aiStatus: AiStatusResponse;
+    task: AiTaskKind;
+    onTaskChange: (task: AiTaskKind) => void;
+    pathTarget: CodeSymbol | null;
+    onPathTargetChange: (symbol: CodeSymbol | null) => void;
+    pathDepth: number;
+    onPathDepthChange: (depth: number) => void;
+    loading: boolean;
+    notes: AiSynthesisResponse | null;
+    error: AiNotesError | null;
+    onDraft: () => void;
+    onExplainPath: (target: CodeSymbol, depth: number) => void;
+  };
 };
 
 type Props = {
@@ -86,7 +105,10 @@ export function MainRegion({ inert, headingRef, model }: Props) {
           onKeyDown={(event) => {
             if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
             event.preventDefault();
-            const order = ['source', 'trace', 'paths'] as const;
+            const order: readonly ('source' | 'trace' | 'paths' | 'notes')[] =
+              model.ai.aiStatus.enabled
+                ? ['source', 'trace', 'paths', 'notes']
+                : ['source', 'trace', 'paths'];
             const currentIndex = order.indexOf(model.activeView);
             const nextIndex =
               event.key === 'ArrowRight'
@@ -130,6 +152,19 @@ export function MainRegion({ inert, headingRef, model }: Props) {
           >
             Paths
           </button>
+          {model.ai.aiStatus.enabled ? (
+            <button
+              id="notes-tab"
+              type="button"
+              role="tab"
+              aria-selected={model.activeView === 'notes'}
+              aria-controls="notes-panel"
+              tabIndex={model.activeView === 'notes' ? 0 : -1}
+              onClick={() => model.onViewChange('notes')}
+            >
+              Notes
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -172,6 +207,28 @@ export function MainRegion({ inert, headingRef, model }: Props) {
             scope={model.scope}
             relationKinds={model.relationKinds}
             onRelationKindsChange={model.onRelationKindsChange}
+            onSelectEvidence={model.onSelectEvidence}
+            onFollowSymbol={model.onFollowSymbol}
+            aiEnabled={model.ai.aiStatus.enabled}
+            onExplainPath={model.ai.onExplainPath}
+          />
+
+          <NotesPanel
+            hidden={model.activeView !== 'notes'}
+            aiStatus={model.ai.aiStatus}
+            root={root}
+            scope={model.scope}
+            graph={model.graph}
+            task={model.ai.task}
+            onTaskChange={model.ai.onTaskChange}
+            pathTarget={model.ai.pathTarget}
+            onPathTargetChange={model.ai.onPathTargetChange}
+            pathDepth={model.ai.pathDepth}
+            onPathDepthChange={model.ai.onPathDepthChange}
+            loading={model.ai.loading}
+            notes={model.ai.notes}
+            error={model.ai.error}
+            onDraft={model.ai.onDraft}
             onSelectEvidence={model.onSelectEvidence}
             onFollowSymbol={model.onFollowSymbol}
           />

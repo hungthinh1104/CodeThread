@@ -1906,6 +1906,125 @@ pre {
   gap: 6px;
 }
 
+/* Optional AI Notes Panel */
+.notes-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--ct-border);
+}
+
+.notes-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.notes-toolbar select {
+  width: auto;
+  min-height: 28px;
+  font-size: 0.79rem;
+  padding: 3px 8px;
+}
+
+.notes-provider-tag {
+  color: var(--ct-muted);
+  font-size: 0.74rem;
+  font-weight: 550;
+}
+
+.notes-provider-tag code {
+  color: var(--ct-ink);
+  font-size: 0.72rem;
+}
+
+.notes-path-picker {
+  margin-bottom: 12px;
+}
+
+.notes-path-picker .field-label {
+  margin-top: 0;
+}
+
+.notes-result {
+  display: grid;
+  gap: 12px;
+}
+
+.notes-summary {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-radius-md);
+  background: var(--ct-raised);
+  color: var(--ct-ink);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.notes-claim-list {
+  margin: 0;
+}
+
+.notes-claim-row {
+  border-left-color: var(--ct-accent);
+}
+
+.notes-claim-text {
+  margin: 0;
+  color: var(--ct-ink);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.notes-claim-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 6px;
+}
+
+.notes-citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.notes-cite-btn {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-family: var(--ct-code);
+  font-size: 0.72rem;
+  color: var(--ct-accent);
+}
+
+.notes-subsection {
+  display: grid;
+  gap: 6px;
+}
+
+.notes-subsection h3 {
+  margin: 0;
+}
+
+.notes-subsection .relationship-list {
+  margin: 0;
+}
+
+.notes-bullet-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ct-muted);
+  font-size: 0.81rem;
+  line-height: 1.5;
+}
+
 /* Repositories & Scans Screens */
 .admin-panel {
   margin-bottom: 20px;
