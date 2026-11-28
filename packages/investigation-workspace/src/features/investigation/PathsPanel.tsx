@@ -18,6 +18,7 @@ type Props = {
   root: CodeSymbol | null;
   scope: Scope | null;
   relationKinds: ('calls' | 'references')[];
+  onRelationKindsChange: (value: ('calls' | 'references')[]) => void;
   onSelectEvidence: (
     id: string,
     trigger: HTMLButtonElement,
@@ -85,7 +86,11 @@ export function PathsPanel(props: Props) {
     targetQuery,
   ]);
 
-  async function runPathQuery(selectedTarget: CodeSymbol | null = target) {
+  async function runPathQuery(
+    selectedTarget: CodeSymbol | null = target,
+    kinds: ('calls' | 'references')[] = props.relationKinds,
+    maxDepth: number = depth,
+  ) {
     if (!scope || !root || !selectedTarget) return;
     const gen = ++pathGen.current;
     setLoading(true);
@@ -96,8 +101,8 @@ export function PathsPanel(props: Props) {
         root.id,
         selectedTarget.id,
         scope,
-        props.relationKinds,
-        depth,
+        kinds,
+        maxDepth,
       );
       if (gen === pathGen.current) setResult(projection);
     } catch (err) {
@@ -122,37 +127,53 @@ export function PathsPanel(props: Props) {
       hidden={props.hidden}
       tabIndex={0}
     >
-      {!root || !scope ? (
+      {props.hidden ? null : !root || !scope ? (
         <p className="empty-state">
-          Select a source symbol first to trace exact paths to another symbol in
-          the same snapshot.
+          Select a symbol in Explorer to search exact static paths within this
+          snapshot.
         </p>
       ) : (
         <>
-          <div className="paths-toolbar">
-            <div className="paths-target-field">
-              <label className="field-label" htmlFor="path-target-query">
-                Target symbol (from {root.name})
-              </label>
-              <input
-                id="path-target-query"
-                value={targetQuery}
-                onChange={(event) => setTargetQuery(event.currentTarget.value)}
-                placeholder="Search target symbol in active project…"
-                maxLength={256}
-                autoComplete="off"
-              />
+          <fieldset className="filters paths-filters">
+            <legend className="sr-only">Path relationship kinds</legend>
+            <div className="filter-group">
+              {(['calls', 'references'] as const).map((kind) => (
+                <label
+                  key={kind}
+                  className={`filter-check filter-${kind}${props.relationKinds.includes(kind) ? ' is-checked' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={props.relationKinds.includes(kind)}
+                    onChange={(event) => {
+                      const next = event.currentTarget.checked
+                        ? [...props.relationKinds, kind]
+                        : props.relationKinds.filter((value) => value !== kind);
+                      if (!next.length) return;
+                      props.onRelationKindsChange(next);
+                      if (target) void runPathQuery(target, next, depth);
+                    }}
+                    disabled={
+                      props.relationKinds.length === 1 &&
+                      props.relationKinds.includes(kind)
+                    }
+                  />
+                  <span className="kind-swatch" aria-hidden="true" />
+                  {kind.toUpperCase()}
+                </label>
+              ))}
             </div>
-            <div className="paths-depth-field">
-              <label className="field-label" htmlFor="path-depth-select">
-                Max depth
-              </label>
+            <div className="filter-direction">
+              <label htmlFor="path-depth-select">Max depth</label>
               <select
                 id="path-depth-select"
                 value={depth}
-                onChange={(event) =>
-                  setDepth(Number(event.currentTarget.value))
-                }
+                onChange={(event) => {
+                  const nextDepth = Number(event.currentTarget.value);
+                  setDepth(nextDepth);
+                  if (target)
+                    void runPathQuery(target, props.relationKinds, nextDepth);
+                }}
               >
                 {[1, 2, 3, 4, 5].map((value) => (
                   <option key={value} value={value}>
@@ -161,13 +182,29 @@ export function PathsPanel(props: Props) {
                 ))}
               </select>
             </div>
+          </fieldset>
+
+          <div className="paths-toolbar">
+            <div className="paths-target-field">
+              <label className="field-label" htmlFor="path-target-query">
+                Target symbol from {root.name}
+              </label>
+              <input
+                id="path-target-query"
+                value={targetQuery}
+                onChange={(event) => setTargetQuery(event.currentTarget.value)}
+                placeholder="Filter symbols in active project…"
+                maxLength={256}
+                autoComplete="off"
+              />
+            </div>
             <button
               className="btn-primary paths-run-btn"
               type="button"
               disabled={!target || loading}
               onClick={() => void runPathQuery()}
             >
-              {loading ? 'Tracing…' : 'Find paths'}
+              {loading ? 'Searching…' : 'Find paths'}
             </button>
           </div>
 

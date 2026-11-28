@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type {
   ProjectContexts,
   RepositoryItem,
@@ -53,8 +54,11 @@ export function ContextSection(props: Props) {
         </div>
       ) : (
         <p className="muted small context-hint">
-          Choose a repository with a completed local scan. Scan creation stays
-          in the existing backend workflow.
+          Select a scanned repository, or register and scan one in{' '}
+          <Link className="inline-link" href="/repositories">
+            Repositories
+          </Link>
+          .
         </p>
       )}
 

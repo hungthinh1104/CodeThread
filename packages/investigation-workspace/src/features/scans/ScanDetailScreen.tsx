@@ -13,11 +13,8 @@ import {
   type ScanProjectRecord,
   type ScanRecord,
 } from '../shared/admin-api.ts';
-import {
-  ScanStateBadge,
-  ThemeSwitcher,
-  useStandaloneTheme,
-} from '../shared/StatusChrome.tsx';
+import { AppHeader, AppStatusBar } from '../shared/AppChrome.tsx';
+import { ScanStateBadge, useStandaloneTheme } from '../shared/StatusChrome.tsx';
 import { ScanArtifactsPanel } from './ScanArtifactsPanel.tsx';
 
 function formatDateTime(iso: string): string {
@@ -194,39 +191,47 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
   }
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
-        <div className="header-brand">
-          <span className="brand-kicker">CODETHREAD</span>
-          <span className="brand-sep" aria-hidden="true">
-            /
-          </span>
-          <h1>Scan Detail</h1>
-          <nav className="screen-nav" aria-label="Workspace screens">
-            <Link className="screen-nav-link" href="/">
-              Investigation
-            </Link>
-            <Link className="screen-nav-link" href="/repositories">
-              Repositories
-            </Link>
-          </nav>
-        </div>
-        <div className="header-actions">
-          <button
-            className="btn-subtle"
-            type="button"
-            disabled={scanLoading}
-            onClick={() => void fetchScan(false)}
-          >
-            Refresh
-          </button>
-          {scan?.state === 'succeeded' ? (
-            <Link className="btn-link btn-primary" href={`/?scanId=${scan.id}`}>
-              Open in Investigation
-            </Link>
-          ) : null}
-        </div>
-      </header>
+    <div className="page-shell admin-shell">
+      <AppHeader
+        screen="scan"
+        title="Scan Detail"
+        activeScanId={scanId}
+        context={
+          scan ? (
+            <>
+              <code>{scan.revision_selector}</code>
+              {scan.git_commit_oid ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <code>{scan.git_commit_oid.slice(0, 10)}</code>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <code>{scanId.slice(0, 8)}</code>
+          )
+        }
+        actions={
+          <>
+            <button
+              className="btn-subtle"
+              type="button"
+              disabled={scanLoading}
+              onClick={() => void fetchScan(false)}
+            >
+              Refresh
+            </button>
+            {scan?.state === 'succeeded' ? (
+              <Link
+                className="btn-link btn-primary"
+                href={`/?scanId=${scan.id}`}
+              >
+                Open in Investigate
+              </Link>
+            ) : null}
+          </>
+        }
+      />
 
       <div className="admin-grid">
         <aside
@@ -234,8 +239,7 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
           aria-labelledby="scan-lifecycle-heading"
         >
           <div className="region-title pane-header">
-            <p className="step-label">01 / Scan Lifecycle</p>
-            <h2 id="scan-lifecycle-heading">Job provenance</h2>
+            <h2 id="scan-lifecycle-heading">Scan metadata</h2>
           </div>
           <div className="pane-body">
             {scanLoading && !scan ? (
@@ -361,18 +365,15 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
         />
       </div>
 
-      <footer className="page-footer">
-        <div className="status-left">
-          <span className="status-summary">
-            {isActiveState
-              ? 'Active scan · polling bounded status'
-              : 'Terminal scan record · immutable provenance'}
-          </span>
-        </div>
-        <div className="status-right">
-          <ThemeSwitcher theme={theme} onChange={setTheme} />
-        </div>
-      </footer>
+      <AppStatusBar
+        summary={
+          isActiveState
+            ? 'Active scan · polling status'
+            : 'Scan record · immutable snapshot'
+        }
+        theme={theme}
+        onThemeChange={setTheme}
+      />
     </div>
   );
 }

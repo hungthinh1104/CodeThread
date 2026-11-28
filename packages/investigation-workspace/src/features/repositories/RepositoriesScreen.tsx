@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { errorMessage } from '../investigation/scoped-api.ts';
 import type { RepositoryItem } from '../investigation/types.ts';
@@ -13,11 +12,8 @@ import {
   type HealthStatus,
   type ScanRecord,
 } from '../shared/admin-api.ts';
-import {
-  HealthSummary,
-  ThemeSwitcher,
-  useStandaloneTheme,
-} from '../shared/StatusChrome.tsx';
+import { AppHeader, AppStatusBar } from '../shared/AppChrome.tsx';
+import { HealthSummary, useStandaloneTheme } from '../shared/StatusChrome.tsx';
 import { RepositoryScansPanel } from './RepositoryScansPanel.tsx';
 
 export function RepositoriesScreen() {
@@ -174,28 +170,13 @@ export function RepositoriesScreen() {
   const selectedRepo = repositories.find((item) => item.id === selectedRepoId);
 
   return (
-    <div className="page-shell">
-      <header className="page-header">
-        <div className="header-brand">
-          <span className="brand-kicker">CODETHREAD</span>
-          <span className="brand-sep" aria-hidden="true">
-            /
-          </span>
-          <h1>Repositories & Scans</h1>
-          <nav className="screen-nav" aria-label="Workspace screens">
-            <Link className="screen-nav-link" href="/">
-              Investigation
-            </Link>
-            <Link
-              className="screen-nav-link is-active"
-              href="/repositories"
-              aria-current="page"
-            >
-              Repositories
-            </Link>
-          </nav>
-        </div>
-        <div className="header-actions">
+    <div className="page-shell admin-shell">
+      <AppHeader
+        screen="repositories"
+        title="Repositories"
+        activeScanId={selectedRepo?.activeScanId ?? null}
+        context={selectedRepo ? <span>{selectedRepo.label}</span> : null}
+        actions={
           <button
             className="btn-subtle"
             type="button"
@@ -204,17 +185,16 @@ export function RepositoriesScreen() {
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
-        </div>
-      </header>
+        }
+      />
 
       <div className="admin-grid">
         <aside className="region explorer" aria-labelledby="intake-heading">
           <div className="region-title pane-header">
-            <p className="step-label">01 / System & Intake</p>
-            <h2 id="intake-heading">Local backend</h2>
+            <h2 id="intake-heading">Repositories</h2>
           </div>
           <div className="pane-body">
-            <h3>Service readiness</h3>
+            <h3>Service status</h3>
             <HealthSummary health={health} error={healthError} />
 
             <section
@@ -223,8 +203,7 @@ export function RepositoriesScreen() {
             >
               <h3 id="register-repo-heading">Register local repository</h3>
               <p className="muted small">
-                Path must exist inside the backend&apos;s configured allowed
-                root. Raw OS paths are never stored in browser history.
+                Local Git directory inside the configured root.
               </p>
               <form
                 className="stack-form"
@@ -330,16 +309,11 @@ export function RepositoriesScreen() {
         />
       </div>
 
-      <footer className="page-footer">
-        <div className="status-left">
-          <span className="status-summary">
-            Loopback local control plane · bearer token remains server-side
-          </span>
-        </div>
-        <div className="status-right">
-          <ThemeSwitcher theme={theme} onChange={setTheme} />
-        </div>
-      </footer>
+      <AppStatusBar
+        summary="Local loopback service"
+        theme={theme}
+        onThemeChange={setTheme}
+      />
     </div>
   );
 }

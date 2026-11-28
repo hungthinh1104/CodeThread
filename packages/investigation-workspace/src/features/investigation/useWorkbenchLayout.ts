@@ -174,30 +174,45 @@ export function useWorkbenchLayout() {
 
       const onMove = (moveEvent: globalThis.PointerEvent) => {
         if (target === 'explorer') {
+          const maxW = Math.max(
+            MIN_EXPLORER_WIDTH,
+            Math.min(MAX_EXPLORER_WIDTH, Math.floor(window.innerWidth * 0.34)),
+          );
           setExplorerCollapsed(false);
           setExplorerWidth(
             clamp(
               initial + (moveEvent.clientX - startX),
               MIN_EXPLORER_WIDTH,
-              MAX_EXPLORER_WIDTH,
+              maxW,
             ),
           );
         } else if (target === 'inspector-x') {
+          const maxW = Math.max(
+            MIN_INSPECTOR_WIDTH,
+            Math.min(MAX_INSPECTOR_WIDTH, Math.floor(window.innerWidth * 0.38)),
+          );
           setInspectorCollapsed(false);
           setInspectorWidth(
             clamp(
               initial - (moveEvent.clientX - startX),
               MIN_INSPECTOR_WIDTH,
-              MAX_INSPECTOR_WIDTH,
+              maxW,
             ),
           );
         } else {
+          const maxH = Math.max(
+            MIN_INSPECTOR_HEIGHT,
+            Math.min(
+              MAX_INSPECTOR_HEIGHT,
+              Math.floor(window.innerHeight * 0.45),
+            ),
+          );
           setInspectorCollapsed(false);
           setInspectorHeight(
             clamp(
               initial - (moveEvent.clientY - startY),
               MIN_INSPECTOR_HEIGHT,
-              MAX_INSPECTOR_HEIGHT,
+              maxH,
             ),
           );
         }

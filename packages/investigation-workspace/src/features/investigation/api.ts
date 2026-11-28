@@ -78,13 +78,16 @@ export function openScan(scanId: string) {
   });
 }
 
-export function readWorkspaceMetadata() {
-  let scanId: string | null;
+export function readRememberedWorkspaceScan(): string | null {
   try {
-    scanId = sessionStorage.getItem(scanStorageKey);
+    return sessionStorage.getItem(scanStorageKey);
   } catch {
     return null;
   }
+}
+
+export function readWorkspaceMetadata() {
+  const scanId = readRememberedWorkspaceScan();
   return scanId
     ? post<{ workspace: WorkspaceMetadata }>('/api/workspace/meta', {}, scanId)
     : null;

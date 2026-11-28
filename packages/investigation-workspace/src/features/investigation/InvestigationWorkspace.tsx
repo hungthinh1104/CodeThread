@@ -1,13 +1,10 @@
 'use client';
 
-import Link from 'next/link';
+import { AppHeader, AppStatusBar } from '../shared/AppChrome.tsx';
 import { EvidenceInspector } from './EvidenceInspector.tsx';
 import { ExplorerRegion } from './ExplorerRegion.tsx';
 import { MainRegion } from './MainRegion.tsx';
-import {
-  useWorkbenchLayout,
-  type ThemePreference,
-} from './useWorkbenchLayout.ts';
+import { useWorkbenchLayout } from './useWorkbenchLayout.ts';
 import { useWorkspaceController } from './useWorkspaceController.ts';
 
 function formatExpiry(expiresAt: string): string {
@@ -47,70 +44,71 @@ export function InvestigationWorkspace() {
 
   return (
     <div className="page-shell">
-      <header className="page-header" inert={inspector.inspectorModal}>
-        <div className="header-brand">
-          <span className="brand-kicker">CODETHREAD</span>
-          <span className="brand-sep" aria-hidden="true">
-            /
-          </span>
-          <h1>Investigation Workspace</h1>
-          {workspace && activeRepo ? (
-            <span className="header-context">
-              <span>{activeRepo.label}</span>
+      <AppHeader
+        screen="investigate"
+        title="Investigation Workspace"
+        activeScanId={workspace?.scanId ?? null}
+        inert={inspector.inspectorModal}
+        context={
+          workspace && activeRepo ? (
+            <>
+              <span className="header-context-repo">{activeRepo.label}</span>
               <span aria-hidden="true">·</span>
               <code>{workspace.revision}</code>
-            </span>
-          ) : (
-            <p className="header-subtitle">
-              Trace source-backed relationships in a pinned snapshot.
-            </p>
-          )}
-        </div>
-        <div className="header-actions">
-          <nav className="history-controls" aria-label="Investigation history">
-            <button
-              type="button"
-              onClick={() => history.move(-1)}
-              disabled={!history.canBack}
-              title="Back to previous investigation step"
+            </>
+          ) : null
+        }
+        actions={
+          <>
+            <nav
+              className="history-controls"
+              aria-label="Investigation history"
             >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={() => history.move(1)}
-              disabled={!history.canForward}
-              title="Forward to next investigation step"
-            >
-              Forward
-            </button>
-            {history.total > 1 ? (
-              <span
-                className="history-position"
-                aria-live="polite"
-                aria-label={`History step ${history.step} of ${history.total}`}
+              <button
+                type="button"
+                onClick={() => history.move(-1)}
+                disabled={!history.canBack}
+                title="Back to previous step"
               >
-                {history.step}/{history.total}
-              </span>
-            ) : null}
-          </nav>
-          <button
-            id="inspector-toggle"
-            ref={inspector.inspectorTriggerRef}
-            type="button"
-            hidden={!inspector.compactViewport}
-            aria-expanded={inspector.inspectorModal}
-            aria-controls="evidence-inspector"
-            aria-haspopup="dialog"
-            onClick={(event) => inspector.openInspector(event.currentTarget)}
-          >
-            Evidence
-          </button>
-        </div>
-      </header>
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={() => history.move(1)}
+                disabled={!history.canForward}
+                title="Forward to next step"
+              >
+                Forward
+              </button>
+              {history.total > 1 ? (
+                <span
+                  className="history-position"
+                  aria-live="polite"
+                  aria-label={`History step ${history.step} of ${history.total}`}
+                >
+                  {history.step}/{history.total}
+                </span>
+              ) : null}
+            </nav>
+            <button
+              id="inspector-toggle"
+              ref={inspector.inspectorTriggerRef}
+              type="button"
+              hidden={!inspector.compactViewport}
+              aria-expanded={inspector.inspectorModal}
+              aria-controls="evidence-inspector"
+              aria-haspopup="dialog"
+              onClick={(event) => inspector.openInspector(event.currentTarget)}
+            >
+              Evidence
+            </button>
+          </>
+        }
+      />
       <div className="workspace-grid">
         <ExplorerRegion
           inert={inspector.inspectorModal}
+          compact={inspector.compactViewport}
           collapsed={!inspector.compactViewport && layout.explorerCollapsed}
           width={layout.explorerWidth}
           onToggleCollapse={layout.toggleExplorer}
@@ -157,83 +155,35 @@ export function InvestigationWorkspace() {
           closeButtonRef={inspector.inspectorCloseRef}
         />
       </div>
-      <footer className="page-footer" inert={inspector.inspectorModal}>
-        <div className="status-left">
-          <nav className="dock-controls" aria-label="Workspace navigation">
-            <Link className="status-btn status-link" href="/repositories">
-              Repositories
-            </Link>
-            {workspace ? (
-              <Link
-                className="status-btn status-link"
-                href={`/scans/${workspace.scanId}`}
-              >
-                Scan detail
-              </Link>
-            ) : null}
-          </nav>
-          {!inspector.compactViewport ? (
-            <div className="dock-controls" aria-label="Workbench layout">
-              <button
-                className="status-btn"
-                type="button"
-                aria-pressed={!layout.explorerCollapsed}
-                onClick={layout.toggleExplorer}
-              >
-                {layout.explorerCollapsed ? 'Show explorer' : 'Hide explorer'}
-              </button>
-              <button
-                className="status-btn"
-                type="button"
-                aria-pressed={!layout.inspectorCollapsed}
-                onClick={layout.toggleInspector}
-              >
-                {layout.inspectorCollapsed ? 'Show evidence' : 'Hide evidence'}
-              </button>
-              {layout.isCustomized ? (
-                <button
-                  className="status-btn"
-                  type="button"
-                  onClick={layout.resetLayout}
-                >
-                  Reset layout
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          <span className="status-summary">
-            Local snapshot only · static evidence · validated API projections
-          </span>
-        </div>
-        <div className="status-right">
-          {workspace ? (
-            <span role={sessionExpired ? 'status' : undefined}>
+      <AppStatusBar
+        summary="Pinned snapshot · static evidence"
+        inert={inspector.inspectorModal}
+        leftExtra={
+          !inspector.compactViewport && layout.isCustomized ? (
+            <button
+              className="status-btn"
+              type="button"
+              onClick={layout.resetLayout}
+            >
+              Reset layout
+            </button>
+          ) : null
+        }
+        rightExtra={
+          workspace ? (
+            <span
+              className={sessionExpired ? 'status-expired' : 'status-expiry'}
+              role={sessionExpired ? 'status' : undefined}
+            >
               {sessionExpired
-                ? 'Viewer session expired — reselect a repository or retry.'
-                : `Viewer expires ${formatExpiry(workspace.expiresAt)}`}
+                ? 'Session expired — reselect a repository.'
+                : `Expires ${formatExpiry(workspace.expiresAt)}`}
             </span>
-          ) : null}
-          <div className="theme-switcher" role="group" aria-label="Color theme">
-            {(['system', 'light', 'dark'] as const).map(
-              (option: ThemePreference) => (
-                <button
-                  key={option}
-                  className={`theme-btn${layout.theme === option ? ' is-active' : ''}`}
-                  type="button"
-                  aria-pressed={layout.theme === option}
-                  onClick={() => layout.setTheme(option)}
-                >
-                  {option === 'system'
-                    ? 'Auto'
-                    : option === 'light'
-                      ? 'Light'
-                      : 'Dark'}
-                </button>
-              ),
-            )}
-          </div>
-        </div>
-      </footer>
+          ) : null
+        }
+        theme={layout.theme}
+        onThemeChange={layout.setTheme}
+      />
     </div>
   );
 }

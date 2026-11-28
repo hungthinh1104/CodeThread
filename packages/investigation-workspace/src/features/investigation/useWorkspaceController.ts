@@ -318,7 +318,8 @@ export function useWorkspaceController() {
     if (!scope || !root) return;
     const keepDeclaration =
       proj.requestedEvidenceId.current === root.declarationEvidenceId;
-    proj.setActiveView('trace');
+    const targetView = proj.activeView === 'paths' ? 'paths' : 'trace';
+    proj.setActiveView(targetView);
     pushNavigation({
       ...scope,
       root,
@@ -326,7 +327,7 @@ export function useWorkspaceController() {
       direction: newDirection,
       selectedRelationId: null,
       selectedEvidenceId: keepDeclaration ? root.declarationEvidenceId : null,
-      view: 'trace',
+      view: targetView,
     });
     void proj.loadGraph(root, scope, kinds, newDirection, {
       preserveDeclarationEvidence: true,

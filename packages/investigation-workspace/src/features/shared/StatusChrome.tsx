@@ -96,7 +96,7 @@ export function HealthSummary({
     );
   }
   if (!health) {
-    return <p className="muted small">Checking local backend readiness…</p>;
+    return <p className="muted small">Checking service status…</p>;
   }
   return (
     <ul className="coverage-checks" aria-label="Backend readiness">

@@ -124,8 +124,7 @@ export function EvidenceInspector(props: Props) {
         ) : null}
         <div className="inspector-header pane-header">
           <div className="pane-header-text">
-            <p className="step-label">03 / Evidence</p>
-            <h2 id="evidence-heading">Evidence inspector</h2>
+            <h2 id="evidence-heading">Evidence</h2>
           </div>
           {!props.compact ? (
             <button
@@ -163,10 +162,6 @@ export function EvidenceInspector(props: Props) {
           </button>
         </div>
         <div className="pane-body" hidden={!props.compact && props.collapsed}>
-          <p className="muted small inspector-subtitle">
-            Evidence is verified against the pinned snapshot. Static facts do
-            not establish runtime execution.
-          </p>
           {props.loading ? (
             <p role="status">Loading verified evidence…</p>
           ) : null}
@@ -180,7 +175,8 @@ export function EvidenceInspector(props: Props) {
           ) : null}
           {!props.item && !props.loading && !props.error ? (
             <p className="inspector-empty">
-              Select a declaration or relation occurrence.
+              Select a declaration or relationship occurrence to inspect its
+              verified snapshot excerpt.
             </p>
           ) : null}
           {props.item?.status === 'available' ? (
@@ -271,7 +267,7 @@ export function EvidenceInspector(props: Props) {
                   focusable
                 />
                 <p className="caption">
-                  Exact verified evidence excerpt; this is not the complete
+                  Pinned snapshot excerpt · static evidence only, not the full
                   file.
                 </p>
               </div>

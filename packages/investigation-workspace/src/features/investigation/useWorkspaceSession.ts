@@ -287,7 +287,7 @@ export function useWorkspaceSession(input: SessionInput) {
     if (!repository) return;
     if (!repository.activeScanId) {
       reportWorkspaceError(
-        'This repository has no active scan. Start or select a scan through the existing backend workflow.',
+        'This repository has no active scan. Queue a scan from Repositories.',
       );
       return;
     }

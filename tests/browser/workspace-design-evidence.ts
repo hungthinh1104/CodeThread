@@ -404,17 +404,30 @@ async function captureVariant(
         document.getElementById('inspector-toggle')?.hidden === !isCompact,
       compact,
     );
-    await page.keyboard.press('Tab');
-    if (compact) {
-      assert.equal(
-        await page.evaluate(() => document.activeElement?.id),
-        'inspector-toggle',
-      );
+    const focusOrder: string[] = [];
+    for (let step = 0; step < 7; step += 1) {
       await page.keyboard.press('Tab');
+      const id = await page.evaluate(() => document.activeElement?.id ?? '');
+      focusOrder.push(id);
+      if (id === 'repository-select') break;
     }
     assert.equal(
-      await page.evaluate(() => document.activeElement?.id),
+      focusOrder.includes('nav-investigate') &&
+        focusOrder.includes('nav-repositories'),
+      true,
+      `primary navigation reachable by keyboard: ${JSON.stringify(focusOrder)}`,
+    );
+    if (compact) {
+      assert.equal(
+        focusOrder.includes('inspector-toggle'),
+        true,
+        `compact evidence toggle reachable by keyboard: ${JSON.stringify(focusOrder)}`,
+      );
+    }
+    assert.equal(
+      focusOrder.at(-1),
       'repository-select',
+      `repository selector reachable by keyboard: ${JSON.stringify(focusOrder)}`,
     );
     await save('empty');
     const repositoryStart = performance.now();

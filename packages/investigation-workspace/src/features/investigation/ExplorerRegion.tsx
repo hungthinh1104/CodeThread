@@ -43,6 +43,7 @@ export type ExplorerModel = {
 
 type Props = {
   inert: boolean;
+  compact: boolean;
   collapsed: boolean;
   width: number;
   onToggleCollapse: () => void;
@@ -54,6 +55,7 @@ type Props = {
 
 export function ExplorerRegion({
   inert,
+  compact,
   collapsed,
   width,
   onToggleCollapse,
@@ -71,18 +73,23 @@ export function ExplorerRegion({
     >
       <div className="region-title pane-header">
         <div className="pane-header-text">
-          <p className="step-label">01 / Explorer</p>
-          <h2 id="explorer-heading">Pinned context</h2>
+          <h2 id="explorer-heading">Explorer</h2>
         </div>
-        {collapsed ? (
+        {!compact ? (
           <button
-            className="btn-ghost pane-rail-btn"
+            id="explorer-collapse"
+            className={`btn-ghost dock-collapse-btn${collapsed ? ' pane-rail-btn' : ''}`}
             type="button"
-            aria-label="Expand explorer pane"
-            title="Expand explorer pane"
+            aria-expanded={!collapsed}
+            aria-label={
+              collapsed ? 'Expand explorer pane' : 'Collapse explorer pane'
+            }
+            title={
+              collapsed ? 'Expand explorer pane' : 'Collapse explorer pane'
+            }
             onClick={onToggleCollapse}
           >
-            Explorer
+            {collapsed ? 'Explorer' : 'Collapse'}
           </button>
         ) : null}
       </div>
@@ -294,9 +301,8 @@ export function ExplorerRegion({
               </button>
             </nav>
           ) : null}
-          <p className="muted small">
-            The inventory lists source status and hashes. Full-file content is
-            not available in this API; select a symbol for verified excerpts.
+          <p className="muted small inventory-note">
+            Excerpts only — select a symbol to view verified source.
           </p>
         </section>
         {model.notice ? (

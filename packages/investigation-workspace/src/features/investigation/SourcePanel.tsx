@@ -48,23 +48,12 @@ export function SourcePanel(props: Props) {
     >
       {!root ? (
         <div className="empty-workbench">
-          <p className="empty-state-lead">
-            Select a symbol from the pinned catalog.
+          <p className="empty-state-lead">No symbol selected</p>
+          <p className="empty-state-body">
+            Select a symbol in Explorer to view its verified declaration
+            excerpt, static <code>CALLS</code> and <code>REFERENCES</code>, and
+            paths within the pinned snapshot.
           </p>
-          <ol className="empty-steps">
-            <li>
-              <strong>Establish context</strong> — pick a repository scan and
-              compiler project in Explorer.
-            </li>
-            <li>
-              <strong>Inspect declaration</strong> — review the pinned source
-              excerpt and SHA-256 provenance.
-            </li>
-            <li>
-              <strong>Trace relationships</strong> — switch to Trace for exact{' '}
-              <code>CALLS</code> and <code>REFERENCES</code>.
-            </li>
-          </ol>
         </div>
       ) : null}
       {root && props.evidenceLoading ? (
@@ -129,12 +118,10 @@ export function SourcePanel(props: Props) {
           className="context-matches"
           aria-labelledby="context-matches-heading"
         >
-          <h3 id="context-matches-heading">
-            Compiler contexts for this declaration
-          </h3>
+          <h3 id="context-matches-heading">Other compiler projects</h3>
           <p className="muted small">
-            Compare the same verified path, range, and source identity across
-            project snapshots.
+            Locate this declaration in other compiler contexts within the same
+            scan.
           </p>
           <button
             type="button"

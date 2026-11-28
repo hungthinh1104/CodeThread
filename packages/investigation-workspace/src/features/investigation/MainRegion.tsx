@@ -61,8 +61,7 @@ export function MainRegion({ inert, headingRef, model }: Props) {
       inert={inert}
     >
       <div className="main-heading pane-header">
-        <div>
-          <p className="step-label">02 / Investigation</p>
+        <div className="main-heading-meta">
           <h2 id="workspace-heading" ref={headingRef} tabIndex={-1}>
             Source and trace
           </h2>
@@ -135,61 +134,64 @@ export function MainRegion({ inert, headingRef, model }: Props) {
       </div>
 
       <div className="pane-body">
-        <SourcePanel
-          hidden={model.activeView !== 'source'}
-          root={root}
-          evidence={model.evidence}
-          evidenceLoading={model.evidenceLoading}
-          evidenceError={model.evidenceError}
-          onRetryEvidence={model.onRetryEvidence}
-          onSelectEvidence={model.onSelectEvidence}
-          contextCandidates={model.contextCandidates}
-          contextSearchLoading={model.contextSearchLoading}
-          contextSearchMessage={model.contextSearchMessage}
-          onFindContexts={model.onFindContexts}
-          onChooseContext={model.onChooseContext}
-        />
+        <div className="main-content">
+          <SourcePanel
+            hidden={model.activeView !== 'source'}
+            root={root}
+            evidence={model.evidence}
+            evidenceLoading={model.evidenceLoading}
+            evidenceError={model.evidenceError}
+            onRetryEvidence={model.onRetryEvidence}
+            onSelectEvidence={model.onSelectEvidence}
+            contextCandidates={model.contextCandidates}
+            contextSearchLoading={model.contextSearchLoading}
+            contextSearchMessage={model.contextSearchMessage}
+            onFindContexts={model.onFindContexts}
+            onChooseContext={model.onChooseContext}
+          />
 
-        <TracePanel
-          hidden={model.activeView !== 'trace'}
-          root={root}
-          graphProjection={model.graph}
-          graphLoading={model.graphLoading}
-          graphError={model.graphError}
-          onRetryGraph={model.onRetryGraph}
-          relationKinds={model.relationKinds}
-          onRelationKindsChange={model.onRelationKindsChange}
-          direction={model.direction}
-          onDirectionChange={model.onDirectionChange}
-          selectedRelationId={model.selectedRelationId}
-          onSelectEvidence={model.onSelectEvidence}
-          onFollowSymbol={model.onFollowSymbol}
-        />
+          <TracePanel
+            hidden={model.activeView !== 'trace'}
+            root={root}
+            graphProjection={model.graph}
+            graphLoading={model.graphLoading}
+            graphError={model.graphError}
+            onRetryGraph={model.onRetryGraph}
+            relationKinds={model.relationKinds}
+            onRelationKindsChange={model.onRelationKindsChange}
+            direction={model.direction}
+            onDirectionChange={model.onDirectionChange}
+            selectedRelationId={model.selectedRelationId}
+            onSelectEvidence={model.onSelectEvidence}
+            onFollowSymbol={model.onFollowSymbol}
+          />
 
-        <PathsPanel
-          hidden={model.activeView !== 'paths'}
-          root={root}
-          scope={model.scope}
-          relationKinds={model.relationKinds}
-          onSelectEvidence={model.onSelectEvidence}
-          onFollowSymbol={model.onFollowSymbol}
-        />
+          <PathsPanel
+            hidden={model.activeView !== 'paths'}
+            root={root}
+            scope={model.scope}
+            relationKinds={model.relationKinds}
+            onRelationKindsChange={model.onRelationKindsChange}
+            onSelectEvidence={model.onSelectEvidence}
+            onFollowSymbol={model.onFollowSymbol}
+          />
 
-        {model.session ? (
-          <details className="session-coverage">
-            <summary>Snapshot coverage by capability</summary>
-            <ul>
-              {Object.entries(model.session.coverageByCapability).map(
-                ([capability, status]) => (
-                  <li key={capability}>
-                    <code>{capability}</code>
-                    <span>{status}</span>
-                  </li>
-                ),
-              )}
-            </ul>
-          </details>
-        ) : null}
+          {model.session ? (
+            <details className="session-coverage">
+              <summary>Snapshot coverage by capability</summary>
+              <ul>
+                {Object.entries(model.session.coverageByCapability).map(
+                  ([capability, status]) => (
+                    <li key={capability}>
+                      <code>{capability}</code>
+                      <span>{status}</span>
+                    </li>
+                  ),
+                )}
+              </ul>
+            </details>
+          ) : null}
+        </div>
       </div>
     </main>
   );
