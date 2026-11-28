@@ -381,6 +381,7 @@ async function captureVariant(
   directory: string,
   width: number,
   theme: (typeof themes)[number],
+  mode: 'before' | 'after',
 ) {
   const { context, page, outside } = await openWorkspacePage(browser, origin);
   const shots: string[] = [];
@@ -411,12 +412,14 @@ async function captureVariant(
       focusOrder.push(id);
       if (id === 'repository-select') break;
     }
-    assert.equal(
-      focusOrder.includes('nav-investigate') &&
-        focusOrder.includes('nav-repositories'),
-      true,
-      `primary navigation reachable by keyboard: ${JSON.stringify(focusOrder)}`,
-    );
+    if (mode === 'after') {
+      assert.equal(
+        focusOrder.includes('nav-investigate') &&
+          focusOrder.includes('nav-repositories'),
+        true,
+        `primary navigation reachable by keyboard: ${JSON.stringify(focusOrder)}`,
+      );
+    }
     if (compact) {
       assert.equal(
         focusOrder.includes('inspector-toggle'),
@@ -690,6 +693,7 @@ async function main() {
               directory,
               width,
               theme,
+              mode,
             );
             assert.deepEqual(
               result.tokens,

@@ -32,11 +32,22 @@ disposable PostgreSQL database and never commit credentials.
 
 ## Investigation Workspace
 
-Start the local backend with the setup above and complete a scan of a pinned
-local TypeScript revision. In a second terminal, set `CODETHREAD_API_TOKEN` to
-the same token used by the backend and run `pnpm workspace:dev`. Open
-`http://127.0.0.1:3000/` and select the repository's active scan. The Workspace
-uses the backend on IPv4 loopback port 8765 by default.
+Start the local backend and Investigation Workspace together with one command
+against a disposable loopback PostgreSQL 17 database (an ephemeral API token is
+generated in-memory if `CODETHREAD_API_TOKEN` is omitted):
+
+```sh
+export CODETHREAD_DATABASE_URL='postgres://codethread:...@127.0.0.1:5432/codethread'
+export CODETHREAD_ALLOWED_REPO_ROOT='/absolute/path/to/local/repos'
+pnpm build && pnpm workspace:build
+pnpm stack:start -- --migrate
+```
+
+Open `http://127.0.0.1:3000/` to investigate symbols (`/`), register and scan
+local repositories (`/repositories`), or monitor scan jobs (`/scans/[scanId]`).
+To run the two processes separately, start the backend with `pnpm backend:start`
+and in a second terminal set `CODETHREAD_API_TOKEN` to the same token and run
+`pnpm workspace:dev` (defaults to IPv4 loopback port 8765).
 
 The Workspace shows project-scoped static relationships, scan coverage and
 verified source excerpts. See its
