@@ -6,6 +6,8 @@ import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join, resolve } from 'node:path';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
+import type { AiStatusResponse } from '@codethread/contracts';
+import { createInvestigation } from '@codethread/trace-engine';
 import type { RepositoryInvestigationSession } from '../../scripts/investigation/repository-session.ts';
 import {
   createRepositoryViewer,
@@ -14,6 +16,7 @@ import {
 
 const backendToken = 'workspace-browser-backend-token';
 const activeScanId = '33333333-3333-4333-8333-333333333333';
+export const secondaryScanId = '55555555-5555-4555-8555-555555555555';
 const inactiveRepositoryId = '44444444-4444-4444-8444-444444444444';
 
 type Gate = {
@@ -62,11 +65,47 @@ function sendJson(
   response.end(JSON.stringify(value));
 }
 
+function readJsonBody(
+  request: import('node:http').IncomingMessage,
+): Promise<unknown> {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      try {
+        resolveBody(
+          chunks.length
+            ? JSON.parse(Buffer.concat(chunks).toString('utf8'))
+            : {},
+        );
+      } catch (error) {
+        rejectBody(error);
+      }
+    });
+    request.on('error', rejectBody);
+  });
+}
+
+export type WorkspaceAppAiMock = {
+  status: AiStatusResponse;
+  synthesize?: (body: unknown) => Promise<unknown> | unknown;
+};
+
+export type WorkspaceScanOverride = (
+  scanId: string,
+  defaultScan: Record<string, unknown>,
+) => { status?: number; body: unknown } | null;
+
 function backendServer(
   viewer: ViewerHandle,
   holdScanRead: boolean,
-  repositoryId: string,
+  snapshot: AnalysisSnapshot,
+  aiMock?: WorkspaceAppAiMock,
+  scanOverride?: WorkspaceScanOverride,
 ) {
+  const repositoryId = snapshot.facts.identity.repositoryId;
+  const projectId = 'workspace-test-project';
+  const investigation = createInvestigation(snapshot.facts, snapshot.source);
   const gate = deferred();
   const now = new Date().toISOString();
   const commitId = 'a'.repeat(40);
@@ -87,6 +126,16 @@ function backendServer(
   };
   const server = createServer((request, response) => {
     void (async () => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (request.method === 'GET' && url.pathname === '/v1/health') {
+        sendJson(response, {
+          api: 'ready',
+          database: 'ready',
+          worker: 'ready',
+          ready: true,
+        });
+        return;
+      }
       if (request.headers.authorization !== `Bearer ${backendToken}`) {
         sendJson(
           response,
@@ -95,7 +144,7 @@ function backendServer(
         );
         return;
       }
-      if (request.method === 'GET' && request.url === '/v1/repositories') {
+      if (request.method === 'GET' && url.pathname === '/v1/repositories') {
         sendJson(response, [
           {
             id: repositoryId,
@@ -114,15 +163,115 @@ function backendServer(
       }
       if (
         request.method === 'GET' &&
-        request.url === `/v1/scans/${activeScanId}`
+        url.pathname === `/v1/repositories/${repositoryId}/scans`
       ) {
-        if (holdScanRead) await gate.wait();
-        sendJson(response, scan);
+        sendJson(response, [scan]);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        url.pathname === `/v1/repositories/${inactiveRepositoryId}/scans`
+      ) {
+        sendJson(response, []);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        (url.pathname === `/v1/scans/${activeScanId}` ||
+          url.pathname === `/v1/scans/${secondaryScanId}`)
+      ) {
+        const requestedId = url.pathname.split('/').at(-1)!;
+        const baseRecord =
+          requestedId === activeScanId
+            ? scan
+            : {
+                ...scan,
+                id: secondaryScanId,
+                revision_selector: 'secondary-rev',
+              };
+        if (scanOverride) {
+          const custom = scanOverride(requestedId, baseRecord);
+          if (custom) {
+            sendJson(response, custom.body, custom.status ?? 200);
+            return;
+          }
+        }
+        if (holdScanRead && requestedId === activeScanId) await gate.wait();
+        sendJson(response, baseRecord);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        (url.pathname === `/v1/scans/${activeScanId}/projects` ||
+          url.pathname === `/v1/scans/${secondaryScanId}/projects`)
+      ) {
+        sendJson(response, [
+          {
+            project_id: projectId,
+            project_label: 'fixture project',
+            status: 'ready',
+            snapshot_id: snapshot.facts.snapshotId,
+            diagnostics: [],
+          },
+        ]);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        (url.pathname === `/v1/scans/${activeScanId}/files` ||
+          url.pathname === `/v1/scans/${secondaryScanId}/files`)
+      ) {
+        const offset = Number(url.searchParams.get('offset') ?? '0');
+        const allFiles = snapshot.facts.files.map((file) => ({
+          path: file.path,
+          content_hash: file.contentHash,
+          git_blob_oid: file.contentHash.slice(0, 40),
+          git_mode: '100644',
+        }));
+        const slice = allFiles.slice(offset, offset + 50);
+        sendJson(response, {
+          items: slice,
+          total: allFiles.length,
+          offset,
+          nextOffset:
+            offset + slice.length < allFiles.length ? offset + 50 : null,
+        });
         return;
       }
       if (
         request.method === 'POST' &&
-        request.url === `/v1/scans/${activeScanId}/viewer`
+        url.pathname === `/v1/scans/${activeScanId}/projects/${projectId}/paths`
+      ) {
+        const body = (await readJsonBody(request)) as Parameters<
+          typeof investigation.paths
+        >[0];
+        sendJson(response, investigation.paths(body));
+        return;
+      }
+      if (request.method === 'GET' && url.pathname === '/v1/ai/status') {
+        sendJson(response, aiMock?.status ?? { enabled: false });
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname ===
+          `/v1/scans/${activeScanId}/projects/${projectId}/ai/synthesize`
+      ) {
+        if (!aiMock?.status.enabled || !aiMock.synthesize) {
+          sendJson(
+            response,
+            { error: { code: 'AI_DISABLED', message: 'AI is disabled.' } },
+            503,
+          );
+          return;
+        }
+        const body = await readJsonBody(request);
+        sendJson(response, await aiMock.synthesize(body));
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname === `/v1/scans/${activeScanId}/viewer`
       ) {
         sendJson(response, {
           url: viewer.url,
@@ -379,13 +528,19 @@ export async function startWorkspaceFrontend(
 
 export async function startWorkspaceApp(
   snapshot: AnalysisSnapshot,
-  options: { holdScanRead?: boolean } = {},
+  options: {
+    holdScanRead?: boolean;
+    ai?: WorkspaceAppAiMock;
+    scanOverride?: WorkspaceScanOverride;
+  } = {},
 ): Promise<WorkspaceApp> {
   const viewer = await createRepositoryViewer(repositorySession(snapshot));
   const backend = backendServer(
     viewer,
     options.holdScanRead ?? false,
-    snapshot.facts.identity.repositoryId,
+    snapshot,
+    options.ai,
+    options.scanOverride,
   );
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();

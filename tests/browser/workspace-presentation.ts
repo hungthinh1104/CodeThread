@@ -311,13 +311,25 @@ export async function verifyWorkspacePresentation(
       app.origin,
     );
     try {
-      await page.keyboard.press('Tab');
+      const focusOrder: string[] = [];
+      for (let step = 0; step < 6; step += 1) {
+        await page.keyboard.press('Tab');
+        const id = await page.evaluate(
+          () => (document.activeElement as HTMLElement | null)?.id ?? '',
+        );
+        focusOrder.push(id);
+        if (id === 'repository-select') break;
+      }
       assert.equal(
-        await page.evaluate(
-          () => (document.activeElement as HTMLElement | null)?.id,
-        ),
+        focusOrder.includes('nav-investigate') &&
+          focusOrder.includes('nav-repositories'),
+        true,
+        `keyboard focus reaches primary navigation first: ${JSON.stringify(focusOrder)}`,
+      );
+      assert.equal(
+        focusOrder.at(-1),
         'repository-select',
-        'keyboard focus reaches the repository selector first',
+        `keyboard focus reaches the repository selector cleanly: ${JSON.stringify(focusOrder)}`,
       );
       const browserAuthHeaders: string[] = [];
       const requestUrls: string[] = [];
@@ -368,7 +380,7 @@ export async function verifyWorkspacePresentation(
 
       for (const width of [1440, 1280]) {
         const layout = await layoutAt(page, width);
-        assert.equal(layout.gap, '16px');
+        assert.equal(layout.gap, '0px');
         assert.equal(layout.columns.trim().split(/\s+/).length, 3);
         assert.equal(layout.hasHorizontalOverflow, false);
         await waitForCompactInspector(page, false);

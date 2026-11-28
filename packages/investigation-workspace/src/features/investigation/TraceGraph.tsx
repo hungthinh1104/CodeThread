@@ -9,8 +9,12 @@ type Props = {
 
 type Point = { x: number; y: number };
 
-const nodeWidth = 150;
-const nodeHeight = 58;
+const nodeWidth = 176;
+const nodeHeight = 56;
+
+function truncateLabel(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
 
 function edgePath(source: Point, target: Point): string {
   if (source.x === target.x && source.y === target.y) {
@@ -58,8 +62,8 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
   const positions = new Map<string, Point>();
   symbols.forEach((symbol, index) => {
     positions.set(symbol.id, {
-      x: 28 + (index % 2) * 366,
-      y: 26 + Math.floor(index / 2) * 92,
+      x: 24 + (index % 2) * 320,
+      y: 24 + Math.floor(index / 2) * 84,
     });
   });
   const visibleRelations = graph.relations.filter(
@@ -69,17 +73,29 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
       positions.has(relation.sourceSymbolId) &&
       positions.has(relation.resolution.targetId),
   );
-  const height = Math.max(96, Math.ceil(symbols.length / 2) * 92 + 14);
+  const height = Math.max(96, Math.ceil(symbols.length / 2) * 84 + 16);
   const nameById = new Map(symbols.map((symbol) => [symbol.id, symbol.name]));
   return (
     <section
       className="trace-graph-section"
       aria-labelledby="trace-graph-heading"
     >
-      <h3 id="trace-graph-heading">Returned exact relationships</h3>
-      <p className="muted small">
-        The diagram includes only returned symbols and exact edges. Use the
-        relationship list for evidence and navigation.
+      <div className="trace-graph-header">
+        <div>
+          <h3 id="trace-graph-heading">Returned exact relationships</h3>
+          <p className="muted small">
+            Only returned symbols and exact edges are plotted. Select any
+            non-root node to follow it.
+          </p>
+        </div>
+        <div className="trace-graph-legend" aria-hidden="true">
+          <span className="legend-item legend-calls">CALLS</span>
+          <span className="legend-item legend-references">REFERENCES</span>
+          <span className="legend-item legend-root">Active root</span>
+        </div>
+      </div>
+      <p className="trace-graph-scroll-hint muted small">
+        Scroll horizontally to view all diagram nodes.
       </p>
       <div
         className="trace-graph-scroll"
@@ -91,10 +107,18 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
           className="trace-graph"
           role="img"
           aria-label={`Bounded graph with ${symbols.length} returned symbols and ${visibleRelations.length} exact returned relationships.`}
-          viewBox={`0 0 760 ${height}`}
+          viewBox={`0 0 544 ${height}`}
           xmlns="http://www.w3.org/2000/svg"
         >
           <defs>
+            <pattern
+              id="trace-dot-grid"
+              width="16"
+              height="16"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="1.5" cy="1.5" r="0.9" className="trace-grid-dot" />
+            </pattern>
             <marker
               id="trace-arrow"
               markerWidth="8"
@@ -140,6 +164,7 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
               );
             })}
           </defs>
+          <rect width="544" height={height} fill="url(#trace-dot-grid)" />
           {visibleRelations.map((relation) => {
             const source = positions.get(relation.sourceSymbolId);
             const targetId = relation.resolution.targetId;
@@ -198,12 +223,16 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
                     : undefined
                 }
               >
+                <title>
+                  {symbol.kind} {symbol.name} — {symbol.filePath}:
+                  {symbol.range.start.line}
+                </title>
                 <rect
                   x={point.x}
                   y={point.y}
                   width={nodeWidth}
                   height={nodeHeight}
-                  rx="6"
+                  rx="4"
                 />
                 <g clipPath={`url(#trace-node-clip-${index})`}>
                   <text
@@ -211,15 +240,15 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
                     y={point.y + 22}
                     className="trace-node-name"
                   >
-                    {symbol.name.slice(0, 22)}
+                    {truncateLabel(symbol.name, 22)}
                   </text>
                   <text
                     x={point.x + 9}
                     y={point.y + 42}
                     className="trace-node-location"
                   >
-                    {symbol.filePath.split('/').at(-1)?.slice(0, 22)}:
-                    {symbol.range.start.line}
+                    {truncateLabel(symbol.filePath.split('/').at(-1) ?? '', 18)}
+                    :{symbol.range.start.line}
                   </text>
                 </g>
               </g>

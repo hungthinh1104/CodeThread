@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 import { describe, expect, it } from 'vitest';
 import { analyzeManifest, COMPILER_PROFILE } from '@codethread/symbol-indexer';
-import { startWorkspaceApp } from './browser/workspace-app.ts';
+import { secondaryScanId, startWorkspaceApp } from './browser/workspace-app.ts';
 
 const repositoryId = '83333333-3333-4333-8333-333333333333';
 const source = Buffer.from(
@@ -258,6 +258,330 @@ describe('Investigation Workspace UX workflows and accessibility regressions', (
           'inspector-toggle',
         );
       }
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
+
+  it('keeps multi-screen navigation aligned, preserves Paths tab on filter change, and clamps extreme dragged panes across viewports', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+
+    try {
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      const navBefore = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(
+        await page.locator('#nav-scan').getAttribute('aria-disabled'),
+      ).toBe('true');
+
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      const navAfter = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(navAfter.width - navBefore.width)).toBeLessThanOrEqual(2);
+      expect(await page.locator('#nav-scan').getAttribute('href')).toMatch(
+        /^\/scans\//,
+      );
+
+      // Explorer collapse & Reset layout on desktop
+      await page.click('#explorer-collapse');
+      await page.locator('.explorer.is-collapsed').waitFor();
+      await page.getByRole('button', { name: 'Reset layout' }).click();
+      await page.locator('.explorer:not(.is-collapsed)').waitFor();
+
+      // Paths tab: toggling REFERENCES keeps Paths active and returns exact paths
+      await page.getByLabel('Name or source path').fill('entry');
+      await page.getByRole('button', { name: /entry.*function/ }).click();
+      await page.locator('.source-excerpt').waitFor();
+      await page.getByRole('tab', { name: 'Paths' }).click();
+      const refsBox = page.locator('#paths-panel').getByLabel('REFERENCES');
+      await refsBox.check();
+      expect(
+        await page
+          .getByRole('tab', { name: 'Paths' })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      await page.locator('#path-target-query').fill('leaf');
+      await page
+        .locator('#paths-panel .paths-candidate-list button')
+        .first()
+        .click();
+      await page.locator('#paths-panel .relationship-list').waitFor();
+      await page
+        .locator('#paths-panel')
+        .getByText(/entry → .*leaf/)
+        .waitFor();
+
+      // Navigate / -> /repositories -> /scans/[id] -> / and verify 0px nav shift
+      await page.click('#nav-repositories');
+      await page.waitForURL('**/repositories');
+      await page.locator('#repo-detail-heading').waitFor();
+      const reposNav = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(reposNav.top - navAfter.top)).toBeLessThanOrEqual(2);
+      expect(Math.abs(reposNav.left - navAfter.left)).toBeLessThanOrEqual(2);
+
+      await page.click('#nav-scan');
+      await page.waitForURL('**/scans/**');
+      await page.locator('#scan-artifacts-heading').waitFor();
+      const scanNav = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(scanNav.top - navAfter.top)).toBeLessThanOrEqual(2);
+      expect(Math.abs(scanNav.left - navAfter.left)).toBeLessThanOrEqual(2);
+      await page.getByRole('link', { name: 'Open context' }).click();
+      await page.waitForURL(/\?scanId=/);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+
+      // Persist extreme dragged pane dimensions and resize live across viewports
+      await page.evaluate(() => {
+        localStorage.setItem(
+          'codethread-workspace-layout-v1',
+          JSON.stringify({
+            theme: 'light',
+            explorerWidth: 440,
+            inspectorWidth: 540,
+            inspectorHeight: 480,
+            explorerCollapsed: false,
+            inspectorCollapsed: false,
+          }),
+        );
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      for (const vp of [
+        { width: 1440, height: 900 },
+        { width: 1280, height: 800 },
+        { width: 1024, height: 768 },
+        { width: 768, height: 1024 },
+        { width: 390, height: 844 },
+        { width: 320, height: 640 },
+      ]) {
+        await page.setViewportSize(vp);
+        const metrics = await page.evaluate(() => ({
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          footerHeight:
+            document.querySelector('.page-footer')?.getBoundingClientRect()
+              .height ?? 0,
+          mainWidth:
+            document.querySelector('.main-region')?.getBoundingClientRect()
+              .width ?? 0,
+        }));
+        expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+        if (vp.width >= 1024)
+          expect(metrics.footerHeight).toBeLessThanOrEqual(42);
+        if (vp.width >= 768)
+          expect(metrics.mainWidth).toBeGreaterThanOrEqual(300);
+      }
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
+
+  it('keeps Repositories and ScanDetail read-only, recovers scan polling after transient 503 errors, preserves Workspace A across Scan B and back/forward, and avoids stuck loading on scan error', async () => {
+    let phase: 'queued' | 'fail_twice' | 'fail_once' | 'running' | 'succeeded' =
+      'queued';
+    let secondaryPollCount = 0;
+    const app = await startWorkspaceApp(snapshot, {
+      scanOverride: (requestedId, baseRecord) => {
+        if (requestedId !== secondaryScanId) return null;
+        secondaryPollCount += 1;
+        if (phase === 'queued') {
+          return {
+            status: 200,
+            body: { ...baseRecord, state: 'queued', activation_result: null },
+          };
+        }
+        if (phase === 'fail_twice') {
+          phase = 'fail_once';
+          return {
+            status: 503,
+            body: {
+              error: {
+                code: 'TRANSIENT_FAILURE',
+                message: 'Temporary backend hiccup #1.',
+              },
+            },
+          };
+        }
+        if (phase === 'fail_once') {
+          phase = 'running';
+          return {
+            status: 503,
+            body: {
+              error: {
+                code: 'TRANSIENT_FAILURE',
+                message: 'Temporary backend hiccup #2.',
+              },
+            },
+          };
+        }
+        if (phase === 'running') {
+          phase = 'succeeded';
+          return {
+            status: 200,
+            body: { ...baseRecord, state: 'running', activation_result: null },
+          };
+        }
+        return {
+          status: 200,
+          body: {
+            ...baseRecord,
+            state: 'succeeded',
+            activation_result: 'activated',
+          },
+        };
+      },
+    });
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(20_000);
+
+    try {
+      // 1. Open Workspace A on / and confirm remembered scan A.
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      const rememberedBefore = await page.evaluate(() =>
+        sessionStorage.getItem('codethread-workspace-scan'),
+      );
+      expect(rememberedBefore).toBe('33333333-3333-4333-8333-333333333333');
+
+      // 1b. Confirm gated mutation endpoints are rejected at HTTP level on the running Next app.
+      const mutationStatuses = await page.evaluate(async () => {
+        const postRepo = await fetch('/api/repositories', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ locator: '/tmp/blocked' }),
+        });
+        const postCancel = await fetch(
+          '/api/scans/33333333-3333-4333-8333-333333333333/cancel',
+          { method: 'POST' },
+        );
+        return { postRepo: postRepo.status, postCancel: postCancel.status };
+      });
+      expect(mutationStatuses.postRepo).toBe(405);
+      expect(mutationStatuses.postCancel).toBe(404);
+
+      // 2. Verify /repositories is strictly read-only (zero <form> elements or admin mutation buttons).
+      await page.click('#nav-repositories');
+      await page.waitForURL('**/repositories');
+      await page.locator('#repo-detail-heading').waitFor();
+      expect(await page.locator('form').count()).toBe(0);
+      expect(
+        await page
+          .getByRole('button', { name: /Register repository|Run scan/i })
+          .count(),
+      ).toBe(0);
+
+      // 3. Navigate to Scan B (/scans/<secondaryScanId>): starts queued, hits TWO consecutive
+      //    transient 503s, continues polling automatically with backoff, reaches running -> succeeded,
+      //    has NO Cancel scan mutation button, and NEVER overwrites remembered Workspace A!
+      await page.goto(`${app.origin}/scans/${secondaryScanId}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.locator('.scan-status-banner').getByText('queued').waitFor();
+      expect(
+        await page.getByRole('button', { name: /Cancel scan/i }).count(),
+      ).toBe(0);
+      phase = 'fail_twice';
+      await page.getByText(/Temporary backend hiccup #1/).waitFor();
+      await page
+        .getByText(/Temporary backend hiccup #2/)
+        .waitFor({ timeout: 10_000 });
+      await page
+        .locator('.scan-status-banner')
+        .getByText('succeeded')
+        .waitFor({ timeout: 15_000 });
+      await page.getByRole('link', { name: 'Open context' }).waitFor();
+
+      const rememberedAfterViewingB = await page.evaluate(() =>
+        sessionStorage.getItem('codethread-workspace-scan'),
+      );
+      expect(rememberedAfterViewingB).toBe(rememberedBefore);
+
+      // Verify polling stopped after terminal state.
+      const pollsAtTerminal = secondaryPollCount;
+      await page.waitForTimeout(2_000);
+      expect(secondaryPollCount).toBe(pollsAtTerminal);
+
+      // 3b. Verify failed initial scan load (404) does not leave Scan output stuck on "Loading scan details…".
+      await page.goto(
+        `${app.origin}/scans/99999999-9999-4999-8999-999999999999`,
+        { waitUntil: 'domcontentloaded' },
+      );
+      await page.getByText(/NOT_FOUND/).waitFor();
+      await page.getByText(/Scan metadata could not be loaded/).waitFor();
+      expect(await page.getByText('Loading scan details…').count()).toBe(0);
+
+      // 4. Navigate back to / (Investigate) and confirm Workspace A is restored intact!
+      await page.click('#nav-investigate');
+      await page.waitForURL(`${app.origin}/`);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      expect(
+        await page.evaluate(() =>
+          sessionStorage.getItem('codethread-workspace-scan'),
+        ),
+      ).toBe(rememberedBefore);
+
+      // 4b. Browser Back/Forward between / and Scan Detail still preserves Workspace A.
+      await page.goBack();
+      await page.waitForURL('**/scans/**');
+      await page.goForward();
+      await page.waitForURL(`${app.origin}/`);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      expect(
+        await page.evaluate(() =>
+          sessionStorage.getItem('codethread-workspace-scan'),
+        ),
+      ).toBe(rememberedBefore);
+
+      // 5. Simulate corrupted session cookie on refresh: remembered scan is cleaned up safely.
+      await context.clearCookies();
+      await context.addCookies([
+        {
+          name: 'ct_workspace_session_33333333-3333-4333-8333-333333333333',
+          value: 'corrupted-not-a-valid-session-id',
+          domain: '127.0.0.1',
+          path: '/api/workspace',
+        },
+      ]);
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(
+        () => sessionStorage.getItem('codethread-workspace-scan') === null,
+      );
+      expect(await page.locator('.notice.error').count()).toBe(0);
     } finally {
       await context.close();
       await browser.close();

@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, type RefObject } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent,
+  type RefObject,
+} from 'react';
 import { CodeExcerpt } from './CodeExcerpt.tsx';
 import type { EvidenceProjection } from './types.ts';
 
@@ -23,11 +30,26 @@ type Props = {
   onRetry: () => void;
   compact: boolean;
   open: boolean;
+  collapsed: boolean;
+  dockPosition: 'right' | 'bottom';
+  dockSize: number;
+  onToggleCollapse: () => void;
+  onResizePointerDown: (event: PointerEvent<HTMLDivElement>) => void;
+  onResizeKeyDown: (event: ReactKeyboardEvent<HTMLDivElement>) => void;
+  onResetSize: () => void;
   onClose: () => void;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
 export function EvidenceInspector(props: Props) {
+  const [copyStatus, setCopyStatus] = useState<
+    'idle' | 'copied' | 'unavailable'
+  >('idle');
+
+  useEffect(() => {
+    setCopyStatus('idle');
+  }, [props.item]);
+
   useIsomorphicLayoutEffect(() => {
     if (!props.compact || !props.open) return;
     props.closeButtonRef.current?.focus();
@@ -74,7 +96,7 @@ export function EvidenceInspector(props: Props) {
       ) : null}
       <aside
         id="evidence-inspector"
-        className={`region inspector${props.compact ? ' inspector-drawer' : ''}${props.open ? ' is-open' : ''}`}
+        className={`region inspector${props.compact ? ' inspector-drawer' : ''}${props.open ? ' is-open' : ''}${!props.compact && props.collapsed ? ' is-collapsed' : ''}`}
         aria-labelledby="evidence-heading"
         aria-hidden={props.compact ? !props.open : undefined}
         aria-modal={props.compact ? props.open : undefined}
@@ -82,11 +104,52 @@ export function EvidenceInspector(props: Props) {
         hidden={props.compact && !props.open}
         inert={props.compact && !props.open}
       >
-        <div className="inspector-header">
-          <div>
-            <p className="step-label">03 / Evidence</p>
-            <h2 id="evidence-heading">Evidence inspector</h2>
+        {!props.compact && !props.collapsed ? (
+          <div
+            className={`pane-resizer ${props.dockPosition === 'bottom' ? 'resizer-top' : 'resizer-left'}`}
+            role="separator"
+            aria-orientation={
+              props.dockPosition === 'bottom' ? 'horizontal' : 'vertical'
+            }
+            aria-label="Resize evidence inspector"
+            aria-valuenow={props.dockSize}
+            aria-valuemin={props.dockPosition === 'bottom' ? 150 : 260}
+            aria-valuemax={props.dockPosition === 'bottom' ? 480 : 540}
+            tabIndex={0}
+            title="Drag to resize evidence dock (double-click to reset)"
+            onPointerDown={props.onResizePointerDown}
+            onKeyDown={props.onResizeKeyDown}
+            onDoubleClick={props.onResetSize}
+          />
+        ) : null}
+        <div className="inspector-header pane-header">
+          <div className="pane-header-text">
+            <h2 id="evidence-heading">Evidence</h2>
           </div>
+          {!props.compact ? (
+            <button
+              className={`btn-ghost dock-collapse-btn${props.collapsed && props.dockPosition === 'right' ? ' pane-rail-btn' : ''}`}
+              type="button"
+              aria-expanded={!props.collapsed}
+              aria-label={
+                props.collapsed
+                  ? 'Expand evidence dock'
+                  : 'Collapse evidence dock'
+              }
+              title={
+                props.collapsed
+                  ? 'Expand evidence dock'
+                  : 'Collapse evidence dock'
+              }
+              onClick={props.onToggleCollapse}
+            >
+              {props.collapsed
+                ? props.dockPosition === 'right'
+                  ? 'Evidence'
+                  : 'Expand'
+                : 'Collapse'}
+            </button>
+          ) : null}
           <button
             id="close-inspector"
             ref={props.closeButtonRef}
@@ -98,77 +161,125 @@ export function EvidenceInspector(props: Props) {
             Close evidence
           </button>
         </div>
-        <p className="muted small inspector-subtitle">
-          Evidence is verified against the pinned snapshot. Static facts do not
-          establish runtime execution.
-        </p>
-        {props.loading ? <p role="status">Loading verified evidence…</p> : null}
-        {props.error ? (
-          <div className="notice error" role="alert">
-            <span>{props.error}</span>
-            <button type="button" onClick={props.onRetry}>
-              Retry evidence
-            </button>
-          </div>
-        ) : null}
-        {!props.item && !props.loading && !props.error ? (
-          <p className="empty-state">
-            Select a declaration or relation occurrence.
-          </p>
-        ) : null}
-        {props.item?.status === 'available' ? (
-          <div className="evidence-card">
-            {props.evidenceRole ? (
-              <p className={`evidence-role role-${props.evidenceRole}`}>
-                {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
-              </p>
-            ) : null}
-            <dl className="evidence-meta">
-              <div>
-                <dt>Source</dt>
-                <dd>
-                  <code>{props.item.filePath}</code>
-                </dd>
-              </div>
-              <div>
-                <dt>Location</dt>
-                <dd>
-                  Line {props.item.evidence.range.start.line}, column{' '}
-                  {props.item.evidence.range.start.column}
-                </dd>
-              </div>
-              <div>
-                <dt>SHA-256</dt>
-                <dd>
-                  <code className="hash">
-                    {props.item.evidence.contentHash}
-                  </code>
-                </dd>
-              </div>
-              <div>
-                <dt>Extractor</dt>
-                <dd>
-                  {props.item.evidence.extractor.name}{' '}
-                  {props.item.evidence.extractor.version}
-                </dd>
-              </div>
-            </dl>
-            <CodeExcerpt
-              text={props.item.text}
-              startLine={props.item.evidence.range.start.line}
-              focusable
-            />
-            <p className="caption">
-              Exact verified evidence excerpt; this is not the complete file.
+        <div className="pane-body" hidden={!props.compact && props.collapsed}>
+          {props.loading ? (
+            <p role="status">Loading verified evidence…</p>
+          ) : null}
+          {props.error ? (
+            <div className="notice error" role="alert">
+              <span>{props.error}</span>
+              <button type="button" onClick={props.onRetry}>
+                Retry evidence
+              </button>
+            </div>
+          ) : null}
+          {!props.item && !props.loading && !props.error ? (
+            <p className="inspector-empty">
+              Select a declaration or relationship occurrence to inspect its
+              verified snapshot excerpt.
             </p>
-          </div>
-        ) : null}
-        {props.item?.status === 'unavailable' ? (
-          <p className="notice warning" role="status">
-            Evidence unavailable: {props.item.code}. No working-tree source was
-            substituted.
-          </p>
-        ) : null}
+          ) : null}
+          {props.item?.status === 'available' ? (
+            <div className="evidence-card">
+              <div className="evidence-details">
+                <div className="evidence-role-row">
+                  {props.evidenceRole ? (
+                    <p className={`evidence-role role-${props.evidenceRole}`}>
+                      {EVIDENCE_ROLE_LABEL[props.evidenceRole]}
+                    </p>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    className="btn-ghost copy-ref-btn"
+                    type="button"
+                    aria-label={
+                      copyStatus === 'copied'
+                        ? 'Source reference copied'
+                        : copyStatus === 'unavailable'
+                          ? 'Clipboard unavailable for source reference'
+                          : 'Copy source reference'
+                    }
+                    onClick={() => {
+                      const refText =
+                        props.item?.status === 'available'
+                          ? `${props.item.filePath}:${props.item.evidence.range.start.line}`
+                          : '';
+                      if (!refText || !navigator.clipboard?.writeText) {
+                        setCopyStatus('unavailable');
+                        return;
+                      }
+                      void navigator.clipboard.writeText(refText).then(
+                        () => setCopyStatus('copied'),
+                        () => setCopyStatus('unavailable'),
+                      );
+                    }}
+                  >
+                    {copyStatus === 'copied'
+                      ? 'Copied'
+                      : copyStatus === 'unavailable'
+                        ? 'Copy unavailable'
+                        : 'Copy ref'}
+                  </button>
+                  <span className="sr-only" role="status" aria-live="polite">
+                    {copyStatus === 'copied'
+                      ? `Copied ${props.item.filePath}:${props.item.evidence.range.start.line}`
+                      : copyStatus === 'unavailable'
+                        ? 'Clipboard is unavailable; copy the source location from the metadata table.'
+                        : ''}
+                  </span>
+                </div>
+                <dl className="evidence-meta">
+                  <div>
+                    <dt>Source</dt>
+                    <dd>
+                      <code>{props.item.filePath}</code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Location</dt>
+                    <dd>
+                      Line {props.item.evidence.range.start.line}, column{' '}
+                      {props.item.evidence.range.start.column}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>SHA-256</dt>
+                    <dd>
+                      <code className="hash">
+                        {props.item.evidence.contentHash}
+                      </code>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Extractor</dt>
+                    <dd>
+                      {props.item.evidence.extractor.name}{' '}
+                      {props.item.evidence.extractor.version}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+              <div className="evidence-code-col">
+                <CodeExcerpt
+                  text={props.item.text}
+                  startLine={props.item.evidence.range.start.line}
+                  focusable
+                />
+                <p className="caption">
+                  Pinned snapshot excerpt · static evidence only, not the full
+                  file.
+                </p>
+              </div>
+            </div>
+          ) : null}
+          {props.item?.status === 'unavailable' ? (
+            <p className="notice warning" role="status">
+              Evidence unavailable: {props.item.code}. No working-tree source
+              was substituted.
+            </p>
+          ) : null}
+        </div>
       </aside>
     </>
   );

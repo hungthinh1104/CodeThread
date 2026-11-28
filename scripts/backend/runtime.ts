@@ -1,3 +1,4 @@
+import type { AiConfig } from '../ai/config.ts';
 import { connect, assertMigrations } from './database.ts';
 import { makeApi } from './http.ts';
 import { ScanService, type BackendConfig } from './service.ts';
@@ -8,6 +9,7 @@ export type RuntimeConfig = BackendConfig & {
   url: string;
   secret: string;
   port: number;
+  ai?: AiConfig;
 };
 
 export async function startBackend(config: RuntimeConfig) {
@@ -20,7 +22,14 @@ export async function startBackend(config: RuntimeConfig) {
     lease = await acquireWorkerLease(config.url);
     const service = new ScanService(db, config, lease);
     await service.recover();
-    server = makeApi(db, service, config.secret, config.port, viewers);
+    server = makeApi(
+      db,
+      service,
+      config.secret,
+      config.port,
+      viewers,
+      config.ai,
+    );
     await new Promise<void>((resolve, reject) => {
       server!.once('error', reject);
       server!.listen(config.port, '127.0.0.1', resolve);

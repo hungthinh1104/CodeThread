@@ -41,18 +41,39 @@ Canonical local viewer values live in `scripts/viewer.css`; tokens are prefixed
 | references | `--ct-references` | `#915d43` | `#e1af90` |
 | error      | `--ct-error`      | `#a52a23` | `#ff9b92` |
 
+Extended Investigation Workspace roles
+(`packages/investigation-workspace/src/app/globals.css`):
+
+| Role          | Token                | Light     | Dark      |
+| ------------- | -------------------- | --------- | --------- |
+| warning       | `--ct-warning`       | `#725419` | `#eed28d` |
+| border-strong | `--ct-border-strong` | `#c4cbc2` | `#495953` |
+| hover-bg      | `--ct-hover-bg`      | `#e4e8e1` | `#323d39` |
+| selected-bg   | `--ct-selected-bg`   | `#e2eeea` | `#253a35` |
+| accent-soft   | `--ct-accent-soft`   | `#e6f0ed` | `#223531` |
+| error-soft    | `--ct-error-soft`    | `#f9ebe9` | `#362222` |
+| warning-soft  | `--ct-warning-soft`  | `#f6f0e1` | `#332d1f` |
+| gutter-ink    | `--ct-gutter-ink`    | `#5e6966` | `#99a8a2` |
+
 Use IBM Plex Sans and IBM Plex Mono only if locally installed; offline system
-sans/mono fallbacks are mandatory. No remote font request. Spacing: 4/8/12/16/24
-px; radii: 4/8 px; no large shadows. Always represent status with words in
-addition to visual styling.
+sans/mono fallbacks are mandatory. No remote font request. Spacing follows a 4px
+base rhythm (`4/8/12/16/24 px`, with compact half-steps only for dense workbench
+controls); radii: `0/4/8 px`; no large shadows (drawer overlays stay at most
+`16px` blur). Always represent status with words in addition to visual styling.
 
 ## Composition direction
 
-Desktop: context header → Explorer (file/symbol) + main source/trace switcher +
-contextual Evidence Inspector. Source and evidence precede graph. At constrained
-width collapse Inspector into accessible drawer. A real pinned investigation is
-the first validation screen; the existing two-column loopback viewer is not a
-complete product frontend.
+Desktop (`> 1120px`): full-viewport (`100dvh`) docked workbench shell — top
+context bar → 3 full-height hairline-split panes (`Explorer` |
+`Main source/trace` | `Evidence Inspector`, `0px` seam with `1px` dividers, each
+scrolling independently with pinned pane headers) → fixed status bar. At
+constrained desktop widths (`901px–1120px`), `Evidence Inspector` docks cleanly
+below `Main` as a horizontal bottom dock inside the viewport. At compact widths
+(`<= 900px`), collapse Inspector into an accessible slide-over drawer; at
+mobile/200% zoom (`<= 760px`), reflow to natural single-column document scroll.
+Source and evidence precede graph. A real pinned investigation is the first
+validation screen; the existing two-column loopback viewer is not a complete
+product frontend.
 
 ## Design QA
 

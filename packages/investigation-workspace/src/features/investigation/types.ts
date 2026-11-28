@@ -1,5 +1,11 @@
 import type { infer as Infer } from 'zod';
-import type { viewerApiResponseSchemas } from '@codethread/contracts';
+import type {
+  AiStatusResponse,
+  AiSynthesisResponse,
+  AiTaskKind,
+  FindSymbolPathsResponse,
+  viewerApiResponseSchemas,
+} from '@codethread/contracts';
 
 type ProjectResult<T> = T extends { projectId: string; result: infer Result }
   ? Result
@@ -47,3 +53,28 @@ export type FollowContextProjection = ProjectResult<
 export type CatalogItem = CatalogPage['items'][number];
 
 export type ApiErrorBody = { error: { code: string; message: string } };
+
+export type Scope = {
+  scanId: string;
+  projectId: string;
+  snapshotId: string;
+};
+
+export type SearchItem = {
+  projectId: string;
+  projectLabel: string;
+  snapshotId: string;
+  symbol: CatalogPage['items'][number]['symbol'];
+};
+
+export type SearchState = {
+  items: SearchItem[];
+  offset: number;
+  total: number;
+  nextOffset: number | null;
+};
+
+export type EvidenceRole = 'declaration' | 'occurrence' | 'observation';
+
+export type PathsProjection = FindSymbolPathsResponse;
+export type { AiStatusResponse, AiSynthesisResponse, AiTaskKind };

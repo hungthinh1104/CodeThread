@@ -10,6 +10,11 @@ import {
   parseFindSymbolPathsResult,
   parseListSymbolsResult,
 } from '@codethread/contracts';
+import type {
+  FindSymbolPathsResponse,
+  GetSourceEvidenceResponse,
+  GraphNeighborsResponse,
+} from '@codethread/contracts';
 import type { CoverageStatus } from '@codethread/code-model';
 import { withScanRead, type Database } from './database.ts';
 import {
@@ -38,6 +43,37 @@ function validateServerResult<T>(read: () => T): T {
       });
     throw error;
   }
+}
+
+/**
+ * Selects up to 60 unique evidence IDs for an AI projection, always placing
+ * the root symbol's declaration evidence first so packet caps never drop it.
+ */
+export function selectBoundedEvidenceIds(
+  symbols: readonly { id: string; declarationEvidenceId: string }[],
+  relations: readonly {
+    siteEvidenceId: string;
+    resolution: { evidenceIds: readonly string[] };
+  }[],
+  rootSymbolId: string,
+): string[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (id: string) => {
+    if (ids.length >= 60 || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+  const rootSymbol = symbols.find((sym) => sym.id === rootSymbolId);
+  if (rootSymbol?.declarationEvidenceId) add(rootSymbol.declarationEvidenceId);
+  for (const rel of relations) {
+    add(rel.siteEvidenceId);
+    for (const id of rel.resolution.evidenceIds) add(id);
+  }
+  for (const sym of symbols) {
+    if (sym.declarationEvidenceId) add(sym.declarationEvidenceId);
+  }
+  return ids;
 }
 
 /** Application boundary for snapshot-scoped API reads. */
@@ -203,5 +239,138 @@ export class BackendQueryService {
         investigation.sourceEvidence(evidence),
       ),
     );
+  }
+
+  private collectBoundedEvidenceIds(
+    symbols: readonly { id: string; declarationEvidenceId: string }[],
+    relations: readonly {
+      siteEvidenceId: string;
+      resolution: { evidenceIds: readonly string[] };
+    }[],
+    rootSymbolId: string,
+  ): string[] {
+    return selectBoundedEvidenceIds(symbols, relations, rootSymbolId);
+  }
+
+  /**
+   * Hydrates the snapshot once for graph-neighbors + verified source excerpts,
+   * releasing the heavy-query slot immediately before any AI provider I/O.
+   */
+  async aiProjection(
+    jobId: string,
+    projectId: string,
+    neighborsInput: unknown,
+  ): Promise<{
+    graph: GraphNeighborsResponse;
+    evidenceBatch: GetSourceEvidenceResponse;
+  }> {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      const request = graphNeighborsRequestSchema.parse(neighborsInput);
+      const snapshot = await withScanRead(this.db, jobId, async (db) => {
+        const expectedSnapshotId = await this.scans.publishedSnapshot(
+          jobId,
+          projectId,
+          db,
+        );
+        if (request.snapshotId !== expectedSnapshotId)
+          throw new ServiceError(
+            409,
+            'SNAPSHOT_MISMATCH',
+            'Query snapshot does not match the selected project.',
+          );
+        await protectSnapshotRead(db, expectedSnapshotId);
+        return loadSnapshotContentsInTransaction(db, expectedSnapshotId);
+      });
+      const { investigation } = snapshot;
+      const graph = validateServerResult(() =>
+        parseGraphNeighborsResult(request, investigation.neighbors(request)),
+      );
+      const evidenceIds = this.collectBoundedEvidenceIds(
+        graph.symbols,
+        graph.relations,
+        graph.rootSymbolId,
+      );
+      const evidenceRequest = getSourceEvidenceRequestSchema.parse({
+        snapshotId: request.snapshotId,
+        evidenceIds,
+      });
+      const evidenceBatch = validateServerResult(() =>
+        parseGetSourceEvidenceResult(
+          evidenceRequest,
+          investigation.sourceEvidence(evidenceRequest),
+        ),
+      );
+      return { graph, evidenceBatch };
+    } finally {
+      this.activeHeavyQueries--;
+    }
+  }
+
+  /**
+   * Hydrates the snapshot once for symbol-paths + verified source excerpts,
+   * releasing the heavy-query slot immediately before any AI provider I/O.
+   */
+  async aiPathProjection(
+    jobId: string,
+    projectId: string,
+    pathsInput: unknown,
+  ): Promise<{
+    paths: FindSymbolPathsResponse;
+    evidenceBatch: GetSourceEvidenceResponse;
+  }> {
+    if (this.activeHeavyQueries >= MAX_HEAVY_QUERIES)
+      throw new ServiceError(
+        429,
+        'QUERY_CAPACITY_EXCEEDED',
+        'Too many symbol, graph or evidence queries are active; retry shortly.',
+      );
+    this.activeHeavyQueries++;
+    try {
+      const request = findSymbolPathsRequestSchema.parse(pathsInput);
+      const snapshot = await withScanRead(this.db, jobId, async (db) => {
+        const expectedSnapshotId = await this.scans.publishedSnapshot(
+          jobId,
+          projectId,
+          db,
+        );
+        if (request.snapshotId !== expectedSnapshotId)
+          throw new ServiceError(
+            409,
+            'SNAPSHOT_MISMATCH',
+            'Query snapshot does not match the selected project.',
+          );
+        await protectSnapshotRead(db, expectedSnapshotId);
+        return loadSnapshotContentsInTransaction(db, expectedSnapshotId);
+      });
+      const { investigation } = snapshot;
+      const paths = validateServerResult(() =>
+        parseFindSymbolPathsResult(request, investigation.paths(request)),
+      );
+      const evidenceIds = this.collectBoundedEvidenceIds(
+        paths.symbols,
+        paths.relations,
+        paths.fromSymbolId,
+      );
+      const evidenceRequest = getSourceEvidenceRequestSchema.parse({
+        snapshotId: request.snapshotId,
+        evidenceIds,
+      });
+      const evidenceBatch = validateServerResult(() =>
+        parseGetSourceEvidenceResult(
+          evidenceRequest,
+          investigation.sourceEvidence(evidenceRequest),
+        ),
+      );
+      return { paths, evidenceBatch };
+    } finally {
+      this.activeHeavyQueries--;
+    }
   }
 }

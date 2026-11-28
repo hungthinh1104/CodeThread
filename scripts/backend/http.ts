@@ -5,6 +5,11 @@ import {
 } from 'node:http';
 import { URL } from 'node:url';
 import { z, ZodError } from 'zod';
+import type { AiConfig } from '../ai/config.ts';
+import {
+  BackendAiService,
+  type BackendAiServiceOptions,
+} from './ai-service.ts';
 import { tokenMatch, registerRepository, requestScan, uuid } from './config.ts';
 import type { Database } from './database.ts';
 import { ScanService, ServiceError } from './service.ts';
@@ -17,6 +22,8 @@ import {
 import type { BackendApiRoute } from './http-contracts.ts';
 
 const MAX_BODY = 64 * 1024;
+const MAX_AI_BODY = 4 * 1024;
+const MAX_AI_RESPONSE = 64 * 1024;
 const MAX_RESPONSE = 1024 * 1024;
 const MAX_CONNECTIONS = 64;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -30,8 +37,11 @@ export function makeApi(
   secret: string,
   port: number,
   viewers?: PersistentViewerManager,
+  aiConfig: AiConfig = { enabled: false },
+  aiOptions?: BackendAiServiceOptions,
 ) {
   const queries = new BackendQueryService(db, service);
+  const aiService = new BackendAiService(queries, aiConfig, aiOptions);
   const requestHandler = async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -92,6 +102,10 @@ export function makeApi(
         result = { api: 'ready', database, worker, ready };
         responseRoute = 'GET /v1/health';
         if (!ready) responseStatus = 503;
+      } else if (is('GET', 'v1', 'ai', 'status')) {
+        assertQueryParameters(url);
+        result = aiService.status();
+        responseRoute = 'GET /v1/ai/status';
       } else if (is('POST', 'v1', 'repositories')) {
         assertQueryParameters(url);
         const input = registerRepository.parse(await readJson(req));
@@ -105,6 +119,10 @@ export function makeApi(
         assertQueryParameters(url);
         result = await service.repository(uuid.parse(p[2]));
         responseRoute = 'GET /v1/repositories/:id';
+      } else if (is('GET', 'v1', 'repositories', '*', 'scans')) {
+        assertQueryParameters(url);
+        result = await service.repositoryScans(uuid.parse(p[2]));
+        responseRoute = 'GET /v1/repositories/:id/scans';
       } else if (is('POST', 'v1', 'repositories', '*', 'scans')) {
         assertQueryParameters(url);
         const input = requestScan.parse(await readJson(req));
@@ -171,10 +189,37 @@ export function makeApi(
             : p[5] === 'paths'
               ? 'POST /v1/scans/:id/projects/:projectId/paths'
               : 'POST /v1/scans/:id/projects/:projectId/evidence';
+      } else if (
+        is('POST', 'v1', 'scans', '*', 'projects', '*', 'ai', 'synthesize')
+      ) {
+        assertQueryParameters(url);
+        const body = await readJson(req, MAX_AI_BODY);
+        const abort = new AbortController();
+        const onClose = () => {
+          if (!res.writableEnded) abort.abort();
+        };
+        res.once('close', onClose);
+        try {
+          result = await aiService.synthesize(uuid.parse(p[2]), p[4]!, body, {
+            signal: abort.signal,
+          });
+        } finally {
+          res.off('close', onClose);
+        }
+        responseRoute = 'POST /v1/scans/:id/projects/:projectId/ai/synthesize';
       } else throw new ServiceError(404, 'NOT_FOUND', 'Endpoint not found');
       if (!responseRoute)
         throw new Error('Matched route has no response contract');
-      send(res, responseStatus, parseBackendResponse(responseRoute, result));
+      const maxResponseBytes =
+        responseRoute === 'POST /v1/scans/:id/projects/:projectId/ai/synthesize'
+          ? MAX_AI_RESPONSE
+          : MAX_RESPONSE;
+      send(
+        res,
+        responseStatus,
+        parseBackendResponse(responseRoute, result),
+        maxResponseBytes,
+      );
     } catch (e) {
       if (e instanceof ZodError)
         send(
@@ -220,7 +265,10 @@ export function makeApi(
   server.maxRequestsPerSocket = 100;
   return server;
 }
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(
+  req: IncomingMessage,
+  maxBytes = MAX_BODY,
+): Promise<unknown> {
   const media = req.headers['content-type']
     ?.split(';')[0]
     ?.trim()
@@ -228,7 +276,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   if (media !== 'application/json')
     throw new ServiceError(415, 'INVALID_MEDIA_TYPE', 'JSON body required');
   const n = Number(req.headers['content-length'] ?? 0);
-  if (n > MAX_BODY)
+  if (n > maxBytes)
     throw new ServiceError(
       413,
       'REQUEST_TOO_LARGE',
@@ -239,7 +287,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   for await (const chunk of req) {
     const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     used += bytes.length;
-    if (used > MAX_BODY)
+    if (used > maxBytes)
       throw new ServiceError(
         413,
         'REQUEST_TOO_LARGE',
@@ -311,13 +359,18 @@ async function assertNoBody(req: IncomingMessage): Promise<void> {
     );
 }
 
-function send(res: ServerResponse, status: number, data: unknown) {
+function send(
+  res: ServerResponse,
+  status: number,
+  data: unknown,
+  maxBytes = MAX_RESPONSE,
+) {
   if (res.headersSent) {
     res.destroy();
     return;
   }
   let bytes = Buffer.from(JSON.stringify(data));
-  if (bytes.length > MAX_RESPONSE) {
+  if (bytes.length > maxBytes) {
     status = 413;
     bytes = Buffer.from(
       JSON.stringify({

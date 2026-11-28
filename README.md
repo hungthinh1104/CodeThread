@@ -14,11 +14,12 @@ passing tests.
 
 The repository supplies Foundation validation/tooling, the DB-01 logical design,
 a bounded in-memory TypeScript semantic proof, pinned Git adapters for selected
-files and whole-repository `.ts` scope, independent project-context analysis,
-and an opt-in local PostgreSQL backend candidate with a persisted viewer adapter
-and the bounded Investigation Workspace. A general persistent frontend and
-Gemini integration remain gated. See `product.yaml` and `docs/architecture.md`
-for scope, ownership and gates.
+files and whole-repository `.ts` scope, independent project-context analysis, an
+opt-in local PostgreSQL backend candidate with a persisted viewer adapter, the
+bounded Investigation Workspace, and optional disabled-by-default evidence-bound
+AI notes (`CT-AI-001`, `ADR-0010`, `ADR-0011`). A general persistent frontend
+and deployment remain gated. See `product.yaml` and `docs/architecture.md` for
+scope, ownership and gates.
 
 ## PostgreSQL backend candidate (DB-02)
 
@@ -32,15 +33,40 @@ disposable PostgreSQL database and never commit credentials.
 
 ## Investigation Workspace
 
-Start the local backend with the setup above and complete a scan of a pinned
-local TypeScript revision. In a second terminal, set `CODETHREAD_API_TOKEN` to
-the same token used by the backend and run `pnpm workspace:dev`. Open
-`http://127.0.0.1:3000/` and select the repository's active scan. The Workspace
-uses the backend on IPv4 loopback port 8765 by default.
+Start the local backend and Investigation Workspace together with one command
+against a disposable loopback PostgreSQL 17 database (an ephemeral API token is
+generated in-memory if `CODETHREAD_API_TOKEN` is omitted):
+
+```sh
+export CODETHREAD_DATABASE_URL='postgres://codethread:...@127.0.0.1:5432/codethread'
+export CODETHREAD_ALLOWED_REPO_ROOT='/absolute/path/to/local/repos'
+pnpm build && pnpm workspace:build
+pnpm stack:start -- --migrate
+```
+
+Open `http://127.0.0.1:3000/` to investigate symbols (`/`), browse indexed
+repositories and scan history (`/repositories`), or inspect scan records and
+project artifacts (`/scans/[scanId]`). Repository registration and scan
+submission remain backend API operations (`docs/backend.md`), keeping the
+Investigation Workspace BFF strictly read-only for repository and scan records.
+To run the two processes separately, start the backend with `pnpm backend:start`
+and in a second terminal set `CODETHREAD_API_TOKEN` to the same token and run
+`pnpm workspace:dev` (defaults to IPv4 loopback port 8765).
 
 The Workspace shows project-scoped static relationships, scan coverage and
 verified source excerpts. See its
 [scope and dependency risk](docs/design/investigation-workspace.md).
+
+Optional evidence-bound AI notes (`Notes` tab) stay disabled by default. To opt
+in with Gemini (default model `gemini-2.5-flash`), set these variables before
+starting the stack (never commit keys):
+
+```sh
+export CODETHREAD_AI_ENABLED=1
+export CODETHREAD_AI_PROVIDER=gemini
+export CODETHREAD_AI_ALLOW_REMOTE=1
+export GEMINI_API_KEY='your-gemini-api-key'
+```
 
 ## Developer setup
 

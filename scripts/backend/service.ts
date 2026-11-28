@@ -205,6 +205,14 @@ export class ScanService {
     if (!row) throw new ServiceError(404, 'NOT_FOUND', 'Repository not found');
     return row;
   }
+  async repositoryScans(repositoryId: string) {
+    await this.repository(repositoryId);
+    return this
+      .db`SELECT id,repository_id,generation,state,attempt,revision_selector,
+      git_commit_oid,git_tree_oid,activation_result,error_code,error_message,created_at,updated_at
+      FROM codethread.scan_job WHERE repository_id=${repositoryId}
+      ORDER BY created_at DESC, id DESC LIMIT 25`;
+  }
   async accept(id: string, revision: string, idempotencyKey: string) {
     const reqHash = requestHash({
       repositoryId: id,

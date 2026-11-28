@@ -488,6 +488,13 @@ function requireWorkspaceSession(
   return session;
 }
 
+export function assertWorkspaceSession(
+  sessionId: string | undefined,
+  scanId: string,
+): void {
+  requireWorkspaceSession(sessionId, scanId);
+}
+
 export async function workspaceMetadata(
   sessionId: string | undefined,
   scanId: string,

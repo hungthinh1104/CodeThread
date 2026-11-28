@@ -42,6 +42,7 @@
     "backend:roles": "node scripts/backend/grant-runtime.ts",
     "backend:backup": "node scripts/backend/backup.ts",
     "backend:restore:verify": "node scripts/backend/restore-verify.ts",
+    "stack:start": "node scripts/run-local-stack.ts",
     "workspace:dev": "pnpm --filter @codethread/investigation-workspace dev",
     "workspace:zoom:verify": "node tests/browser/workspace-zoom.ts",
     "workspace:build": "pnpm --filter @codethread/investigation-workspace build",

@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { analyzerBuildHash } from '@codethread/symbol-indexer';
+import type { AiContextPacket } from '@codethread/contracts';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createMockProvider } from '../scripts/ai/index.ts';
 import {
   backendApiResponseSchemas,
   parseBackendErrorResponse,
@@ -218,7 +220,50 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
       consumerId: '',
       evidenceId: '',
     };
-    server = makeApi(apiDb, service, context.token, port, viewers);
+    const mockAiProvider = createMockProvider(async (input) => {
+      const packet = JSON.parse(
+        input.userPrompt.split('\n\n').at(-1)!,
+      ) as AiContextPacket;
+      const rel = packet.relations[0];
+      return {
+        summary: rel
+          ? 'consumer statically calls getValue.'
+          : 'No relations in packet.',
+        claims: rel
+          ? [
+              {
+                text: 'consumer statically calls getValue.',
+                claimType: 'observed_fact',
+                assertedRelation: 'exact_call',
+                evidenceIds: [rel.siteEvidenceId],
+                symbolIds: [rel.sourceSymbolId, rel.targetSymbolId!],
+                relationIds: [rel.id],
+                diagnosticIds: [],
+              },
+            ]
+          : [],
+        nextSteps: [],
+        uncertainties: [],
+      };
+    });
+    server = makeApi(
+      apiDb,
+      service,
+      context.token,
+      port,
+      viewers,
+      {
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: null,
+        model: 'mock-contract-v1',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        timeoutMs: 5_000,
+        maxResponseBytes: 65_536,
+      },
+      { provider: mockAiProvider },
+    );
     await new Promise<void>((resolve, reject) => {
       server!.once('error', reject);
       server!.listen(port, '127.0.0.1', resolve);
@@ -514,6 +559,107 @@ describe.skipIf(!databaseUrl)('PostgreSQL backend HTTP contract matrix', () => {
         (_, index) => `pageSymbol${String(index).padStart(3, '0')}`,
       ),
     );
+  });
+
+  it('aborts in-flight AI provider work when the HTTP client disconnects after sending the JSON body', async () => {
+    let signalAborted = false;
+    let providerStarted!: () => void;
+    const startedPromise = new Promise<void>((resolve) => {
+      providerStarted = resolve;
+    });
+    let providerAborted!: () => void;
+    const abortedPromise = new Promise<void>((resolve) => {
+      providerAborted = resolve;
+    });
+    const hangingProvider = createMockProvider(
+      (input) =>
+        new Promise((_resolve, reject) => {
+          providerStarted();
+          const onAbort = () => {
+            signalAborted = true;
+            providerAborted();
+            const err = new Error('client disconnected');
+            err.name = 'AbortError';
+            reject(err);
+          };
+          if (input.signal?.aborted) {
+            onAbort();
+            return;
+          }
+          input.signal?.addEventListener('abort', onAbort, { once: true });
+        }),
+      'disconnect-probe-v1',
+    );
+    const disconnectPort = await findPort();
+    const disconnectServer = makeApi(
+      db!,
+      service!,
+      context.token,
+      disconnectPort,
+      viewers,
+      {
+        enabled: true,
+        provider: 'openai_compatible',
+        locality: 'local',
+        apiKey: null,
+        model: 'disconnect-probe-v1',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+        timeoutMs: 15_000,
+        maxResponseBytes: 65_536,
+      },
+      { provider: hangingProvider },
+    );
+    await new Promise<void>((resolve, reject) => {
+      disconnectServer.once('error', reject);
+      disconnectServer.listen(disconnectPort, '127.0.0.1', resolve);
+    });
+    try {
+      const payload = Buffer.from(
+        JSON.stringify({
+          task: 'explain_trace',
+          neighbors: {
+            snapshotId: context.snapshotId,
+            symbolId: context.consumerId,
+          },
+        }),
+      );
+      const clientReq = httpRequest({
+        hostname: '127.0.0.1',
+        port: disconnectPort,
+        path: `/v1/scans/${context.scanId}/projects/${encodeURIComponent(context.projectId)}/ai/synthesize`,
+        method: 'POST',
+        headers: {
+          host: `127.0.0.1:${disconnectPort}`,
+          authorization: `Bearer ${context.token}`,
+          'content-type': 'application/json',
+          'content-length': String(payload.byteLength),
+        },
+      });
+      clientReq.on('error', () => {});
+      clientReq.end(payload);
+      await startedPromise;
+      clientReq.destroy();
+      await Promise.race([
+        abortedPromise,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'Provider AbortSignal did not fire on client disconnect',
+                ),
+              ),
+            3_000,
+          ),
+        ),
+      ]);
+      expect(signalAborted).toBe(true);
+    } finally {
+      disconnectServer.closeAllConnections();
+      await new Promise<void>((resolve) =>
+        disconnectServer.close(() => resolve()),
+      );
+    }
   });
 });
 

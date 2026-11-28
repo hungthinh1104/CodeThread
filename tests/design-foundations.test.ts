@@ -128,6 +128,7 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
           'references',
           'error',
           'warning',
+          'gutter-ink',
         ] as const) {
           expect(
             contrast(workspace.get(fg)!, workspace.get(bg)!),
@@ -141,6 +142,10 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
         ['accent', 'accent-soft'],
         ['ink', 'selected-bg'],
         ['muted', 'selected-bg'],
+        ['accent', 'selected-bg'],
+        ['calls', 'selected-bg'],
+        ['references', 'selected-bg'],
+        ['warning', 'selected-bg'],
       ] as const) {
         expect(
           contrast(workspace.get(fg)!, workspace.get(bg)!),
@@ -148,6 +153,9 @@ describe('CT-WORKSPACE-001A visual foundation', () => {
         ).toBeGreaterThanOrEqual(4.5);
       }
     }
+    expect(workspaceCss).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(workspaceCss).not.toMatch(/box-shadow:[^;]*\b(?:2[4-9]|[3-9]\d)px/);
+    expect(css).not.toMatch(/box-shadow:[^;]*\b[2-9]rem/);
   });
 
   it('keeps component layers, semantic statuses and stale-response rules separate', () => {

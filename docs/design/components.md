@@ -67,6 +67,8 @@ other feature private state. Never display untrusted source through innerHTML.
 - Screen: Repository, Scan, Investigation.
 
 **First vertical slice:** Investigation, real pinned snapshot → select symbol →
-view returned relation → inspect verified source evidence. Do not introduce
-Next.js, a BFF or a general application shell in this design-only gate. Review
-visual hierarchy and semantic states before reuse.
+view returned relation → inspect verified source evidence. `CT-WORKSPACE-001B`
+implements this bounded local Next.js + loopback BFF slice (see
+[investigation-workspace.md](./investigation-workspace.md)); general product
+frontend expansion remains separately gated. Review visual hierarchy and
+semantic states before reuse.

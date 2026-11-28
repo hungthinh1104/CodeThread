@@ -1,4 +1,5 @@
 import type {
+  AiStatusResponse,
   ApiErrorBody,
   RepositoryItem,
   WorkspaceMetadata,
@@ -78,13 +79,16 @@ export function openScan(scanId: string) {
   });
 }
 
-export function readWorkspaceMetadata() {
-  let scanId: string | null;
+export function readRememberedWorkspaceScan(): string | null {
   try {
-    scanId = sessionStorage.getItem(scanStorageKey);
+    return sessionStorage.getItem(scanStorageKey);
   } catch {
     return null;
   }
+}
+
+export function readWorkspaceMetadata() {
+  const scanId = readRememberedWorkspaceScan();
   return scanId
     ? post<{ workspace: WorkspaceMetadata }>('/api/workspace/meta', {}, scanId)
     : null;
@@ -105,4 +109,14 @@ export function readViewer<T>(
   body: unknown,
 ): Promise<T> {
   return post<T>(`/api/workspace/${operation}`, body, scanId);
+}
+
+export async function readAiStatus(): Promise<AiStatusResponse> {
+  try {
+    return await requestJson<AiStatusResponse>('/api/ai/status', {
+      method: 'GET',
+    });
+  } catch {
+    return { enabled: false };
+  }
 }
