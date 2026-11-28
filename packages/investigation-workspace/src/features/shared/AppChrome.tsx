@@ -68,7 +68,16 @@ export function AppHeader({
             >
               Scan
             </Link>
-          ) : null}
+          ) : (
+            <span
+              id="nav-scan"
+              className="screen-nav-link is-disabled"
+              aria-disabled="true"
+              title="Select a scanned repository first"
+            >
+              Scan
+            </span>
+          )}
         </nav>
         {context ? <div className="header-context">{context}</div> : null}
       </div>

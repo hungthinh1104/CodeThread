@@ -94,6 +94,9 @@ function TraceDiagram({ graph, rootSymbolId, onFollowSymbol }: Props) {
           <span className="legend-item legend-root">Active root</span>
         </div>
       </div>
+      <p className="trace-graph-scroll-hint muted small">
+        Scroll horizontally to view all diagram nodes.
+      </p>
       <div
         className="trace-graph-scroll"
         role="region"

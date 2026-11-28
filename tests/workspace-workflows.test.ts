@@ -264,4 +264,136 @@ describe('Investigation Workspace UX workflows and accessibility regressions', (
       await app.close();
     }
   }, 90_000);
+
+  it('keeps multi-screen navigation aligned, preserves Paths tab on filter change, and clamps extreme dragged panes across viewports', async () => {
+    const app = await startWorkspaceApp(snapshot);
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    page.setDefaultTimeout(15_000);
+
+    try {
+      await page.goto(app.origin, { waitUntil: 'domcontentloaded' });
+      const navBefore = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(
+        await page.locator('#nav-scan').getAttribute('aria-disabled'),
+      ).toBe('true');
+
+      await page.getByLabel('Repository and scan').selectOption(repositoryId);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+      const navAfter = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(navAfter.width - navBefore.width)).toBeLessThanOrEqual(2);
+      expect(await page.locator('#nav-scan').getAttribute('href')).toMatch(
+        /^\/scans\//,
+      );
+
+      // Explorer collapse & Reset layout on desktop
+      await page.click('#explorer-collapse');
+      await page.locator('.explorer.is-collapsed').waitFor();
+      await page.getByRole('button', { name: 'Reset layout' }).click();
+      await page.locator('.explorer:not(.is-collapsed)').waitFor();
+
+      // Paths tab: toggling REFERENCES keeps Paths active and returns exact paths
+      await page.getByLabel('Name or source path').fill('entry');
+      await page.getByRole('button', { name: /entry.*function/ }).click();
+      await page.locator('.source-excerpt').waitFor();
+      await page.getByRole('tab', { name: 'Paths' }).click();
+      const refsBox = page.locator('#paths-panel').getByLabel('REFERENCES');
+      await refsBox.check();
+      expect(
+        await page
+          .getByRole('tab', { name: 'Paths' })
+          .getAttribute('aria-selected'),
+      ).toBe('true');
+      await page.locator('#path-target-query').fill('leaf');
+      await page
+        .locator('#paths-panel .paths-candidate-list button')
+        .first()
+        .click();
+      await page.locator('#paths-panel .relationship-list').waitFor();
+      await page
+        .locator('#paths-panel')
+        .getByText(/entry → .*leaf/)
+        .waitFor();
+
+      // Navigate / -> /repositories -> /scans/[id] -> / and verify 0px nav shift
+      await page.click('#nav-repositories');
+      await page.waitForURL('**/repositories');
+      await page.locator('#repo-detail-heading').waitFor();
+      const reposNav = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(reposNav.top - navAfter.top)).toBeLessThanOrEqual(2);
+      expect(Math.abs(reposNav.left - navAfter.left)).toBeLessThanOrEqual(2);
+
+      await page.click('#nav-scan');
+      await page.waitForURL('**/scans/**');
+      await page.locator('#scan-artifacts-heading').waitFor();
+      const scanNav = await page
+        .locator('.screen-nav')
+        .evaluate((el) => el.getBoundingClientRect().toJSON());
+      expect(Math.abs(scanNav.top - navAfter.top)).toBeLessThanOrEqual(2);
+      expect(Math.abs(scanNav.left - navAfter.left)).toBeLessThanOrEqual(2);
+      await page.getByRole('link', { name: 'Open context' }).click();
+      await page.waitForURL(/\?scanId=/);
+      await page.waitForFunction(
+        () =>
+          !document.querySelector<HTMLInputElement>('#symbol-query')?.disabled,
+      );
+
+      // Persist extreme dragged pane dimensions and resize live across viewports
+      await page.evaluate(() => {
+        localStorage.setItem(
+          'codethread-workspace-layout-v1',
+          JSON.stringify({
+            theme: 'light',
+            explorerWidth: 440,
+            inspectorWidth: 540,
+            inspectorHeight: 480,
+            explorerCollapsed: false,
+            inspectorCollapsed: false,
+          }),
+        );
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      for (const vp of [
+        { width: 1440, height: 900 },
+        { width: 1280, height: 800 },
+        { width: 1024, height: 768 },
+        { width: 768, height: 1024 },
+        { width: 390, height: 844 },
+        { width: 320, height: 640 },
+      ]) {
+        await page.setViewportSize(vp);
+        const metrics = await page.evaluate(() => ({
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          footerHeight:
+            document.querySelector('.page-footer')?.getBoundingClientRect()
+              .height ?? 0,
+          mainWidth:
+            document.querySelector('.main-region')?.getBoundingClientRect()
+              .width ?? 0,
+        }));
+        expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+        if (vp.width >= 1024)
+          expect(metrics.footerHeight).toBeLessThanOrEqual(42);
+        if (vp.width >= 768)
+          expect(metrics.mainWidth).toBeGreaterThanOrEqual(300);
+      }
+    } finally {
+      await context.close();
+      await browser.close();
+      await app.close();
+    }
+  }, 90_000);
 });

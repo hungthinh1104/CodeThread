@@ -408,6 +408,12 @@ pre {
   box-shadow: var(--ct-shadow-xs);
 }
 
+.screen-nav-link.is-disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .header-context {
   display: inline-flex;
   align-items: center;
@@ -1455,6 +1461,11 @@ pre {
   background: var(--ct-selected-bg);
 }
 
+.trace-graph-scroll-hint {
+  display: none;
+  margin: 0 0 6px;
+}
+
 .trace-graph-scroll {
   max-width: 100%;
   overflow-x: auto;
@@ -2318,6 +2329,12 @@ pre {
 }
 
 /* Narrow Mobile (<= 420px, including 320px–390px) */
+@media (max-width: 520px) {
+  .trace-graph-scroll-hint {
+    display: block;
+  }
+}
+
 @media (max-width: 420px) {
   .page-header {
     padding: 8px 10px;

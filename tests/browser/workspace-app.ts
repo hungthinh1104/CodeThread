@@ -6,6 +6,7 @@ import { createServer as createNetServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join, resolve } from 'node:path';
 import type { AnalysisSnapshot } from '@codethread/symbol-indexer';
+import { createInvestigation } from '@codethread/trace-engine';
 import type { RepositoryInvestigationSession } from '../../scripts/investigation/repository-session.ts';
 import {
   createRepositoryViewer,
@@ -62,11 +63,35 @@ function sendJson(
   response.end(JSON.stringify(value));
 }
 
+function readJsonBody(
+  request: import('node:http').IncomingMessage,
+): Promise<unknown> {
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      try {
+        resolveBody(
+          chunks.length
+            ? JSON.parse(Buffer.concat(chunks).toString('utf8'))
+            : {},
+        );
+      } catch (error) {
+        rejectBody(error);
+      }
+    });
+    request.on('error', rejectBody);
+  });
+}
+
 function backendServer(
   viewer: ViewerHandle,
   holdScanRead: boolean,
-  repositoryId: string,
+  snapshot: AnalysisSnapshot,
 ) {
+  const repositoryId = snapshot.facts.identity.repositoryId;
+  const projectId = 'workspace-test-project';
+  const investigation = createInvestigation(snapshot.facts, snapshot.source);
   const gate = deferred();
   const now = new Date().toISOString();
   const commitId = 'a'.repeat(40);
@@ -87,6 +112,16 @@ function backendServer(
   };
   const server = createServer((request, response) => {
     void (async () => {
+      const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+      if (request.method === 'GET' && url.pathname === '/v1/health') {
+        sendJson(response, {
+          api: 'ready',
+          database: 'ready',
+          worker: 'ready',
+          ready: true,
+        });
+        return;
+      }
       if (request.headers.authorization !== `Bearer ${backendToken}`) {
         sendJson(
           response,
@@ -95,7 +130,7 @@ function backendServer(
         );
         return;
       }
-      if (request.method === 'GET' && request.url === '/v1/repositories') {
+      if (request.method === 'GET' && url.pathname === '/v1/repositories') {
         sendJson(response, [
           {
             id: repositoryId,
@@ -114,15 +149,75 @@ function backendServer(
       }
       if (
         request.method === 'GET' &&
-        request.url === `/v1/scans/${activeScanId}`
+        url.pathname === `/v1/repositories/${repositoryId}/scans`
+      ) {
+        sendJson(response, [scan]);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        url.pathname === `/v1/repositories/${inactiveRepositoryId}/scans`
+      ) {
+        sendJson(response, []);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        url.pathname === `/v1/scans/${activeScanId}`
       ) {
         if (holdScanRead) await gate.wait();
         sendJson(response, scan);
         return;
       }
       if (
+        request.method === 'GET' &&
+        url.pathname === `/v1/scans/${activeScanId}/projects`
+      ) {
+        sendJson(response, [
+          {
+            project_id: projectId,
+            project_label: 'fixture project',
+            status: 'ready',
+            snapshot_id: snapshot.facts.snapshotId,
+            diagnostics: [],
+          },
+        ]);
+        return;
+      }
+      if (
+        request.method === 'GET' &&
+        url.pathname === `/v1/scans/${activeScanId}/files`
+      ) {
+        const offset = Number(url.searchParams.get('offset') ?? '0');
+        const allFiles = snapshot.facts.files.map((file) => ({
+          path: file.path,
+          content_hash: file.contentHash,
+          git_blob_oid: file.contentHash.slice(0, 40),
+          git_mode: '100644',
+        }));
+        const slice = allFiles.slice(offset, offset + 50);
+        sendJson(response, {
+          items: slice,
+          total: allFiles.length,
+          offset,
+          nextOffset:
+            offset + slice.length < allFiles.length ? offset + 50 : null,
+        });
+        return;
+      }
+      if (
         request.method === 'POST' &&
-        request.url === `/v1/scans/${activeScanId}/viewer`
+        url.pathname === `/v1/scans/${activeScanId}/projects/${projectId}/paths`
+      ) {
+        const body = (await readJsonBody(request)) as Parameters<
+          typeof investigation.paths
+        >[0];
+        sendJson(response, investigation.paths(body));
+        return;
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname === `/v1/scans/${activeScanId}/viewer`
       ) {
         sendJson(response, {
           url: viewer.url,
@@ -385,7 +480,7 @@ export async function startWorkspaceApp(
   const backend = backendServer(
     viewer,
     options.holdScanRead ?? false,
-    snapshot.facts.identity.repositoryId,
+    snapshot,
   );
   const backendPort = await listen(backend.server);
   const workspacePort = await reservePort();

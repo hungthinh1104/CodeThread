@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { ApiFailure } from '../investigation/api.ts';
+import { ApiFailure, rememberWorkspaceScan } from '../investigation/api.ts';
 import { errorMessage } from '../investigation/scoped-api.ts';
 import {
   cancelScanJob,
@@ -62,6 +62,7 @@ export function ScanDetailScreen({ scanId }: { scanId: string }) {
     try {
       const { scan: next } = await readScanDetail(scanId);
       if (gen !== scanGen.current) return null;
+      rememberWorkspaceScan(next.id);
       setScan(next);
       setScanError(null);
       return next;
