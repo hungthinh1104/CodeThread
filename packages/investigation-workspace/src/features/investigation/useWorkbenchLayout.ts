@@ -2,7 +2,6 @@ import {
   useCallback,
   useEffect,
   useState,
-  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
 } from 'react';
@@ -111,6 +110,28 @@ export function useWorkbenchLayout() {
     if (theme === 'system') delete root.dataset.theme;
     else root.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty(
+      '--ct-explorer-col',
+      explorerCollapsed ? '36px' : `${explorerWidth}px`,
+    );
+    root.style.setProperty(
+      '--ct-inspector-col',
+      inspectorCollapsed ? '36px' : `${inspectorWidth}px`,
+    );
+    root.style.setProperty(
+      '--ct-inspector-row',
+      inspectorCollapsed ? '38px' : `${inspectorHeight}px`,
+    );
+  }, [
+    explorerCollapsed,
+    explorerWidth,
+    inspectorCollapsed,
+    inspectorWidth,
+    inspectorHeight,
+  ]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -273,12 +294,6 @@ export function useWorkbenchLayout() {
     inspectorWidth !== DEFAULT_INSPECTOR_WIDTH ||
     inspectorHeight !== DEFAULT_INSPECTOR_HEIGHT;
 
-  const gridStyle = {
-    '--ct-explorer-col': explorerCollapsed ? '36px' : `${explorerWidth}px`,
-    '--ct-inspector-col': inspectorCollapsed ? '36px' : `${inspectorWidth}px`,
-    '--ct-inspector-row': inspectorCollapsed ? '38px' : `${inspectorHeight}px`,
-  } as CSSProperties;
-
   return {
     theme,
     setTheme,
@@ -289,7 +304,6 @@ export function useWorkbenchLayout() {
     inspectorCollapsed,
     isMediumDock,
     isCustomized,
-    gridStyle,
     toggleExplorer: () => setExplorerCollapsed((value) => !value),
     toggleInspector: () => setInspectorCollapsed((value) => !value),
     expandInspector,

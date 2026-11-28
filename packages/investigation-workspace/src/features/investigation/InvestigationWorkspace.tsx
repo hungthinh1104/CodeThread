@@ -106,7 +106,7 @@ export function InvestigationWorkspace() {
           </button>
         </div>
       </header>
-      <div className="workspace-grid" style={layout.gridStyle}>
+      <div className="workspace-grid">
         <ExplorerRegion
           inert={inspector.inspectorModal}
           collapsed={!inspector.compactViewport && layout.explorerCollapsed}

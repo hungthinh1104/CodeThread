@@ -1047,6 +1047,26 @@ pre {
   tab-size: 2;
 }
 
+.gutter-ch-2 {
+  --ct-gutter-ch: 2ch;
+}
+
+.gutter-ch-3 {
+  --ct-gutter-ch: 3ch;
+}
+
+.gutter-ch-4 {
+  --ct-gutter-ch: 4ch;
+}
+
+.gutter-ch-5 {
+  --ct-gutter-ch: 5ch;
+}
+
+.gutter-ch-6 {
+  --ct-gutter-ch: 6ch;
+}
+
 .code-line {
   display: grid;
   grid-template-columns: calc(var(--ct-gutter-ch, 3ch) + 14px) minmax(0, 1fr);
